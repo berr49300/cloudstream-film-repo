@@ -14,7 +14,7 @@ internal object DizillaParser {
      */
     fun cleanSeriesTitle(title: String): String {
         val cleaned = title.replace(
-            Regex("""\s*[-–:|]*\s*\d+\s*\\.?\s*(?:sezon|season)\s+\d+\s*\\.?\s*(?:bölüm|bolum|episode).*$""", RegexOption.IGNORE_CASE),
+            Regex("""\s*[-–:|]*\s*\d+\s*\.?\s*(?:sezon|season)\s+\d+\s*\.?\s*(?:bölüm|bolum|episode).*$""", RegexOption.IGNORE_CASE),
             ""
         ).trim()
         return cleaned.ifBlank { title.trim() }
