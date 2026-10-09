@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Dizilla",
+    "description": "Dizilla katalog sağlayıcısı (başlangıç iskeleti)",
+    "manifestUrl": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/main/Dizilla/builds/plugins.json",
+    "pluginLists": [
+      "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/main/Dizilla/builds/plugins.json"
+    ]
+  }
+]
