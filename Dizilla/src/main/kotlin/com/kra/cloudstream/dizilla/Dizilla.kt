@@ -255,8 +255,13 @@ class Dizilla : MainAPI() {
             found = true
         }
 
-        for (frame in doc.select("iframe[src], iframe[data-src]")) {
-            val raw = frame.attr("src").ifBlank { frame.attr("data-src") }
+        for (frame in doc.select("iframe[src], iframe[data-src], [data-embed], [data-embed-url], [data-player], [data-url]")) {
+            val raw = frame.attr("src")
+                .ifBlank { frame.attr("data-src") }
+                .ifBlank { frame.attr("data-embed") }
+                .ifBlank { frame.attr("data-embed-url") }
+                .ifBlank { frame.attr("data-player") }
+                .ifBlank { frame.attr("data-url") }
             val frameUrl = fixUrlNull(raw) ?: continue
             val uri = runCatching { URI(frameUrl) }.getOrNull() ?: continue
             if (uri.scheme !in setOf("https", "http")) continue
