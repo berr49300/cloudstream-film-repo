@@ -108,41 +108,84 @@ class Dizilla : MainAPI() {
         return newHomePageResponse(request.name, results, hasNext = hasNext)
     }
 
+    data class DizillaSearchEnvelope(
+        @com.fasterxml.jackson.annotation.JsonProperty("data")
+        val data: DizillaSearchData? = null
+    )
+
+    data class DizillaSearchData(
+        @com.fasterxml.jackson.annotation.JsonProperty("state")
+        val state: Boolean? = null,
+        @com.fasterxml.jackson.annotation.JsonProperty("result")
+        val result: List<DizillaSearchItem>? = null
+    )
+
+    data class DizillaSearchItem(
+        @com.fasterxml.jackson.annotation.JsonProperty("used_slug")
+        val slug: String? = null,
+        @com.fasterxml.jackson.annotation.JsonProperty("object_name")
+        val title: String? = null,
+        @com.fasterxml.jackson.annotation.JsonProperty("object_poster_url")
+        val poster: String? = null
+    )
+
     override suspend fun search(query: String, page: Int): SearchResponseList {
         if (query.isBlank()) return newSearchResponseList(emptyList(), hasNext = false)
 
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        val suffix = if (page > 1) "&page=$page" else ""
-        val queryWords = query.trim().lowercase(Locale.ROOT)
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() }
+        val referer = "$mainUrl/"
+        // Dizilla's search is an AJAX POST. The generic /search and /?s routes
+        // can return homepage/recommendation cards, which caused unrelated titles.
+        val homepage = runCatching {
+            app.get(referer).document
+        }.getOrNull() ?: return newSearchResponseList(emptyList(), hasNext = false)
 
-        // Try common public HTML search routes. Some routes may return the homepage
-        // or recommendation cards instead of actual search results, so require relevance.
-        val searchUrls = listOf(
-            "$mainUrl/arama?q=$encoded$suffix",
-            "$mainUrl/search?q=$encoded$suffix",
-            "$mainUrl/search?query=$encoded$suffix",
-            "$mainUrl/?s=$encoded$suffix"
-        )
-        for (searchUrl in searchUrls) {
-            val doc = runCatching {
-                app.get(searchUrl, headers = mapOf("Referer" to "$mainUrl/")).document
-            }.getOrNull() ?: continue
-            val results = parseListing(doc)
-                .filter { item ->
-                    val title = item.name.lowercase(Locale.ROOT)
-                    queryWords.all { word -> title.contains(word) }
+        val cKey = homepage.selectFirst("input[name=cKey]")?.attr("value").orEmpty()
+        val cValue = homepage.selectFirst("input[name=cValue]")?.attr("value").orEmpty()
+        if (cKey.isNotBlank() && cValue.isNotBlank()) {
+            val response = runCatching {
+                app.post(
+                    "$mainUrl/bg/searchcontent",
+                    data = mapOf("cKey" to cKey, "cValue" to cValue, "searchterm" to query.trim()),
+                    headers = mapOf(
+                        "Accept" to "application/json, text/javascript, */*; q=0.01",
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to referer
+                    ),
+                    cookies = mapOf(
+                        "showAllDaFull" to "true",
+                        "PHPSESSID" to app.get(referer).cookies["PHPSESSID"].orEmpty()
+                    )
+                ).parsedSafe<DizillaSearchEnvelope>()
+            }.getOrNull()
+
+            val results = response?.data?.result.orEmpty().mapNotNull { item ->
+                val title = item.title?.trim().orEmpty()
+                val slug = item.slug?.trim().orEmpty()
+                if (title.isBlank() || slug.isBlank()) return@mapNotNull null
+                val href = safePageUrl(if (slug.startsWith("http")) slug else "$mainUrl/${slug.removePrefix("/")}") ?: return@mapNotNull null
+                val poster = fixUrlNull(item.poster.orEmpty())
+                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                    posterUrl = poster
                 }
-                .distinctBy { it.url }
-            if (results.isNotEmpty()) {
-                val hasNext = doc.selectFirst(
-                    "a[rel=next], a.next[href], .pagination [aria-label='Next'][href]"
-                ) != null
-                return newSearchResponseList(results, hasNext = hasNext)
+            }.distinctBy { it.url }
+            if (response?.data?.state == true && results.isNotEmpty()) {
+                return newSearchResponseList(results, hasNext = false)
             }
         }
-        return newSearchResponseList(emptyList(), hasNext = false)
+
+        // Only use a dedicated search page as fallback; never parse homepage cards
+        // as search results. Apply title relevance as a final guard.
+        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val doc = runCatching {
+            app.get("$mainUrl/arama?q=$encoded", headers = mapOf("Referer" to referer)).document
+        }.getOrNull() ?: return newSearchResponseList(emptyList(), hasNext = false)
+
+        val words = query.trim().lowercase(Locale.ROOT).split(Regex("\\s+")).filter { it.isNotBlank() }
+        val results = parseListing(doc).filter { item ->
+            val title = item.name.lowercase(Locale.ROOT)
+            words.all { title.contains(it) }
+        }.distinctBy { it.url }
+        return newSearchResponseList(results, hasNext = false)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? =
@@ -235,122 +278,35 @@ class Dizilla : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val pageUrl = safePageUrl(data) ?: return false
-        val doc = app.get(pageUrl, headers = mapOf("Referer" to "$mainUrl/")).document
-        return inspectPublicMedia(doc, pageUrl, subtitleCallback, callback, allowOneNestedPage = true)
-    }
+        val doc = runCatching {
+            app.get(pageUrl, headers = mapOf("Referer" to "$mainUrl/")).document
+        }.getOrNull() ?: return false
 
-    /**
-     * Resolves only direct media URLs or iframe URLs exposed in the returned HTML.
-     * One same-site embed page may be inspected to handle a visible, ordinary iframe wrapper.
-     */
-    private suspend fun inspectPublicMedia(
-        doc: Document,
-        referer: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
-        allowOneNestedPage: Boolean
-    ): Boolean {
-        var found = false
+        var found = inspectPublicMedia(doc, pageUrl, subtitleCallback, callback, allowOneNestedPage = true)
 
-        for (track in doc.select("video track[src], track[src]")) {
-            val trackUrl = fixUrlNull(track.attr("src")) ?: continue
-            val label = track.attr("label").ifBlank {
-                track.attr("srclang").ifBlank { "Subtitle" }
-            }
-            subtitleCallback(SubtitleFile(label, trackUrl))
-        }
+        // Dizilla exposes player mirrors on a separate page. Resolve the visible
+        // player links and the ordinary player iframe rendered in their HTML.
+        val playerPages = doc.select("a[href*='player']")
+            .mapNotNull { safePageUrl(it.attr("href")) }
+            .distinct()
+        val pagesToInspect = if (playerPages.isEmpty()) listOf(pageUrl) else playerPages
+        for (playerPage in pagesToInspect) {
+            val playerDoc = if (playerPage == pageUrl) doc else runCatching {
+                app.get(playerPage, headers = mapOf("Referer" to pageUrl)).document
+            }.getOrNull() ?: continue
 
-        val mediaElements = doc.select("video[src], video source[src], source[src]")
-        for (element in mediaElements) {
-            val mediaUrl = fixUrlNull(element.attr("src")) ?: continue
-            val path = runCatching { URI(mediaUrl).path.orEmpty() }.getOrDefault("")
-            val isHls = path.endsWith(".m3u8", ignoreCase = true)
-            val isMp4 = path.endsWith(".mp4", ignoreCase = true)
-            if (!isHls && !isMp4) continue
+            val iframeUrl = playerDoc.selectFirst("div#playerLsDizilla iframe[src], div#playerLsDizilla iframe[data-src], iframe[src], iframe[data-src]")
+                ?.let { it.attr("src").ifBlank { it.attr("data-src") } }
+                ?.let { fixUrlNull(it) }
+                ?: continue
 
-            callback(
-                newExtractorLink(
-                    source = name,
-                    name = if (isHls) "$name HLS" else "$name MP4",
-                    url = mediaUrl,
-                    type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                ) {
-                    this.referer = referer
-                    this.quality = Qualities.Unknown.value
-                }
-            )
-            found = true
-        }
-
-        val candidateUrls = linkedSetOf<String>()
-
-        // Normal iframe/player attributes rendered in public HTML.
-        for (frame in doc.select("iframe[src], iframe[data-src], [data-embed], [data-embed-url], [data-player], [data-url]")) {
-            val raw = frame.attr("src")
-                .ifBlank { frame.attr("data-src") }
-                .ifBlank { frame.attr("data-embed") }
-                .ifBlank { frame.attr("data-embed-url") }
-                .ifBlank { frame.attr("data-player") }
-                .ifBlank { frame.attr("data-url") }
-            fixUrlNull(raw)?.let(candidateUrls::add)
-        }
-
-        // Some sites put their ordinary embed URL or media URL in a public script block
-        // instead of an iframe attribute. Inspect only URLs present in returned HTML;
-        // do not execute JavaScript or decode protected/obfuscated payloads.
-        val urlPattern = Regex("""https?:\\?/\\?/[^\\s"'<>\\\\]+""", RegexOption.IGNORE_CASE)
-        for (script in doc.select("script:not([src])")) {
-            for (match in urlPattern.findAll(script.data())) {
-                val raw = match.value
-                    .replace("\\\\/", "/")
-                    .trimEnd(')', ',', ';')
-                fixUrlNull(raw)?.let(candidateUrls::add)
-            }
-        }
-
-        for (frameUrl in candidateUrls) {
-            val uri = runCatching { URI(frameUrl) }.getOrNull() ?: continue
-            if (uri.scheme !in setOf("https", "http")) continue
-
-            val path = uri.path.orEmpty()
-            if (path.endsWith(".m3u8", ignoreCase = true) || path.endsWith(".mp4", ignoreCase = true)) {
-                val isHls = path.endsWith(".m3u8", ignoreCase = true)
-                callback(
-                    newExtractorLink(
-                        source = name,
-                        name = if (isHls) "$name HLS" else "$name MP4",
-                        url = frameUrl,
-                        type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                    ) {
-                        this.referer = referer
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-                found = true
-                continue
-            }
-
-            if (isDizillaHost(frameUrl)) {
-                if (allowOneNestedPage && frameUrl != referer) {
-                    val nested = runCatching {
-                        app.get(frameUrl, headers = mapOf("Referer" to referer)).document
-                    }.getOrNull() ?: continue
-                    found = inspectPublicMedia(
-                        nested,
-                        frameUrl,
-                        subtitleCallback,
-                        callback,
-                        allowOneNestedPage = false
-                    ) || found
-                }
-            } else {
-                val loaded = runCatching {
-                    loadExtractor(frameUrl, referer, subtitleCallback, callback)
-                }.getOrDefault(false)
-                found = loaded || found
-            }
+            val loaded = runCatching {
+                loadExtractor(iframeUrl, playerPage, subtitleCallback, callback)
+            }.getOrDefault(false)
+            found = loaded || found
         }
 
         return found
     }
+
 }
