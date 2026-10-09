@@ -108,26 +108,6 @@ class Dizilla : MainAPI() {
         return newHomePageResponse(request.name, results, hasNext = hasNext)
     }
 
-    data class DizillaSearchEnvelope(
-        @com.fasterxml.jackson.annotation.JsonProperty("data")
-        val data: DizillaSearchData? = null
-    )
-
-    data class DizillaSearchData(
-        @com.fasterxml.jackson.annotation.JsonProperty("state")
-        val state: Boolean? = null,
-        @com.fasterxml.jackson.annotation.JsonProperty("result")
-        val result: List<DizillaSearchItem>? = null
-    )
-
-    data class DizillaSearchItem(
-        @com.fasterxml.jackson.annotation.JsonProperty("used_slug")
-        val slug: String? = null,
-        @com.fasterxml.jackson.annotation.JsonProperty("object_name")
-        val title: String? = null,
-        @com.fasterxml.jackson.annotation.JsonProperty("object_poster_url")
-        val poster: String? = null
-    )
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
         if (query.isBlank()) return newSearchResponseList(emptyList(), hasNext = false)
@@ -142,35 +122,35 @@ class Dizilla : MainAPI() {
         val cKey = homepage.selectFirst("input[name=cKey]")?.attr("value").orEmpty()
         val cValue = homepage.selectFirst("input[name=cValue]")?.attr("value").orEmpty()
         if (cKey.isNotBlank() && cValue.isNotBlank()) {
-            val response = runCatching {
+            val responseText = runCatching {
                 app.post(
                     "$mainUrl/bg/searchcontent",
                     data = mapOf("cKey" to cKey, "cValue" to cValue, "searchterm" to query.trim()),
-                    headers = mapOf(
-                        "Accept" to "application/json, text/javascript, */*; q=0.01",
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to referer
-                    ),
-                    cookies = mapOf(
-                        "showAllDaFull" to "true",
-                        "PHPSESSID" to app.get(referer).cookies["PHPSESSID"].orEmpty()
-                    )
-                ).parsedSafe<DizillaSearchEnvelope>()
+                    headers = mapOf("Accept" to "application/json, text/javascript, */*; q=0.01", "X-Requested-With" to "XMLHttpRequest", "Referer" to referer),
+                    cookies = mapOf("showAllDaFull" to "true", "PHPSESSID" to app.get(referer).cookies["PHPSESSID"].orEmpty())
+                ).text
             }.getOrNull()
-
-            val results = response?.data?.result.orEmpty().mapNotNull { item ->
-                val title = item.title?.trim().orEmpty()
-                val slug = item.slug?.trim().orEmpty()
-                if (title.isBlank() || slug.isBlank()) return@mapNotNull null
-                val href = safePageUrl(if (slug.startsWith("http")) slug else "$mainUrl/${slug.removePrefix("/")}") ?: return@mapNotNull null
-                val poster = fixUrlNull(item.poster.orEmpty())
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    posterUrl = poster
+            val results = mutableListOf<SearchResponse>()
+            if (!responseText.isNullOrBlank()) {
+                runCatching {
+                    val root = org.json.JSONObject(responseText)
+                    val data = root.optJSONObject("data")
+                    val rows = data?.optJSONArray("result")
+                    if (data?.optBoolean("state", false) == true && rows != null) {
+                        for (i in 0 until rows.length()) {
+                            val item = rows.optJSONObject(i) ?: continue
+                            val title = item.optString("object_name").trim()
+                            val slug = item.optString("used_slug").trim()
+                            if (title.isBlank() || slug.isBlank() || title == "null" || slug == "null") continue
+                            val rawUrl = if (slug.startsWith("http")) slug else "$mainUrl/${slug.removePrefix("/")}"
+                            val href = safePageUrl(rawUrl) ?: continue
+                            val poster = fixUrlNull(item.optString("object_poster_url").takeIf { it != "null" }.orEmpty())
+                            results.add(newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster })
+                        }
+                    }
                 }
-            }.distinctBy { it.url }
-            if (response?.data?.state == true && results.isNotEmpty()) {
-                return newSearchResponseList(results, hasNext = false)
             }
+            if (results.isNotEmpty()) return newSearchResponseList(results.distinctBy { it.url }, hasNext = false)
         }
 
         // Only use a dedicated search page as fallback; never parse homepage cards
@@ -282,7 +262,7 @@ class Dizilla : MainAPI() {
             app.get(pageUrl, headers = mapOf("Referer" to "$mainUrl/")).document
         }.getOrNull() ?: return false
 
-        var found = inspectPublicMedia(doc, pageUrl, subtitleCallback, callback, allowOneNestedPage = true)
+        var found = false
 
         // Dizilla exposes player mirrors on a separate page. Resolve the visible
         // player links and the ordinary player iframe rendered in their HTML.
@@ -295,15 +275,13 @@ class Dizilla : MainAPI() {
                 app.get(playerPage, headers = mapOf("Referer" to pageUrl)).document
             }.getOrNull() ?: continue
 
-            val iframeUrl = playerDoc.selectFirst("div#playerLsDizilla iframe[src], div#playerLsDizilla iframe[data-src], iframe[src], iframe[data-src]")
-                ?.let { it.attr("src").ifBlank { it.attr("data-src") } }
-                ?.let { fixUrlNull(it) }
-                ?: continue
-
-            val loaded = runCatching {
-                loadExtractor(iframeUrl, playerPage, subtitleCallback, callback)
-            }.getOrDefault(false)
-            found = loaded || found
+            val iframeUrls = playerDoc.select("div#playerLsDizilla iframe[src], div#playerLsDizilla iframe[data-src], iframe[src], iframe[data-src]")
+                .mapNotNull { frame -> fixUrlNull(frame.attr("src").ifBlank { frame.attr("data-src") }) }
+                .distinct()
+            for (iframeUrl in iframeUrls) {
+                val loaded = runCatching { loadExtractor(iframeUrl, playerPage, subtitleCallback, callback) }.getOrDefault(false)
+                found = loaded || found
+            }
         }
 
         return found
