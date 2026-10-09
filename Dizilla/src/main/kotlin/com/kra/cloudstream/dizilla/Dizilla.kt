@@ -113,7 +113,12 @@ class Dizilla : MainAPI() {
 
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
         val suffix = if (page > 1) "&page=$page" else ""
-        // Try common public HTML search routes; site redesigns often change this path.
+        val queryWords = query.trim().lowercase(Locale.ROOT)
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+
+        // Try common public HTML search routes. Some routes may return the homepage
+        // or recommendation cards instead of actual search results, so require relevance.
         val searchUrls = listOf(
             "$mainUrl/arama?q=$encoded$suffix",
             "$mainUrl/search?q=$encoded$suffix",
@@ -124,7 +129,12 @@ class Dizilla : MainAPI() {
             val doc = runCatching {
                 app.get(searchUrl, headers = mapOf("Referer" to "$mainUrl/")).document
             }.getOrNull() ?: continue
-            val results = parseListing(doc).distinctBy { it.url }
+            val results = parseListing(doc)
+                .filter { item ->
+                    val title = item.name.lowercase(Locale.ROOT)
+                    queryWords.all { word -> title.contains(word) }
+                }
+                .distinctBy { it.url }
             if (results.isNotEmpty()) {
                 val hasNext = doc.selectFirst(
                     "a[rel=next], a.next[href], .pagination [aria-label='Next'][href]"
