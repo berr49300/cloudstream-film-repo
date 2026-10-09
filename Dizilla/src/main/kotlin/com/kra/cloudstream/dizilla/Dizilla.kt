@@ -70,7 +70,7 @@ class Dizilla : MainAPI() {
             val href = safePageUrl(link.attr("href")) ?: continue
             if (!seen.add(href)) continue
 
-            val title = listOf(
+            val pageTitle = listOf(
                 card.selectFirst(".title")?.text(),
                 card.selectFirst("h2")?.text(),
                 card.selectFirst("h3")?.text(),
@@ -110,10 +110,12 @@ class Dizilla : MainAPI() {
         if (query.isBlank()) return newSearchResponseList(emptyList(), hasNext = false)
 
         // This is a conventional, user-facing HTML search URL; no private API or hidden payload is used.
-        val searchUrl = "$mainUrl/arama?q=${URLEncoder.encode(query.trim(), "UTF-8")}"
+        val separator = if (page > 1) "&page=$page" else ""
+        val searchUrl = "$mainUrl/arama?q=${URLEncoder.encode(query.trim(), "UTF-8")}$separator"
         val doc = app.get(searchUrl, headers = mapOf("Referer" to "$mainUrl/")).document
         val results = parseListing(doc).distinctBy { it.url }
-        return newSearchResponseList(results, hasNext = false)
+        val hasNext = doc.selectFirst("a[rel=next], a.next[href], .pagination [aria-label='Next'][href]") != null
+        return newSearchResponseList(results, hasNext = hasNext)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? =
@@ -133,6 +135,8 @@ class Dizilla : MainAPI() {
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?: return null
+        val isEpisodePage = DizillaParser.parseEpisodePosition(pageUrl, pageTitle) != null
+        val title = if (isEpisodePage) DizillaParser.cleanSeriesTitle(pageTitle) else pageTitle
 
         val poster = fixUrlNull(
             doc.selectFirst("meta[property='og:image']")?.attr("content")
@@ -179,6 +183,16 @@ class Dizilla : MainAPI() {
                     ?: "${position.season}. Sezon ${position.episode}. Bölüm"
                 season = position.season
                 episode = position.episode
+            }
+        }
+
+        val currentTitle = doc.selectFirst("h1")?.text().orEmpty()
+        val currentPosition = DizillaParser.parseEpisodePosition(currentUrl, currentTitle)
+        if (currentPosition != null && seen.add(currentUrl)) {
+            episodes += newEpisode(currentUrl) {
+                name = "${currentPosition.season}. Sezon ${currentPosition.episode}. Bölüm"
+                season = currentPosition.season
+                episode = currentPosition.episode
             }
         }
 
