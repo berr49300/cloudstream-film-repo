@@ -12,6 +12,14 @@ internal object DizillaParser {
      * Reads season/episode numbers from a public episode URL or its visible link text.
      * Returns null for a series/season page that does not identify an episode.
      */
+    fun cleanSeriesTitle(title: String): String {
+        val cleaned = title.replace(
+            Regex("""\\s*[-–:|]*\\s*\\d+\\s*\\.?\\s*(?:sezon|season)\\s+\\d+\\s*\\.?\\s*(?:bölüm|bolum|episode).*$""", RegexOption.IGNORE_CASE),
+            ""
+        ).trim()
+        return cleaned.ifBlank { title.trim() }
+    }
+
     fun parseEpisodePosition(url: String, title: String): EpisodePosition? {
         val path = runCatching { URI(url).path.orEmpty() }.getOrDefault(url)
         val decoded = runCatching {
