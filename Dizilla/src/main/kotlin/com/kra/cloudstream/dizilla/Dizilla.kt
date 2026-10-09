@@ -56,9 +56,11 @@ class Dizilla : MainAPI() {
     private fun parseListing(doc: Document): List<SearchResponse> {
         val results = mutableListOf<SearchResponse>()
         val seen = mutableSetOf<String>()
+        // Support both series cards and episode links returned by site search.
         val cards = doc.select(
-            "div.serie-card, div.episode-card, .series-card, .show-card, " +
-                "article.serie, article.series, a[href*='/dizi/']"
+            "div.serie-card, div.episode-card, .series-card, .show-card, article, " +
+                "a[href*='/dizi/'], a[href*='-sezon-'], a[href*='-season-'], " +
+                "a[href*='-bolum'], a[href*='-bölüm'], a[href*='/episode/']"
         )
 
         for (card in cards) {
@@ -109,13 +111,28 @@ class Dizilla : MainAPI() {
     override suspend fun search(query: String, page: Int): SearchResponseList {
         if (query.isBlank()) return newSearchResponseList(emptyList(), hasNext = false)
 
-        // This is a conventional, user-facing HTML search URL; no private API or hidden payload is used.
-        val separator = if (page > 1) "&page=$page" else ""
-        val searchUrl = "$mainUrl/arama?q=${URLEncoder.encode(query.trim(), "UTF-8")}$separator"
-        val doc = app.get(searchUrl, headers = mapOf("Referer" to "$mainUrl/")).document
-        val results = parseListing(doc).distinctBy { it.url }
-        val hasNext = doc.selectFirst("a[rel=next], a.next[href], .pagination [aria-label='Next'][href]") != null
-        return newSearchResponseList(results, hasNext = hasNext)
+        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val suffix = if (page > 1) "&page=$page" else ""
+        // Try common public HTML search routes; site redesigns often change this path.
+        val searchUrls = listOf(
+            "$mainUrl/arama?q=$encoded$suffix",
+            "$mainUrl/search?q=$encoded$suffix",
+            "$mainUrl/search?query=$encoded$suffix",
+            "$mainUrl/?s=$encoded$suffix"
+        )
+        for (searchUrl in searchUrls) {
+            val doc = runCatching {
+                app.get(searchUrl, headers = mapOf("Referer" to "$mainUrl/")).document
+            }.getOrNull() ?: continue
+            val results = parseListing(doc).distinctBy { it.url }
+            if (results.isNotEmpty()) {
+                val hasNext = doc.selectFirst(
+                    "a[rel=next], a.next[href], .pagination [aria-label='Next'][href]"
+                ) != null
+                return newSearchResponseList(results, hasNext = hasNext)
+            }
+        }
+        return newSearchResponseList(emptyList(), hasNext = false)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? =
