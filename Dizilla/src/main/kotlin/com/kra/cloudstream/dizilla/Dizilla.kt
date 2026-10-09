@@ -228,14 +228,15 @@ class Dizilla : MainAPI() {
             if (!isHls && !isMp4) continue
 
             callback(
-                ExtractorLink(
-                    name,
-                    name,
-                    mediaUrl,
-                    referer,
-                    Qualities.Unknown.value,
-                    isHls
-                )
+                newExtractorLink(
+                    source = name,
+                    name = if (isHls) "$name HLS" else "$name MP4",
+                    url = mediaUrl,
+                    type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                ) {
+                    this.referer = referer
+                    this.quality = Qualities.Unknown.value
+                }
             )
             found = true
         }
@@ -261,10 +262,10 @@ class Dizilla : MainAPI() {
                 }
             } else {
                 // CloudStream's standard extractors handle publicly exposed third-party embed pages.
-                runCatching {
+                val loaded = runCatching {
                     loadExtractor(frameUrl, referer, subtitleCallback, callback)
-                    found = true
-                }
+                }.getOrDefault(false)
+                found = loaded || found
             }
         }
 
