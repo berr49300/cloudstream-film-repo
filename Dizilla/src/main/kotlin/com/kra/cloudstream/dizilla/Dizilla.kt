@@ -255,6 +255,9 @@ class Dizilla : MainAPI() {
             found = true
         }
 
+        val candidateUrls = linkedSetOf<String>()
+
+        // Normal iframe/player attributes rendered in public HTML.
         for (frame in doc.select("iframe[src], iframe[data-src], [data-embed], [data-embed-url], [data-player], [data-url]")) {
             val raw = frame.attr("src")
                 .ifBlank { frame.attr("data-src") }
@@ -262,9 +265,43 @@ class Dizilla : MainAPI() {
                 .ifBlank { frame.attr("data-embed-url") }
                 .ifBlank { frame.attr("data-player") }
                 .ifBlank { frame.attr("data-url") }
-            val frameUrl = fixUrlNull(raw) ?: continue
+            fixUrlNull(raw)?.let(candidateUrls::add)
+        }
+
+        // Some sites put their ordinary embed URL or media URL in a public script block
+        // instead of an iframe attribute. Inspect only URLs present in returned HTML;
+        // do not execute JavaScript or decode protected/obfuscated payloads.
+        val urlPattern = Regex("""https?:\\?/\\?/[^\\s"'<>\\\\]+""", RegexOption.IGNORE_CASE)
+        for (script in doc.select("script:not([src])")) {
+            for (match in urlPattern.findAll(script.data())) {
+                val raw = match.value
+                    .replace("\\\\/", "/")
+                    .trimEnd(')', ',', ';')
+                fixUrlNull(raw)?.let(candidateUrls::add)
+            }
+        }
+
+        for (frameUrl in candidateUrls) {
             val uri = runCatching { URI(frameUrl) }.getOrNull() ?: continue
             if (uri.scheme !in setOf("https", "http")) continue
+
+            val path = uri.path.orEmpty()
+            if (path.endsWith(".m3u8", ignoreCase = true) || path.endsWith(".mp4", ignoreCase = true)) {
+                val isHls = path.endsWith(".m3u8", ignoreCase = true)
+                callback(
+                    newExtractorLink(
+                        source = name,
+                        name = if (isHls) "$name HLS" else "$name MP4",
+                        url = frameUrl,
+                        type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = referer
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+                found = true
+                continue
+            }
 
             if (isDizillaHost(frameUrl)) {
                 if (allowOneNestedPage && frameUrl != referer) {
@@ -280,7 +317,6 @@ class Dizilla : MainAPI() {
                     ) || found
                 }
             } else {
-                // CloudStream's standard extractors handle publicly exposed third-party embed pages.
                 val loaded = runCatching {
                     loadExtractor(frameUrl, referer, subtitleCallback, callback)
                 }.getOrDefault(false)
