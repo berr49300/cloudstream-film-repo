@@ -1,0 +1,92 @@
+name: Build and publish CloudStream plugin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudstream-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
+
+      - name: Run unit tests, build .cs3 and generate plugin index
+        working-directory: source
+        run: |
+          gradle :Dizilla:testDebugUnitTest make makePluginsJson --stacktrace
+          test -s build/plugins.json
+          find . -type f -name '*.cs3' -print -quit | grep -q .
+
+      - name: Prepare publish branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
+          if git ls-remote --heads "${REMOTE}" refs/heads/builds | grep -q refs/heads/builds; then
+            git clone --depth 1 --single-branch --branch builds "${REMOTE}" publish
+          else
+            mkdir publish
+            git -C publish init --initial-branch=builds
+            git -C publish remote add origin "${REMOTE}"
+          fi
+
+          find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp source/repo.json publish/repo.json
+          cp source/build/plugins.json publish/plugins.json
+          find source -type f -name '*.cs3' -exec cp {} publish/ \;
+
+          count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
+          test "${count}" -ge 1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          plugin_index = json.loads(Path("publish/plugins.json").read_text(encoding="utf-8"))
+          if not isinstance(plugin_index, list) or not plugin_index:
+              raise SystemExit("plugins.json is empty or has an unexpected format")
+          print(f"Publishing {len(plugin_index)} plugin manifest entries and {len(list(Path('publish').glob('*.cs3')))} .cs3 artifact(s)")
+          PY
+
+          git -C publish config user.name "github-actions[bot]"
+          git -C publish config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C publish add -A
+          if git -C publish diff --cached --quiet; then
+            echo "No build output changes to publish."
+            exit 0
+          fi
+          git -C publish commit -m "Publish CloudStream plugin for ${GITHUB_SHA::7}"
+          git -C publish push origin builds
+
+      - name: Upload compiled plugin as workflow artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dizilla-cs3
+          path: source/**/*.cs3
+          if-no-files-found: error
