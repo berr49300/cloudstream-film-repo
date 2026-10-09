@@ -7,5 +7,6 @@ import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 class DizillaPlugin : BasePlugin() {
     override fun load() {
         registerMainAPI(Dizilla())
+        registerExtractorAPI(ContentXGenel())
     }
 }
