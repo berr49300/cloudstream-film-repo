@@ -1,0 +1,8 @@
+{
+  "name": "Berr CloudStream Film Repo",
+  "description": "CloudStream için Dizilla katalog sağlayıcısı",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/plugins.json"
+  ]
+}

@@ -1,0 +1,22 @@
+[
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=dizilla.now",
+        "fileHash": "sha256-b6d6f863c49f95363c573fdee44243198bcc17f26a1602cc988c0e196f25e1ec",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 21023,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "Dizilla",
+        "description": "Dizilla i\u00e7in herkese a\u00e7\u0131k katalog ve b\u00f6l\u00fcm sayfas\u0131 sa\u011flay\u0131c\u0131s\u0131",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/Dizilla.cs3",
+        "name": "Dizilla"
+    }
+]
