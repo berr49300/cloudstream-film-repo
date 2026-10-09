@@ -125,7 +125,7 @@ class Dizilla : MainAPI() {
 
         val title = listOf(
             doc.selectFirst("h1")?.text(),
-            doc.selectFirst("meta[property=og:title]")?.attr("content"),
+            doc.selectFirst("meta[property='og:title']")?.attr("content"),
             doc.selectFirst("title")?.text()
         ).firstOrNull { !it.isNullOrBlank() }
             ?.replace(Regex("""\s*[-|–]\s*Dizilla\s*$""", RegexOption.IGNORE_CASE), "")
@@ -135,11 +135,11 @@ class Dizilla : MainAPI() {
             ?: return null
 
         val poster = fixUrlNull(
-            doc.selectFirst("meta[property=og:image]")?.attr("content")
+            doc.selectFirst("meta[property='og:image']")?.attr("content")
                 ?.takeIf { it.isNotBlank() }
-                ?: doc.selectFirst("meta[name=twitter:image]")?.attr("content")
+                ?: doc.selectFirst("meta[name='twitter:image']")?.attr("content")
         )
-        val plot = doc.selectFirst("meta[property=og:description]")?.attr("content")
+        val plot = doc.selectFirst("meta[property='og:description']")?.attr("content")
             ?.takeIf { it.isNotBlank() }
             ?: doc.selectFirst("meta[name=description]")?.attr("content")
                 ?.takeIf { it.isNotBlank() }
@@ -148,7 +148,7 @@ class Dizilla : MainAPI() {
             doc.selectFirst(".year")?.text(),
             doc.selectFirst(".date")?.text(),
             doc.selectFirst("[itemprop=datePublished]")?.attr("content"),
-            doc.selectFirst("meta[property=article:published_time]")?.attr("content")
+            doc.selectFirst("meta[property='article:published_time']")?.attr("content")
         ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
         val year = Regex("""\b(?:19|20)\d{2}\b""").find(yearText)?.value?.toIntOrNull()
 
