@@ -28,6 +28,14 @@ class DizillaParserTest {
     }
 
     @Test
+    fun removesEpisodeSuffixFromDisplayedSeriesTitle() {
+        assertEquals(
+            "Breaking Bad",
+            DizillaParser.cleanSeriesTitle("Breaking Bad - 5. Sezon 16. Bölüm izle")
+        )
+    }
+
+    @Test
     fun doesNotTreatSeriesSlugAsAnEpisode() {
         assertNull(
             DizillaParser.parseEpisodePosition(
