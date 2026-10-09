@@ -20,20 +20,20 @@ internal object DizillaParser {
         val source = "$decoded $title".lowercase(Locale.ROOT)
 
         val seasonFromUrl = Regex(
-            """(?:^|[-/ ])(\\d+)[- ](?:sezon|season)(?:[-/ ]|$)""",
+            """(?:^|[-/ ])(\d+)[- ](?:sezon|season)(?:[-/ ]|$)""",
             RegexOption.IGNORE_CASE
         ).find(source)?.groupValues?.get(1)?.toIntOrNull()
         val episodeFromUrl = Regex(
-            """(?:^|[-/ ])(\\d+)[- ](?:bolum|bölüm|episode)(?:[-/ ]|$)""",
+            """(?:^|[-/ ])(\d+)[- ](?:bolum|bölüm|episode)(?:[-/ ]|$)""",
             RegexOption.IGNORE_CASE
         ).find(source)?.groupValues?.get(1)?.toIntOrNull()
 
         val seasonFromText = Regex(
-            """(\\d+)\\s*\\.?\\s*(?:sezon|season)""",
+            """(\d+)\s*\.?\s*(?:sezon|season)""",
             RegexOption.IGNORE_CASE
         ).find(title)?.groupValues?.get(1)?.toIntOrNull()
         val episodeFromText = Regex(
-            """(\\d+)\\s*\\.?\\s*(?:bölüm|bolum|episode)""",
+            """(\d+)\s*\.?\s*(?:bölüm|bolum|episode)""",
             RegexOption.IGNORE_CASE
         ).find(title)?.groupValues?.get(1)?.toIntOrNull()
 
