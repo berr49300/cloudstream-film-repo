@@ -90,7 +90,7 @@ class Dizilla : MainAPI() {
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val base = safePageUrl(request.data) ?: return newHomePageResponse(request.name, emptyList())
+        val base = safePageUrl(request.data) ?: return newHomePageResponse(request.name, emptyList(), hasNext = false)
         val target = if (page <= 1) {
             base
         } else {
