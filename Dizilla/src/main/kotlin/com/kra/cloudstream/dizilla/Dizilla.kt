@@ -70,7 +70,7 @@ class Dizilla : MainAPI() {
             val href = safePageUrl(link.attr("href")) ?: continue
             if (!seen.add(href)) continue
 
-            val pageTitle = listOf(
+            val title = listOf(
                 card.selectFirst(".title")?.text(),
                 card.selectFirst("h2")?.text(),
                 card.selectFirst("h3")?.text(),
