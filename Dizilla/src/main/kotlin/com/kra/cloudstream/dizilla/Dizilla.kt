@@ -101,7 +101,7 @@ class Dizilla : MainAPI() {
         val doc = app.get(target, headers = mapOf("Referer" to "$mainUrl/")).document
         val results = parseListing(doc)
         val hasNext = doc.selectFirst(
-            "a[rel=next], a.next[href], .pagination a[aria-label*=next i][href]"
+            "a[rel=next], a.next[href], .pagination [aria-label='Next'][href]"
         ) != null
         return newHomePageResponse(request.name, results, hasNext = hasNext)
     }
@@ -125,7 +125,7 @@ class Dizilla : MainAPI() {
         val pageUrl = safePageUrl(url) ?: return null
         val doc = app.get(pageUrl, headers = mapOf("Referer" to "$mainUrl/")).document
 
-        val title = listOf(
+        val pageTitle = listOf(
             doc.selectFirst("h1")?.text(),
             doc.selectFirst("meta[property='og:title']")?.attr("content"),
             doc.selectFirst("title")?.text()
