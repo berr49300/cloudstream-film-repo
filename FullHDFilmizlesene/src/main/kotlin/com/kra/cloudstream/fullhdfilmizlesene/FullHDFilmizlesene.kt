@@ -43,19 +43,42 @@ class FullHDFilmizlesene : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         if (query.isBlank()) return emptyList()
-        val response = app.get("$mainUrl/autocomplete/q.php?q=" + query.urlEncoded(),
-            referer = "$mainUrl/", headers = mapOf("Accept" to "application/json, text/plain, */*"))
+        val encodedQuery = query.urlEncoded()
         val results = mutableListOf<SearchResponse>()
-        runCatching { collectJsonResults(mapper.readTree(response.text), results) }
-        if (results.isEmpty()) response.document.select("a[href]").forEach { a ->
-            val href = fixUrlNull(a.attr("href")) ?: return@forEach
-            if (isMovieUrl(href)) a.toSearchResult(href)?.let(results::add)
+
+        // Keep the site's autocomplete API as the first choice, but don't let an
+        // unavailable endpoint prevent the normal search-page fallbacks from running.
+        val autocomplete = runCatching {
+            app.get("$mainUrl/autocomplete/q.php?q=" + encodedQuery,
+                referer = "$mainUrl/",
+                headers = mapOf("Accept" to "application/json, text/plain, */*"))
+        }.getOrNull()
+        autocomplete?.let { response ->
+            runCatching { collectJsonResults(mapper.readTree(response.text), results) }
+            if (results.isEmpty()) {
+                response.document.select("a[href]").forEach { a ->
+                    val href = fixUrlNull(a.attr("href")) ?: return@forEach
+                    if (isMovieUrl(href)) a.toSearchResult(href)?.let(results::add)
+                }
+            }
         }
-        if (results.isEmpty()) app.get("$mainUrl/?s=" + query.urlEncoded(), referer = "$mainUrl/")
-            .document.select("a[href]").forEach { a ->
+
+        // The site's autocomplete endpoint can change; try common site-search routes too.
+        val searchUrls = listOf(
+            "$mainUrl/?s=$encodedQuery",
+            "$mainUrl/arama/$encodedQuery",
+            "$mainUrl/search/$encodedQuery",
+            "$mainUrl/?s=$encodedQuery&post_type=film"
+        )
+        for (searchUrl in searchUrls) {
+            if (results.isNotEmpty()) break
+            val doc = runCatching { app.get(searchUrl, referer = "$mainUrl/").document }.getOrNull()
+                ?: continue
+            doc.select("a[href]").forEach { a ->
                 val href = fixUrlNull(a.attr("href")) ?: return@forEach
                 if (isMovieUrl(href)) a.toSearchResult(href)?.let(results::add)
             }
+        }
         return results.distinctBy { it.url }.take(30)
     }
 
@@ -106,13 +129,9 @@ class FullHDFilmizlesene : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val response = app.get(data, referer = "$mainUrl/")
         val d = response.document
-        // This provider should expose Turkish subtitles only.
-        val turkishSubtitleCallback: (SubtitleFile) -> Unit = { subtitle ->
-            if (isTurkishSubtitleLabel(subtitle.lang)) subtitleCallback(subtitle)
-        }
         val html = response.text
-        // Search the movie page itself too; some pages publish subtitles outside the player iframe.
-        runCatching { emitTurkishSubtitles(html, data, turkishSubtitleCallback) }
+        // Preserve every discovered subtitle track, including English and forced variants.
+        runCatching { emitTurkishSubtitles(html, data, subtitleCallback) }
         val urls = linkedSetOf<String>()
 
         // Collect every URL-bearing player surface, not only known host names.
@@ -460,15 +479,39 @@ class FullHDFilmizlesene : MainAPI() {
             !looksLikeTaxonomy && nonMoviePath.none { slug.contains(it) }
     }
 
-    private fun isTurkishSubtitleLabel(label: String?): Boolean {
-        val value = label.orEmpty().trim().lowercase()
+    /** Emit only real Turkish subtitle tracks found in an embed player's markup. */
+    private fun subtitleTrackName(
+        label: String?,
+        url: String,
+        context: String,
+        turkishMarker: Regex,
+        englishMarker: Regex
+    ): String {
+        val rawLabel = label.orEmpty().trim()
+        val languageText = "$rawLabel $url"
+        val normalized = languageText.lowercase()
             .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
             .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-        return value == "tr" || value.startsWith("tr-") ||
-            value.contains("turkish") || value.contains("turkce")
+        val contextNormalized = context.lowercase()
+            .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
+            .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+        val forced = Regex("(?i)\\bforced\\b").containsMatchIn(normalized) ||
+            Regex("(?i)\\bforced\\b").containsMatchIn(contextNormalized)
+        val isTurkish = turkishMarker.containsMatchIn(normalized)
+        val isEnglish = englishMarker.containsMatchIn(normalized)
+        val genericLabel = rawLabel.isBlank() || rawLabel.equals("tr", true) ||
+            rawLabel.equals("tur", true) || rawLabel.equals("en", true) ||
+            rawLabel.equals("eng", true) || rawLabel.equals("subtitles", true) ||
+            rawLabel.equals("captions", true)
+        val base = when {
+            !genericLabel -> rawLabel
+            isTurkish -> "Türkçe"
+            isEnglish -> "English"
+            else -> "Altyazı"
+        }
+        return if (forced && !base.contains("forced", true)) "$base Forced" else base
     }
 
-    /** Emit only real Turkish subtitle tracks found in an embed player's markup. */
     private suspend fun emitTurkishSubtitles(
         html: String,
         pageUrl: String,
@@ -483,7 +526,7 @@ class FullHDFilmizlesene : MainAPI() {
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("&amp;", "&", ignoreCase = true)
             .replace("&#038;", "&", ignoreCase = true)
-        val candidates = linkedMapOf<String, String>()
+        val candidates = linkedMapOf<String, Pair<String, String>>()
         val turkishMarker = Regex("""(?i)(?:\btr\b|\btur\b|tr[-_](?:tr|tur)|tur(?:kish)?[-_.](?:\d+|default)|turkish|turkce|turkçe|türkçe|turkısh|\bforced\b.*(?:\btr\b|tur)|(?:\btr\b|tur).*\bforced\b|lang(?:uage)?[=:/"']+(?:tr|tur)\b|srclang[=:/"']+(?:tr|tur)\b)""")
         val englishMarker = Regex("""(?i)(?:\ben\b|\beng\b|english|ingilizce|\bing\b|en[-_]us|en[-_]gb|srclang[=:/"']+en\b|lang(?:uage)?[=:/"']+en\b)""")
 
@@ -502,8 +545,8 @@ class FullHDFilmizlesene : MainAPI() {
                 .lowercase()
                 .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
                 .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-            if (englishMarker.containsMatchIn(nearby) && !turkishMarker.containsMatchIn(nearby)) return
-            candidates.putIfAbsent(absolute, nearby)
+            val trackName = subtitleTrackName(label, absolute, context, turkishMarker, englishMarker)
+            candidates.putIfAbsent(absolute, nearby to trackName)
         }
 
         fun looksLikeTurkishSubtitle(text: String, url: String): Boolean {
@@ -585,17 +628,19 @@ class FullHDFilmizlesene : MainAPI() {
             }
         }
 
-        for ((url, metadata) in candidates) {
-            // The imgz player explicitly labels tracks (or filenames) as Turkish.
-            // Trust an explicit Turkish marker here: short/atypical VTT samples can
-            // fail dialogue heuristics even though the URL is a valid Turkish track.
-            val explicitlyTurkish = turkishMarker.containsMatchIn(metadata) &&
-                !englishMarker.containsMatchIn(metadata)
-            if (!explicitlyTurkish) {
+        for ((url, track) in candidates) {
+            val (metadata, trackName) = track
+            // Keep explicitly listed language/forced tracks separate. For unnamed URLs,
+            // verify that the response resembles a subtitle file before exposing it.
+            val hasLanguageMarker = turkishMarker.containsMatchIn(metadata) ||
+                englishMarker.containsMatchIn(metadata) ||
+                Regex("(?i)forced").containsMatchIn(metadata)
+            if (!hasLanguageMarker) {
                 val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
-                if (!looksLikeTurkishSubtitle(body, url)) continue
+                if (body.isBlank() || !(body.contains("-->") || body.contains("WEBVTT", true) ||
+                    body.contains("<tt", true) || body.contains("<text", true))) continue
             }
-            subtitleCallback(newSubtitleFile("Türkçe", url) {
+            subtitleCallback(newSubtitleFile(trackName, url) {
                 this.headers = mapOf("Referer" to pageUrl)
             })
         }
