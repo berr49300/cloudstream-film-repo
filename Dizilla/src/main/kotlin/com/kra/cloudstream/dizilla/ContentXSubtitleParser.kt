@@ -13,11 +13,10 @@ internal object ContentXSubtitleParser {
     private val objectPattern = Regex("""(?s)\{[^{}]*\}""")
     private val filePattern = Regex("""(?is)["']?file["']?\s*:\s*["']((?:\\.|[^"'\\])*)["']""")
     private val labelPattern = Regex("""(?is)["']?label["']?\s*:\s*["']((?:\\.|[^"'\\])*)["']""")
-    private val srcPattern = Regex("""(?is)\bsrc\s*=\s*["']([^"']+)["']""")
+    private val srcPattern = Regex("""(?is)["']?src["']?\s*[:=]\s*["']((?:\\.|[^"'\\])*)["']""")
     private val htmlTrackPattern = Regex("""(?is)<track\b([^>]+)>""")
     private val htmlAttrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
     private val langPattern = Regex("""(?is)["']?(?:srclang|language|lang)["']?\s*:\s*["']((?:\\.|[^"'\\])*)["']""")
-    private val kindPattern = Regex("""(?is)["']?kind["']?\s*:\s*["'](captions|subtitles)["']""")
 
     fun parse(playerPage: String, pageUrl: String): List<ContentXSubtitle> {
         if (playerPage.isBlank()) return emptyList()
