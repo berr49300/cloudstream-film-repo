@@ -87,3 +87,9 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - Reuse generic parsing utilities only for stable shared formats. Keep per-site APIs and player-family protocols isolated, with sanitized fixtures and regression tests.
 - Distinguish CONFIRMED, HYPOTHESIS, BLOCKED and NOT TESTED. Build success does not promote runtime hypotheses to facts.
 - A universal auto-scraper is not a realistic acceptance criterion. The goal is a universal *investigation and adapter framework*: fast architecture discovery, reusable generic components, isolated site/player adapters and reliable tests.
+
+
+### Subtitle transport headers hypothesis (2026-10-10)
+- The CloudStream core API defines SubtitleFile.headers and newSubtitleFile accepts an initializer. The ContentX extractor previously emitted only language + URL.
+- Commit 245b47a7585be9b237c8110421803ca622f3f8f9 now sets the subtitle request Referer to the ContentX iframe URL. This is a targeted, testable hypothesis because subtitle hosts may validate their embedding page.
+- Status: build pending at time of note; runtime not verified. If still failing, inspect actual subtitle response status/content-type/body and supported headers before changing parser regex again.
