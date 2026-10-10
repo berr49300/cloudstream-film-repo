@@ -1,4 +1,4 @@
-version = 3
+version = 4
 
 cloudstream {
     authors = listOf("berr49300")
@@ -12,5 +12,5 @@ cloudstream {
 dependencies {
     // The provider Gradle plugin keeps the runtime CloudStream artifact in its
     // dedicated "cloudstream" configuration; parser tests also need it on test classpath.
-    testImplementation("com.lagradost:cloudstream3:pre-release")
+    testImplementation(configurations.getByName("cloudstream"))
 }
