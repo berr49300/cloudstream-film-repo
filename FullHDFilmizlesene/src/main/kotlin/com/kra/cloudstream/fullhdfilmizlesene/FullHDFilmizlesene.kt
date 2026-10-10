@@ -106,6 +106,10 @@ class FullHDFilmizlesene : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val response = app.get(data, referer = "$mainUrl/")
         val d = response.document
+        // This provider should expose Turkish subtitles only.
+        val turkishSubtitleCallback: (SubtitleFile) -> Unit = { subtitle ->
+            if (isTurkishSubtitleLabel(subtitle.lang)) subtitleCallback(subtitle)
+        }
         val html = response.text
         val urls = linkedSetOf<String>()
 
@@ -139,7 +143,7 @@ class FullHDFilmizlesene : MainAPI() {
             // TurboImgz is a distinct player: its page contains a plain HLS
             // "file" field and is not handled by the generic RapidVid decoder.
             if (host == "turbo.imgz.me" || host.endsWith(".turbo.imgz.me")) {
-                val resolved = runCatching { resolveTurboImgz(link) }.getOrNull()
+                val resolved = runCatching { resolveTurboImgz(link, turkishSubtitleCallback) }.getOrNull()
                 if (!resolved.isNullOrBlank()) {
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • TurboImgz", "TurboImgz", resolved, ExtractorLinkType.M3U8) {
                         this.referer = "$mainUrl/"
@@ -154,7 +158,7 @@ class FullHDFilmizlesene : MainAPI() {
             // HLS URL as hex escapes. The generic CloudStream extractor cannot
             // reliably decode this player, so resolve it explicitly.
             if (host.contains("vidmoxy")) {
-                val resolved = runCatching { resolveVidMoxy(link) }.getOrNull()
+                val resolved = runCatching { resolveVidMoxy(link, turkishSubtitleCallback) }.getOrNull()
                 if (!resolved.isNullOrBlank() && (resolved.startsWith("https://") || resolved.startsWith("http://"))) {
                     // RapidVid/imgz HLS masters often have extensionless CDN paths (/m9/…),
                     // so checking for .m3u8 incorrectly drops valid playable streams.
@@ -170,7 +174,7 @@ class FullHDFilmizlesene : MainAPI() {
 
             // Resolve known RapidVid player pages before considering a URL to be media.
             if (host.contains("rapidvid") || (host.contains("imgz.me") && !host.contains("turbo.imgz.me"))) {
-                val resolved = runCatching { resolveRapidVid(link) }.getOrNull()
+                val resolved = runCatching { resolveRapidVid(link, turkishSubtitleCallback) }.getOrNull()
                 if (!resolved.isNullOrBlank() && (resolved.startsWith("https://") || resolved.startsWith("http://"))) {
                     // imgz HLS masters may not end in .m3u8; the reference scraper confirms these are HLS.
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, ExtractorLinkType.M3U8) {
@@ -196,7 +200,7 @@ class FullHDFilmizlesene : MainAPI() {
                 })
                 emitted = true
             } else if (host != URI(mainUrl).host && !host.endsWith("fullhdfilmizlesene.now")) {
-                runCatching { loadExtractor(link, data, subtitleCallback) { callback(it); emitted = true } }
+                runCatching { loadExtractor(link, data, turkishSubtitleCallback) { callback(it); emitted = true } }
             }
         }
         return emitted
@@ -240,8 +244,9 @@ class FullHDFilmizlesene : MainAPI() {
      * VidMoxy embeds can expose a hex-escaped file directly or hide it in a
      * twice-packed P.A.C.K.E.R block. Return only a real HTTP(S) HLS URL.
      */
-    private suspend fun resolveVidMoxy(embedUrl: String): String? {
+    private suspend fun resolveVidMoxy(embedUrl: String, subtitleCallback: (SubtitleFile) -> Unit): String? {
         val html = app.get(embedUrl, referer = "$mainUrl/").text
+        emitTurkishSubtitles(html, embedUrl, subtitleCallback)
         val direct = Regex(""""file"\s*:\s*"([^"]*\\x[^"]*)"""")
             .find(html)?.groupValues?.get(1)
         var master = direct?.let { hexEscapesToString(it) }.orEmpty()
@@ -264,8 +269,9 @@ class FullHDFilmizlesene : MainAPI() {
      * TurboImgz embeds expose the playable HLS master in a JavaScript file field.
      * The embed page itself is not a media URL and must never be emitted as a stream.
      */
-    private suspend fun resolveTurboImgz(embedUrl: String): String? {
+    private suspend fun resolveTurboImgz(embedUrl: String, subtitleCallback: (SubtitleFile) -> Unit): String? {
         val html = app.get(embedUrl, referer = "$mainUrl/").text
+        emitTurkishSubtitles(html, embedUrl, subtitleCallback)
         val raw = Regex("""(?i)["']?file["']?\s*:\s*["']([^"']+)["']""")
             .find(html)?.groupValues?.get(1)
             ?.replace("\\/", "/")
@@ -351,10 +357,11 @@ class FullHDFilmizlesene : MainAPI() {
      * Resolve the site's Atom/RapidVid embed directly. The provider's scx value
      * only points to the embed page; it is not itself a playable stream.
      */
-    private suspend fun resolveRapidVid(embedUrl: String): String? {
+    private suspend fun resolveRapidVid(embedUrl: String, subtitleCallback: (SubtitleFile) -> Unit): String? {
         val uri = URI(embedUrl)
         val origin = "${uri.scheme}://${uri.host}"
         val html = app.get(embedUrl, referer = "$mainUrl/").text
+        emitTurkishSubtitles(html, embedUrl, subtitleCallback)
 
         fun decodeImgz(blob: String): String? = runCatching {
             val reversed = blob.reversed()
@@ -446,8 +453,79 @@ class FullHDFilmizlesene : MainAPI() {
             !looksLikeTaxonomy && nonMoviePath.none { slug.contains(it) }
     }
 
-    private fun isCandidateEmbed(url: String): Boolean =
-        url.startsWith("http") && runCatching { URI(url).host?.isNotBlank() == true }.getOrDefault(false)
+    private fun isTurkishSubtitleLabel(label: String?): Boolean {
+        val value = label.orEmpty().trim().lowercase()
+            .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
+            .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+        return value == "tr" || value.startsWith("tr-") ||
+            value.contains("turkish") || value.contains("turkce")
+    }
+
+    /** Emit only real Turkish subtitle tracks found in an embed player's markup. */
+    private fun emitTurkishSubtitles(
+        html: String,
+        pageUrl: String,
+        subtitleCallback: (SubtitleFile) -> Unit
+    ) {
+        val normalized = html
+            .replace("\\\\/", "/")
+            .replace("\\/", "/")
+            .replace("\\u002f", "/", ignoreCase = true)
+            .replace("\\u003a", ":", ignoreCase = true)
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("&amp;", "&", ignoreCase = true)
+        val found = linkedMapOf<String, String>()
+
+        fun add(raw: String?, label: String?) {
+            if (raw.isNullOrBlank() || !isTurkishSubtitleLabel(label)) return
+            val clean = raw.trim().replace("\\\\/", "/").replace("\\/", "/")
+                .replace("&amp;", "&", ignoreCase = true)
+            val absolute = runCatching { URI(pageUrl).resolve(URI(clean)).toASCIIString() }.getOrNull() ?: return
+            val uri = runCatching { URI(absolute) }.getOrNull() ?: return
+            if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return
+            val path = uri.path.orEmpty().lowercase()
+            if (path.endsWith(".vtt") || path.endsWith(".srt") || path.endsWith(".ass") ||
+                path.endsWith(".ssa") || path.endsWith(".ttml") || path.endsWith(".xml")
+            ) found.putIfAbsent(absolute, "Türkçe")
+        }
+
+        val trackObjects = Regex("""(?is)\\{[^{}]*?(?:["']?(?:file|src|url)["']?)\\s*[:=]\\s*["']([^"']+)["'][^{}]*\\}""")
+        val filePattern = Regex("""(?is)["']?(?:file|src|url)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+        val labelPattern = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+        for (match in trackObjects.findAll(normalized)) {
+            val fragment = match.value
+            add(filePattern.find(fragment)?.groupValues?.getOrNull(1),
+                labelPattern.find(fragment)?.groupValues?.getOrNull(1))
+        }
+
+        val trackTag = Regex("""(?is)<track\\b([^>]+)>""")
+        val attrPattern = Regex("""(?is)([\\w-]+)\\s*=\\s*["']([^"']*)["']""")
+        for (match in trackTag.findAll(normalized)) {
+            val attrs = attrPattern.findAll(match.groupValues[1])
+                .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
+            val kind = attrs["kind"].orEmpty().lowercase()
+            if (kind.isNotBlank() && kind !in setOf("subtitles", "captions")) continue
+            add(attrs["src"], attrs["srclang"] ?: attrs["label"])
+        }
+
+        found.forEach { (url, label) ->
+            subtitleCallback(newSubtitleFile(label, url) {
+                this.headers = mapOf("Referer" to pageUrl)
+            })
+        }
+    }
+
+    private fun isCandidateEmbed(url: String): Boolean {
+        if (!url.startsWith("http")) return false
+        val host = runCatching { URI(url).host?.lowercase().orEmpty() }.getOrDefault("")
+        if (host.isBlank()) return false
+        // YouTube's quality variants are not real FullHDFilmizlesene source choices.
+        if (host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com") ||
+            host == "googlevideo.com" || host.endsWith(".googlevideo.com")
+        ) return false
+        return true
+    }
 
     private fun Element.toSearchResult(href: String): SearchResponse? {
         val card = closest("article, li, .film, .movie, .card, .item") ?: this
