@@ -21,7 +21,7 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=fullhdfilmizlesene.now",
-        "fileHash": "sha256-af60d158be49d274ebedcb7cf58825299b46b4a91d56ff78a59746d28423af46",
+        "fileHash": "sha256-00071f11047cc7f2d8c814a9de15477198fec3092e941ad4b7c781f514d0511c",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
         "fileSize": 50640,
@@ -33,7 +33,7 @@
         "tvTypes": [
             "Movie"
         ],
-        "version": 4,
+        "version": 5,
         "internalName": "FullHDFilmizlesene",
         "description": "FullHDFilmizlesene ba\u011f\u0131ms\u0131z Kotlin sa\u011flay\u0131c\u0131s\u0131",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FullHDFilmizlesene.cs3",
