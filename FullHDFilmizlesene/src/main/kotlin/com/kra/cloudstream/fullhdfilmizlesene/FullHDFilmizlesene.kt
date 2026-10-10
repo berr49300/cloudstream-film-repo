@@ -3,14 +3,12 @@ package com.kra.cloudstream.fullhdfilmizlesene
 import com.fasterxml.jackson.databind.JsonNode
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import org.jsoup.nodes.Element
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 /** Independent provider: no dependency on Dizilla code. */
-@CloudstreamPlugin
 class FullHDFilmizlesene : MainAPI() {
     override var mainUrl = "https://www.fullhdfilmizlesene.now"
     override var name = "FullHDFilmizlesene"
