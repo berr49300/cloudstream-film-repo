@@ -535,7 +535,7 @@ class FullHDFilmizlesene : MainAPI() {
 
         // Some players load subtitle tracks from external JavaScript rather than
         // embedding them in the iframe HTML. Inspect a bounded set of script assets too.
-        val scriptUrls = Regex("""(?is)<script\\b[^>]*\\bsrc\\s*=\\s*["']([^"']+)["'][^>]*>""")
+        val scriptUrls = Regex("""(?is)<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>""")
             .findAll(normalized)
             .mapNotNull { match ->
                 runCatching { URI(pageUrl).resolve(URI(match.groupValues[1])).toASCIIString() }.getOrNull()
@@ -559,7 +559,7 @@ class FullHDFilmizlesene : MainAPI() {
                 val from = (match.range.first - 400).coerceAtLeast(0)
                 val to = (match.range.last + 400).coerceAtMost(scriptText.length)
                 val context = scriptText.substring(from, to)
-                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
                     .find(context)?.groupValues?.getOrNull(1)
                 add(match.groupValues.getOrNull(1), label, context)
             }
