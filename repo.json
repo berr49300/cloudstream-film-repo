@@ -1,6 +1,8 @@
 {
-  "name": "Berr CloudStream Film Repo — TEST",
-  "description": "Test aşamasındadır. Şimdilik CloudStream'e eklemeyin; herkese açık dağıtım geçici olarak devre dışıdır.",
+  "name": "Berr CloudStream Film Repo",
+  "description": "CloudStream için Dizilla katalog sağlayıcısı",
   "manifestVersion": 1,
-  "pluginLists": []
+  "pluginLists": [
+    "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/plugins.json"
+  ]
 }
