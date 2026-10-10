@@ -33,7 +33,12 @@ open class ContentXGenel : ExtractorApi() {
         subtitleTracks.forEach { track ->
             val subtitleHost = runCatching { java.net.URI(track.url).host }.getOrNull().orEmpty()
             Log.d("DizillaSubtitle", "Altyazı adayı ayrıştırıldı: ${track.label} (${subtitleHost})")
-            subtitleCallback.invoke(newSubtitleFile(track.label, track.url))
+            subtitleCallback.invoke(
+                newSubtitleFile(track.label, track.url) {
+                    // Subtitle hosts may validate the embedding player as the request referer.
+                    this.headers = mapOf("Referer" to tamUrl)
+                }
+            )
         }
         if (subtitleTracks.isEmpty()) {
             Log.d("DizillaSubtitle", "Player sayfasında tanınan bir harici altyazı izi bulunamadı.")
