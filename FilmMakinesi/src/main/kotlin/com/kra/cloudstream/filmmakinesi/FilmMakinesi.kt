@@ -1,10 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  * FilmMakinesi CloudStream provider.
- *
- * Public CloseLoad protocol behavior was cross-checked against the GPL-3.0
- * CloudStreamHub reference listed in THIRD_PARTY_NOTICES.md; this adapter is
- * independently adapted to this repository.
  */
 package com.kra.cloudstream.filmmakinesi
 
