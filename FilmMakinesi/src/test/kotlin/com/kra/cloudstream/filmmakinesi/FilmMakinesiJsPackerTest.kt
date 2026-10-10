@@ -18,6 +18,19 @@ class FilmMakinesiJsPackerTest {
     }
 
     @Test
+    fun resolvesDirectMediaPathsAndPreservesStreamTokens() {
+        val html = """jwplayer.setup({file: "/media/master.m3u8?token=abc123"});"""
+
+        assertEquals(
+            listOf("https://closeload.filmmakinesi.to/media/master.m3u8?token=abc123"),
+            FilmMakinesiCloseLoadExtractor.extractStreamUrls(
+                html,
+                "https://closeload.filmmakinesi.to/embed/abc"
+            )
+        )
+    }
+
+    @Test
     fun ignoresUnrelatedScriptsAndMalformedPackerPayloads() {
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("var player = { file: '/video.m3u8' };"))
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("eval(function(p,a,c,k,e,d){return p;}('0',999,1,'x'.split('|'),0,{}))"))
