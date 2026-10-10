@@ -122,6 +122,9 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
                         decodeCloseLoad(chunks.joinToString(""), keyValues[1], keyValues[2])
                             .takeIf(String::isNotBlank)?.let(decoded::add)
                     }
+                    // Legacy CloseLoad payloads use a separate list/key transform.
+                    decodeCloseLoadPayload(chunks)
+                        .takeIf(String::isNotBlank)?.let(decoded::add)
                 }
             }
             return decoded
@@ -197,6 +200,76 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
                 }
             }
             return tracks.values.toList()
+        }
+
+        /*
+         * Legacy CloseLoad payload variant: the delimiter-separated array
+         * carries two transform keys, while the remaining parts form the
+         * encoded body. This is a bounded text decoder and never evaluates JS.
+         */
+        private fun decodeCloseLoadPayload(parts: List<String>): String {
+            if (parts.size < 10 || parts.size > 10_000 || parts.any { it.length > 100_000 }) return ""
+            val values = parts.toMutableList()
+            val offset = values.size - 2
+            val keyIndex = offset % 7
+            val operationIndex = 8 + (offset % 5)
+            if (operationIndex >= values.size || keyIndex >= values.size) return ""
+
+            val operationKey = values.removeAt(operationIndex)
+            val seedKey = values.removeAt(keyIndex)
+            var text = values.joinToString("")
+            if (seedKey.length > 4096) {
+                text = decodeBase64Latin1(text)
+                if (text.isEmpty()) return ""
+            }
+
+            var seed = 0
+            var mixed = 0
+            for (i in seedKey.indices) {
+                val code = seedKey[i].code
+                seed = (seed * 37 + code) % 241
+                mixed = (mixed + ((code shl 1) xor i)) and 255
+            }
+            val initial = (seed * 3 + mixed) % 256
+            val stride = (mixed % 11) + 5
+            var state = ((mixed * 251 + seed) % 65519) + 1
+
+            for (i in operationKey.indices.reversed()) {
+                text = when (val operation = operationKey[i]) {
+                    '7' -> decodeBase64Latin1(text)
+                    '3' -> text.reversed()
+                    else -> rotateLetters(
+                        text,
+                        (26 - ((operation.code - 96) % 26)) % 26
+                    )
+                }
+                if (text.isEmpty()) return ""
+            }
+            if (operationKey.length > 2048) text = text.reversed()
+            if (text.length > 200_000) return ""
+
+            val swaps = IntArray(text.length)
+            for (i in text.length - 1 downTo 1) {
+                state = (state * 97 + 41) % 65519
+                swaps[i] = state % (i + 1)
+            }
+            val chars = text.toCharArray()
+            for (i in 1 until chars.size) {
+                val j = swaps[i]
+                val temp = chars[i]
+                chars[i] = chars[j]
+                chars[j] = temp
+            }
+
+            var rolling = initial
+            val output = StringBuilder(chars.size)
+            for (ch in chars) {
+                val code = ch.code
+                rolling = (rolling * 5 + stride) % 256
+                output.append((code xor rolling).toChar())
+                rolling = (rolling + code) % 256
+            }
+            return output.toString()
         }
 
         private fun rapidDecodedCandidates(html: String): List<String> {
