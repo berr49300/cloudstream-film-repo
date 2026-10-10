@@ -478,32 +478,42 @@ class FullHDFilmizlesene : MainAPI() {
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("&amp;", "&", ignoreCase = true)
             .replace("&#038;", "&", ignoreCase = true)
-        val found = linkedMapOf<String, String>()
+        val candidates = linkedMapOf<String, String>()
+        val turkishMarker = Regex("""(?i)(?:\\btr\\b|\\btur\\b|tr[-_](?:tr|tur)|tur(?:kish)?[-_.](?:\\d+|default)|turkish|turkce|turkçe|türkçe|turkısh|\\bforced\\b.*(?:\\btr\\b|tur)|(?:\\btr\\b|tur).*\\bforced\\b|lang(?:uage)?[=:/"']+(?:tr|tur)\\b|srclang[=:/"']+(?:tr|tur)\\b)""")
+        val englishMarker = Regex("""(?i)(?:\\ben\\b|\\beng\\b|english|ingilizce|\\bing\\b|en[-_]us|en[-_]gb|srclang[=:/"']+en\\b|lang(?:uage)?[=:/"']+en\\b)""")
 
         fun add(raw: String?, label: String?, context: String = "") {
             if (raw.isNullOrBlank()) return
-            val clean = raw.trim().trim('\'', '"')
+            val clean = raw.trim().trim('\\'', '"')
                 .replace("\\\\/", "/").replace("\\/", "/")
                 .replace("&amp;", "&", ignoreCase = true)
             val absolute = runCatching { URI(pageUrl).resolve(URI(clean)).toASCIIString() }.getOrNull() ?: return
             val uri = runCatching { URI(absolute) }.getOrNull() ?: return
             if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return
             val path = uri.path.orEmpty().lowercase()
-            if (!Regex("""(?i)\.(srt|vtt|ass|ssa|ttml|xml)$""").containsMatchIn(path)) return
+            if (!Regex("""(?i)\\.(srt|vtt|ass|ssa|ttml|xml)$""").containsMatchIn(path)) return
 
             val nearby = (label.orEmpty() + " " + absolute + " " + context)
                 .lowercase()
                 .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
                 .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-            val hasTurkishMarker = Regex("""(?i)(?:\btr\b|\btur\b|tr[-_](?:tr|tur)|tur(?:kish)?[-_.](?:\d+|default)|turkish|turkce|lang(?:uage)?[=:/"']+(?:tr|tur)\b|srclang[=:/"']+(?:tr|tur)\b)""")
-                .containsMatchIn(nearby)
-            if (!hasTurkishMarker) return
-            found.putIfAbsent(absolute, "Türkçe")
+            if (englishMarker.containsMatchIn(nearby) && !turkishMarker.containsMatchIn(nearby)) return
+            candidates.putIfAbsent(absolute, nearby)
+        }
+
+        fun looksLikeTurkishSubtitle(text: String): Boolean {
+            val sample = text.take(12000).lowercase()
+            val turkishChars = Regex("[çğıöşüÇĞİÖŞÜ]").findAll(text).count()
+            val commonTurkish = Regex("""\\b(ve|bir|bu|şey|için|ama|değil|ben|sen|biz|siz|onlar|ne|neden|nasıl|biliyor|musun|mi|mı|mu|mü|evet|hayır|tamam|oldu|gibi|çok|daha|var|yok|kadar|şimdi|burada|orada|lütfen|teşekkür)\\b""", RegexOption.IGNORE_CASE)
+                .findAll(sample).count()
+            val commonEnglish = Regex("""\\b(the|and|you|that|what|this|with|have|for|not|are|your|was|were|hello|yes|no|okay|know|think|because|about)\\b""", RegexOption.IGNORE_CASE)
+                .findAll(sample).count()
+            return turkishChars >= 3 || (commonTurkish >= 3 && commonTurkish > commonEnglish)
         }
 
         // Standard HTML5 tracks, including data-src variants.
-        val trackTag = Regex("""(?is)<track\b([^>]+)>""")
-        val attrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
+        val trackTag = Regex("""(?is)<track\\b([^>]+)>""")
+        val attrPattern = Regex("""(?is)([\\w-]+)\\s*=\\s*["']([^"']*)["']""")
         for (match in trackTag.findAll(normalized)) {
             val attrs = attrPattern.findAll(match.groupValues[1])
                 .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
@@ -512,58 +522,45 @@ class FullHDFilmizlesene : MainAPI() {
             add(attrs["src"] ?: attrs["data-src"], attrs["srclang"] ?: attrs["label"], match.value)
         }
 
-        // JWPlayer and similar JSON-like player configs. Read the entire object
-        // surrounding a URL, rather than assuming all fields fit a flat object.
-        val filePattern = Regex("""(?is)["']?(?:file|src|url|subtitle|captions)["']?\s*[:=]\s*["']([^"']+)["']""")
+        val filePattern = Regex("""(?is)["']?(?:file|src|url|subtitle|captions)["']?\\s*[:=]\\s*["']([^"']+)["']""")
         for (match in filePattern.findAll(normalized)) {
             val from = (match.range.first - 400).coerceAtLeast(0)
             val to = (match.range.last + 400).coerceAtMost(normalized.length)
             val context = normalized.substring(from, to)
-            val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
+            val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
                 .find(context)?.groupValues?.getOrNull(1)
             add(match.groupValues.getOrNull(1), label, context)
         }
 
-        // Last-resort scan: some players store direct SRT/VTT URLs in packed
-        // JavaScript without a recognizable "file" or "track" property.
-        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\s<>]+?\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\s<>]*)?""")
+        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\\s<>]+?\\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\\?[^"'\\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\\?[^"'\\s<>]*)?""")
         for (match in directUrlPattern.findAll(normalized)) {
             val from = (match.range.first - 250).coerceAtLeast(0)
             val to = (match.range.last + 250).coerceAtMost(normalized.length)
             add(match.value, null, normalized.substring(from, to))
         }
 
-        // Some players load subtitle tracks from external JavaScript rather than
-        // embedding them in the iframe HTML. Inspect a bounded set of script assets too.
-        val scriptUrls = Regex("""(?is)<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>""")
+        val scriptUrls = Regex("""(?is)<script\\b[^>]*\\bsrc\\s*=\\s*["']([^"']+)["'][^>]*>""")
             .findAll(normalized)
-            .mapNotNull { match ->
-                runCatching { URI(pageUrl).resolve(URI(match.groupValues[1])).toASCIIString() }.getOrNull()
-            }
+            .mapNotNull { match -> runCatching { URI(pageUrl).resolve(URI(match.groupValues[1])).toASCIIString() }.getOrNull() }
             .filter { it.startsWith("http://") || it.startsWith("https://") }
-            .distinct()
-            .take(10)
-            .toList()
+            .distinct().take(10).toList()
 
         for (scriptUrl in scriptUrls) {
             val script = runCatching { app.get(scriptUrl, referer = pageUrl).text }.getOrNull() ?: continue
             val scriptText = (unpackPacker(script) ?: script)
-                .replace("\\\\/", "/")
-                .replace("\\/", "/")
+                .replace("\\\\/", "/").replace("\\/", "/")
                 .replace("\\u002f", "/", ignoreCase = true)
                 .replace("\\u003a", ":", ignoreCase = true)
                 .replace("\\u0026", "&", ignoreCase = true)
                 .replace("&amp;", "&", ignoreCase = true)
-
             for (match in filePattern.findAll(scriptText)) {
                 val from = (match.range.first - 400).coerceAtLeast(0)
                 val to = (match.range.last + 400).coerceAtMost(scriptText.length)
                 val context = scriptText.substring(from, to)
-                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
+                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
                     .find(context)?.groupValues?.getOrNull(1)
                 add(match.groupValues.getOrNull(1), label, context)
             }
-
             for (match in directUrlPattern.findAll(scriptText)) {
                 val from = (match.range.first - 250).coerceAtLeast(0)
                 val to = (match.range.last + 250).coerceAtMost(scriptText.length)
@@ -571,8 +568,12 @@ class FullHDFilmizlesene : MainAPI() {
             }
         }
 
-        found.forEach { (url, label) ->
-            subtitleCallback(newSubtitleFile(label, url) {
+        for ((url, metadata) in candidates) {
+            if (!turkishMarker.containsMatchIn(metadata)) {
+                val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
+                if (!looksLikeTurkishSubtitle(body)) continue
+            }
+            subtitleCallback(newSubtitleFile("Türkçe", url) {
                 this.headers = mapOf("Referer" to pageUrl)
             })
         }
