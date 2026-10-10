@@ -23,7 +23,7 @@ class FilmMakinesiJsPackerTest {
 
         assertEquals(
             listOf("https://closeload.filmmakinesi.to/media/master.m3u8?token=abc123"),
-            FilmMakinesiCloseLoadExtractor.extractStreamUrls(
+            FilmMakinesiStreamParser.extractStreamUrls(
                 html,
                 "https://closeload.filmmakinesi.to/embed/abc"
             )
