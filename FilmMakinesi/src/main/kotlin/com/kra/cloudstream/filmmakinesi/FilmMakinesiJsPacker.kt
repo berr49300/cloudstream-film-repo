@@ -48,6 +48,6 @@ internal object FilmMakinesiJsPacker {
 
     private fun decodeString(value: String): String = value
         .replace("\\'", "'")
-        .replace("\\\\"", "\"")
-        .replace("\\\\\\\\", "\\\\")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\")
 }
