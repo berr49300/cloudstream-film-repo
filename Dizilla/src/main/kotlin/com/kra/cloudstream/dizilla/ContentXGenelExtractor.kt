@@ -14,7 +14,11 @@ open class ContentXGenel : ExtractorApi() {
     override val requiresReferer = true
 
     companion object {
-        fun uygunMu(url: String): Boolean = url.contains("/iframe.php?v=")
+        fun uygunMu(url: String): Boolean = runCatching {
+            val uri = java.net.URI(url)
+            uri.path.orEmpty().endsWith("/iframe.php", ignoreCase = true) &&
+                uri.rawQuery.orEmpty().split("&").any { it.substringBefore("=") == "v" }
+        }.getOrDefault(false)
     }
 
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
