@@ -533,6 +533,44 @@ class FullHDFilmizlesene : MainAPI() {
             add(match.value, null, normalized.substring(from, to))
         }
 
+        // Some players load subtitle tracks from external JavaScript rather than
+        // embedding them in the iframe HTML. Inspect a bounded set of script assets too.
+        val scriptUrls = Regex("""(?is)<script\\b[^>]*\\bsrc\\s*=\\s*["']([^"']+)["'][^>]*>""")
+            .findAll(normalized)
+            .mapNotNull { match ->
+                runCatching { URI(pageUrl).resolve(URI(match.groupValues[1])).toASCIIString() }.getOrNull()
+            }
+            .filter { it.startsWith("http://") || it.startsWith("https://") }
+            .distinct()
+            .take(10)
+            .toList()
+
+        for (scriptUrl in scriptUrls) {
+            val script = runCatching { app.get(scriptUrl, referer = pageUrl).text }.getOrNull() ?: continue
+            val scriptText = (unpackPacker(script) ?: script)
+                .replace("\\\\/", "/")
+                .replace("\\/", "/")
+                .replace("\\u002f", "/", ignoreCase = true)
+                .replace("\\u003a", ":", ignoreCase = true)
+                .replace("\\u0026", "&", ignoreCase = true)
+                .replace("&amp;", "&", ignoreCase = true)
+
+            for (match in filePattern.findAll(scriptText)) {
+                val from = (match.range.first - 400).coerceAtLeast(0)
+                val to = (match.range.last + 400).coerceAtMost(scriptText.length)
+                val context = scriptText.substring(from, to)
+                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+                    .find(context)?.groupValues?.getOrNull(1)
+                add(match.groupValues.getOrNull(1), label, context)
+            }
+
+            for (match in directUrlPattern.findAll(scriptText)) {
+                val from = (match.range.first - 250).coerceAtLeast(0)
+                val to = (match.range.last + 250).coerceAtMost(scriptText.length)
+                add(match.value, null, scriptText.substring(from, to))
+            }
+        }
+
         found.forEach { (url, label) ->
             subtitleCallback(newSubtitleFile(label, url) {
                 this.headers = mapOf("Referer" to pageUrl)
