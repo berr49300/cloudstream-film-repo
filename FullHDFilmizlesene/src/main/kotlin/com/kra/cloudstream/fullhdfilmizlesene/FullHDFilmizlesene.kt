@@ -484,7 +484,7 @@ class FullHDFilmizlesene : MainAPI() {
 
         fun add(raw: String?, label: String?, context: String = "") {
             if (raw.isNullOrBlank()) return
-            val clean = raw.trim().trim('\\'', '"')
+            val clean = raw.trim().trim('\'', '"')
                 .replace("\\\\/", "/").replace("\\/", "/")
                 .replace("&amp;", "&", ignoreCase = true)
             val absolute = runCatching { URI(pageUrl).resolve(URI(clean)).toASCIIString() }.getOrNull() ?: return
