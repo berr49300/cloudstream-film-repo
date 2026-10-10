@@ -37,8 +37,17 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
         )
         val html = runCatching { app.get(url, headers = headers).text }.getOrNull() ?: return
 
+        val subtitleTracks = linkedMapOf<String, Pair<String, String>>()
         FilmMakinesiSubtitleParser.parse(html, url).forEach { track ->
-            subtitleCallback(newSubtitleFile(track.lang, track.url) { this.headers = headers })
+            subtitleTracks.putIfAbsent(track.url, track.lang to track.url)
+        }
+        if (playerLabel.equals("Rapid", ignoreCase = true)) {
+            extractRapidSubtitleTracks(html, url).forEach { track ->
+                subtitleTracks.putIfAbsent(track.second, track)
+            }
+        }
+        subtitleTracks.values.forEach { (lang, subtitleUrl) ->
+            subtitleCallback(newSubtitleFile(lang, subtitleUrl) { this.headers = headers })
         }
 
         for (stream in extractStreamUrls(html, url, playerLabel)) {
@@ -169,6 +178,25 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
                 rolling = (rolling + code) % 256
             }
             return output.toString()
+        }
+
+        private val rapidCaptionObject = Regex(
+            """(?is)\\{[^{}]*"file"\\s*:\\s*"((?:\\\\.|[^"])*)"[^{}]*"label"\\s*:\\s*"((?:\\\\.|[^"])*)"[^{}]*}"""
+        )
+
+        private fun extractRapidSubtitleTracks(html: String, baseUrl: String): List<Pair<String, String>> {
+            val tracks = linkedMapOf<String, Pair<String, String>>()
+            rapidDecodedCandidates(normalize(html)).forEach { payload ->
+                rapidCaptionObject.findAll(payload).forEach { match ->
+                    val rawUrl = normalize(match.groupValues[1].replace("\\\\/", "/"))
+                    val subtitleUrl = resolveUrl(rawUrl, baseUrl) ?: return@forEach
+                    val label = normalize(match.groupValues[2])
+                        .replace("\\\\\"", "\"")
+                        .ifBlank { "Türkçe" }
+                    tracks.putIfAbsent(subtitleUrl, label to subtitleUrl)
+                }
+            }
+            return tracks.values.toList()
         }
 
         private fun rapidDecodedCandidates(html: String): List<String> {
