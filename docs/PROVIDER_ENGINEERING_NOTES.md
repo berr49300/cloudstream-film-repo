@@ -67,3 +67,8 @@ This file records reusable lessons from provider debugging so future site integr
 - Current provider speed report: user-confirmed improvement, root cause not benchmarked.
 - Current subtitle status: code-level parser strengthened; runtime still not confirmed.
 - Current catalog status: selector broadened; in-app categories still require verification.
+
+### Automated verification update
+- Commit `10bd00d0f16dec8307e9b32d3c54a962b8af1ca7` passed `testDebugUnitTest`, plugin build and index generation in [GitHub Actions run 38047192466](https://github.com/berr49300/cloudstream-film-repo/actions/runs/38047192466).
+- The public publishing step was skipped as intended; a test artifact was uploaded to the workflow run.
+- This verifies compilation and the parser's unit fixtures only. It does not prove that Dizilla's live subtitle URLs are valid or that CloudStream displays them, and it does not validate live category completeness.
