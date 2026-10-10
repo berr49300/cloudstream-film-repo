@@ -13,7 +13,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.parser.Parser
 import java.net.URI
-import java.util.Base64
 
 open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
     open val playerLabel = "CloseLoad"
@@ -205,8 +204,8 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
 
         private fun decodeBase64(value: String): ByteArray? {
             val padded = value + "=".repeat((4 - value.length % 4) % 4)
-            return runCatching { Base64.getDecoder().decode(padded) }
-                .recoverCatching { android.util.Base64.decode(padded, android.util.Base64.DEFAULT) }
+            return runCatching { android.util.Base64.decode(padded, android.util.Base64.DEFAULT) }
+                .recoverCatching { android.util.Base64.decode(padded, android.util.Base64.URL_SAFE) }
                 .getOrNull()
         }
 
