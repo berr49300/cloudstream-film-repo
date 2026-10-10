@@ -326,13 +326,33 @@ class FilmMakinesi : MainAPI() {
             }
 
             runCatching {
+                val extractedLinks = mutableListOf<ExtractorLink>()
                 loadExtractor(sourceUrl, pageUrl, subtitleCallback) { link ->
+                    extractedLinks.add(link)
+                }
+                val playerLabel = when {
+                    host.contains("closeload") -> "CloseLoad"
+                    host == "rapid.filmmakinesi.to" || host.startsWith("rapid.") -> "Rapid"
+                    else -> source.label.takeIf { it.isNotBlank() && !it.equals("Kaynak", true) } ?: "Video"
+                }
+                extractedLinks.forEach { link ->
                     // The site's YouTube fallbacks are unrelated to its real CloseLoad/Rapid streams.
                     if (!isYouTubeLink(link)) {
                         val key = mediaDedupeKey(link.url)
                         if (emittedMediaUrls.add(key)) {
+                            callback(newExtractorLink(
+                                source = "$name • $playerLabel",
+                                name = "$playerLabel • ${link.name}",
+                                url = link.url,
+                                type = link.type
+                            ) {
+                                this.referer = link.referer.ifBlank { pageUrl }
+                                this.quality = link.quality
+                                this.headers = link.headers
+                                this.extractorData = link.extractorData
+                                this.audioTracks = link.audioTracks
+                            })
                             found = true
-                            callback(link)
                         }
                     }
                 }
