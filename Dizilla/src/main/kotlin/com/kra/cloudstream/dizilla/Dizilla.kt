@@ -52,7 +52,7 @@ class Dizilla : MainAPI() {
             // Prefer the site's known catalogue-card wrapper. Scanning every anchor
             // also picks up cards from recommendation rails and adjacent category widgets,
             // which can make Anime and Korean Drama rows appear mixed.
-            val catalogAnchors = document.select(".prm-borderb a[href], span.prm-borderb[href]")
+            val catalogAnchors = document.select(".prm-borderb a[href], a.prm-borderb[href]")
                 .filter { it.isDizillaCatalogCard() }
             val candidates = if (catalogAnchors.isNotEmpty()) catalogAnchors else {
                 // Layout fallback: only use anchors inside a main catalogue/list container,
