@@ -14,9 +14,10 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.parser.Parser
 import java.net.URI
 
-class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
-    override val name = "FilmMakinesi • CloseLoad"
-    override val mainUrl = "https://closeload.filmmakinesi.to"
+open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
+    open val playerLabel = "CloseLoad"
+    override open val name: String get() = "FilmMakinesi • $playerLabel"
+    override open val mainUrl = "https://closeload.filmmakinesi.to"
     override val requiresReferer = true
 
     private val userAgent =
@@ -41,8 +42,8 @@ class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
 
         for (stream in extractStreamUrls(html, url)) {
             callback(newExtractorLink(
-                source = "FilmMakinesi • CloseLoad",
-                name = "CloseLoad • " + mediaLabelForUrl(stream),
+                source = name,
+                name = "$playerLabel • " + mediaLabelForUrl(stream),
                 url = stream,
                 type = mediaTypeForUrl(stream)
             ) {
@@ -68,9 +69,13 @@ class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
                 if (isMediaUrl(absolute)) result.add(absolute)
             }
 
-            fileField.findAll(normalized).forEach { add(it.groupValues.getOrNull(1)) }
-            mediaUrlPattern.findAll(normalized).forEach { match ->
-                add(match.value.trimEnd(')', ']', '}', ',', ';'))
+            val decodedScripts = FilmMakinesiJsPacker.unpackAll(normalized)
+            val candidateTexts = listOf(normalized) + decodedScripts
+            for (candidate in candidateTexts) {
+                fileField.findAll(candidate).forEach { add(it.groupValues.getOrNull(1)) }
+                mediaUrlPattern.findAll(candidate).forEach { match ->
+                    add(match.value.trimEnd(')', ']', '}', ',', ';'))
+                }
             }
 
             // Only return media URLs explicitly present in the player HTML.
