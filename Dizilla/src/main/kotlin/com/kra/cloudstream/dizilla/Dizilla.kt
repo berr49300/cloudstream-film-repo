@@ -66,7 +66,7 @@ class Dizilla : MainAPI() {
         val excluded = parents().any { parent ->
             val marker = "${parent.id()} ${parent.className()}".lowercase()
             parent.normalName() in setOf("aside", "nav", "footer") ||
-                listOf("sidebar", "recommend", "related", "footer", "widget").any(marker::contains)
+                listOf("sidebar", "recommend", "related", "footer", "widget").any { marker.contains(it) }
         }
         if (excluded) return false
 
