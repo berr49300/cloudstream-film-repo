@@ -63,7 +63,7 @@ internal object ContentXSubtitleParser {
         var decoded = value
             // Players commonly HTML-escape or JSON-escape their inline data.
             .replace(Regex("""\\+(['"])""")) { it.groupValues[1] }
-            .replace("\\/", "/")
+            .replace(Regex("""\\+/"""), "/")
             .replace("\\u002f", "/", ignoreCase = true)
             .replace("\\u003a", ":", ignoreCase = true)
             .replace("\\u0026", "&", ignoreCase = true)
@@ -73,7 +73,7 @@ internal object ContentXSubtitleParser {
             .replace("&#47;", "/", ignoreCase = true)
             .replace("&amp;", "&", ignoreCase = true)
 
-        decoded = Regex("""\\u([0-9a-fA-F]{4})""").replace(decoded) { match ->
+        decoded = Regex("""\\+u([0-9a-fA-F]{4})""").replace(decoded) { match ->
             match.groupValues[1].toInt(16).toChar().toString()
         }
         return decoded
