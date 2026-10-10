@@ -46,8 +46,7 @@ class FullHDFilmizlesene : MainAPI() {
         val encodedQuery = query.urlEncoded()
         val results = mutableListOf<SearchResponse>()
 
-        // Keep the site's autocomplete API as the first choice, but don't let an
-        // unavailable endpoint prevent the normal search-page fallbacks from running.
+        // Try the site's autocomplete endpoint first, but accept only actual film pages.
         val autocomplete = runCatching {
             app.get("$mainUrl/autocomplete/q.php?q=" + encodedQuery,
                 referer = "$mainUrl/",
@@ -63,7 +62,8 @@ class FullHDFilmizlesene : MainAPI() {
             }
         }
 
-        // The site's autocomplete endpoint can change; try common site-search routes too.
+        // The site has changed its search route over time. Parse result cards first;
+        // never treat navigation/logo links as movie results.
         val searchUrls = listOf(
             "$mainUrl/?s=$encodedQuery",
             "$mainUrl/?q=$encodedQuery",
@@ -79,9 +79,35 @@ class FullHDFilmizlesene : MainAPI() {
             if (results.isNotEmpty()) break
             val doc = runCatching { app.get(searchUrl, referer = "$mainUrl/").document }.getOrNull()
                 ?: continue
-            doc.select("a[href]").forEach { a ->
+
+            val cards = doc.select(
+                "li.film, li.movie, article.film, article.movie, .film-item, .movie-item, " +
+                    ".film-card, .movie-card, .poster-item, .search-results article, " +
+                    ".search-results .item, .films li, .movies li, .film-list li, .movie-list li"
+            )
+            cards.forEach { card ->
+                val a = card.selectFirst("a[href]") ?: return@forEach
                 val href = fixUrlNull(a.attr("href")) ?: return@forEach
-                if (isMovieUrl(href)) a.toSearchResult(href)?.let(results::add)
+                if (isMovieUrl(href)) card.toSearchResult(href)?.let(results::add)
+            }
+
+            // Fallback for layouts without semantic card classes, restricted to film URLs.
+            if (results.isEmpty()) {
+                doc.select("a[href]").forEach { a ->
+                    val href = fixUrlNull(a.attr("href")) ?: return@forEach
+                    if (!isMovieUrl(href)) return@forEach
+                    val title = listOf(
+                        a.selectFirst("h2, h3, h4, [class*=title]")?.text(),
+                        a.selectFirst("img")?.let { it.attr("alt").ifBlank { it.attr("title") } },
+                        a.attr("title"),
+                        a.text()
+                    ).map { it.orEmpty().trim() }
+                        .firstOrNull { it.length > 1 && !it.equals("FullHDFilmizlesene.now", true) }
+                        ?: return@forEach
+                    results.add(newMovieSearchResponse(title.decodeHtml(), href, TvType.Movie) {
+                        posterUrl = a.selectFirst("img")?.let { imageUrl(it) }
+                    })
+                }
             }
         }
         return results.distinctBy { it.url }.take(30)
@@ -480,8 +506,25 @@ class FullHDFilmizlesene : MainAPI() {
             "aile-filmleri", "aksiyon-filmleri", "komedi-filmleri", "korku-filmleri",
             "animasyon-filmleri", "bilim-kurgu-filmleri", "yeni-filmler", "en-cok-izlenen-filmler"
         )
-        return host.endsWith("fullhdfilmizlesene.now", true) && path.isNotBlank() && path != "/" &&
+        // The live site uses /film/<slug>/ for film detail pages. Requiring this
+        // route prevents the homepage, logo, and search UI from becoming fake results.
+        val isFilmDetail = slug.startsWith("/film/") || slug.startsWith("/filmizle/") ||
+            slug.startsWith("/filmler/")
+        return host.endsWith("fullhdfilmizlesene.now", true) && isFilmDetail &&
             !looksLikeTaxonomy && nonMoviePath.none { slug.contains(it) }
+    }
+
+    private fun decodeEscapedText(value: String): String {
+        var decoded = value
+        repeat(2) {
+            decoded = Regex("""\\u([0-9a-fA-F]{4})""").replace(decoded) { match ->
+                match.groupValues[1].toInt(16).toChar().toString()
+            }
+            decoded = Regex("""\\x([0-9a-fA-F]{2})""").replace(decoded) { match ->
+                match.groupValues[1].toInt(16).toChar().toString()
+            }
+        }
+        return org.jsoup.parser.Parser.unescapeEntities(decoded.replace("\\\\/", "/"), false)
     }
 
     /** Emit only real Turkish subtitle tracks found in an embed player's markup. */
@@ -492,7 +535,7 @@ class FullHDFilmizlesene : MainAPI() {
         turkishMarker: Regex,
         englishMarker: Regex
     ): String {
-        val rawLabel = label.orEmpty().trim()
+        val rawLabel = decodeEscapedText(label.orEmpty()).trim()
         val languageText = "$rawLabel $url"
         val normalized = languageText.lowercase()
             .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
@@ -504,14 +547,17 @@ class FullHDFilmizlesene : MainAPI() {
             Regex("(?i)\\bforced\\b").containsMatchIn(contextNormalized)
         val isTurkish = turkishMarker.containsMatchIn(normalized)
         val isEnglish = englishMarker.containsMatchIn(normalized)
-        val genericLabel = rawLabel.isBlank() || rawLabel.equals("tr", true) ||
-            rawLabel.equals("tur", true) || rawLabel.equals("en", true) ||
-            rawLabel.equals("eng", true) || rawLabel.equals("subtitles", true) ||
-            rawLabel.equals("captions", true)
+        val labelNormalized = rawLabel.lowercase()
+            .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
+            .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+        val genericLabel = rawLabel.isBlank() || labelNormalized in setOf(
+            "tr", "tur", "tr tr", "turkish", "turkce", "turkçe", "türkçe",
+            "en", "eng", "english", "ingilizce", "subtitles", "captions"
+        )
         val base = when {
-            !genericLabel -> rawLabel
             isTurkish -> "Türkçe"
-            isEnglish -> "English"
+            isEnglish -> "İngilizce"
+            !genericLabel -> rawLabel
             else -> "Altyazı"
         }
         return if (forced && !base.contains("forced", true)) "$base Forced" else base
@@ -546,7 +592,8 @@ class FullHDFilmizlesene : MainAPI() {
             val path = uri.path.orEmpty().lowercase()
             if (!Regex("""(?i)\.(srt|vtt|ass|ssa|ttml|xml)$""").containsMatchIn(path)) return
 
-            val nearby = (label.orEmpty() + " " + absolute + " " + context)
+            val decodedContext = decodeEscapedText(context)
+            val nearby = (decodeEscapedText(label.orEmpty()) + " " + absolute + " " + decodedContext)
                 .lowercase()
                 .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
                 .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
@@ -633,7 +680,15 @@ class FullHDFilmizlesene : MainAPI() {
             }
         }
 
-        for ((url, track) in candidates) {
+        val orderedCandidates = candidates.entries.sortedBy { entry ->
+            when (entry.value.second.lowercase()) {
+                "türkçe" -> 0
+                "ingilizce" -> 1
+                "türkçe forced" -> 2
+                else -> 3
+            }
+        }
+        for ((url, track) in orderedCandidates.map { it.key to it.value }) {
             val (metadata, trackName) = track
             // Keep explicitly listed language/forced tracks separate. For unnamed URLs,
             // verify that the response resembles a subtitle file before exposing it.
@@ -664,7 +719,7 @@ class FullHDFilmizlesene : MainAPI() {
     }
 
     private fun Element.toSearchResult(href: String): SearchResponse? {
-        val card = closest("article, li, .film, .movie, .card, .item") ?: this
+        val card = closest("article, .film, .movie, .card, .item") ?: this
         val image = selectFirst("img") ?: card.selectFirst("img")
         val title = listOf(selectFirst("span.film-title")?.text(), card.selectFirst("span.film-title")?.text(),
             selectFirst("h2, h3, h4, [class*=title]")?.text(), card.selectFirst("h2, h3, h4, [class*=title]")?.text(),
