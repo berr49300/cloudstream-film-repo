@@ -43,7 +43,7 @@ class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
         for (stream in extractStreamUrls(html, url)) {
             callback(newExtractorLink(
                 source = "FilmMakinesi • CloseLoad",
-                name = mediaLabelForUrl(stream),
+                name = "CloseLoad • " + mediaLabelForUrl(stream),
                 url = stream,
                 type = mediaTypeForUrl(stream)
             ) {

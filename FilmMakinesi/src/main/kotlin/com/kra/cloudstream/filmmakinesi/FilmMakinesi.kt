@@ -268,6 +268,7 @@ class FilmMakinesi : MainAPI() {
         val doc = response.document
         var found = false
         val emittedUrls = linkedSetOf<String>()
+        val emittedMediaUrls = linkedSetOf<String>()
 
         suspend fun emitSubtitleTracks(sourceHtml: String, sourceUrl: String) {
             FilmMakinesiSubtitleParser.parse(sourceHtml, sourceUrl).forEach { track ->
@@ -287,16 +288,19 @@ class FilmMakinesi : MainAPI() {
             emittedUrls.add(sourceUrl)
 
             if (isDirectMediaUrl(sourceUrl)) {
-                callback(newExtractorLink(
-                    source = name,
-                    name = displaySourceName(source.label, sourceUrl),
-                    url = sourceUrl,
-                    type = FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(sourceUrl)
-                ) {
-                    this.referer = pageUrl
-                    this.headers = headersFor(pageUrl)
-                })
-                found = true
+                val key = mediaDedupeKey(sourceUrl)
+                if (emittedMediaUrls.add(key)) {
+                    callback(newExtractorLink(
+                        source = name,
+                        name = displaySourceName(source.label, sourceUrl),
+                        url = sourceUrl,
+                        type = FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(sourceUrl)
+                    ) {
+                        this.referer = pageUrl
+                        this.headers = headersFor(pageUrl)
+                    })
+                    found = true
+                }
                 continue
             }
 
@@ -307,9 +311,14 @@ class FilmMakinesi : MainAPI() {
                 var emittedByCloseLoad = false
                 runCatching {
                     closeLoad.getUrl(sourceUrl, pageUrl, subtitleCallback) { link ->
-                        emittedByCloseLoad = true
-                        found = true
-                        callback(link)
+                        if (!isYouTubeLink(link)) {
+                            val key = mediaDedupeKey(link.url)
+                            if (emittedMediaUrls.add(key)) {
+                                emittedByCloseLoad = true
+                                found = true
+                                callback(link)
+                            }
+                        }
                     }
                 }
                 if (emittedByCloseLoad) continue
@@ -318,8 +327,14 @@ class FilmMakinesi : MainAPI() {
 
             runCatching {
                 loadExtractor(sourceUrl, pageUrl, subtitleCallback) { link ->
-                    found = true
-                    callback(link)
+                    // The site's YouTube fallbacks are unrelated to its real CloseLoad/Rapid streams.
+                    if (!isYouTubeLink(link)) {
+                        val key = mediaDedupeKey(link.url)
+                        if (emittedMediaUrls.add(key)) {
+                            found = true
+                            callback(link)
+                        }
+                    }
                 }
             }
         }
@@ -341,6 +356,7 @@ class FilmMakinesi : MainAPI() {
             val uri = runCatching { URI(absolute) }.getOrNull() ?: return
             if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return
             val host = uri.host.lowercase()
+            if (isYouTubeHost(host)) return
             val direct = isDirectMediaUrl(absolute)
             val knownPlayer = isKnownPlayerHost(host)
             val localPlayer = host.endsWith("filmmakinesi.to") &&
@@ -447,11 +463,27 @@ class FilmMakinesi : MainAPI() {
         .replace("&amp;", "&")
         .trim()
 
+    private fun isYouTubeHost(host: String): Boolean =
+        host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host == "youtu.be" || host.endsWith(".youtu.be") ||
+            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+
+    private fun isYouTubeLink(link: ExtractorLink): Boolean =
+        isYouTubeHost(runCatching { URI(link.url).host.orEmpty().lowercase() }.getOrDefault("")) ||
+            link.source.contains("youtube", ignoreCase = true) ||
+            link.name.contains("youtube", ignoreCase = true)
+
+    private fun mediaDedupeKey(url: String): String = runCatching {
+        val uri = URI(url)
+        URI(uri.scheme?.lowercase(), uri.userInfo, uri.host?.lowercase(), uri.port, uri.path, uri.query, null)
+            .toASCIIString()
+    }.getOrDefault(url.substringBefore('#'))
+
     private fun isKnownPlayerHost(host: String): Boolean {
         val known = listOf(
             "closeload", "rapid", "vidmoly", "vidmoxy", "imgz.me", "streamtape",
             "filemoon", "dood", "mp4upload", "uqload", "vidhide", "streamwish",
-            "upstream", "mixdrop", "fembed", "ok.ru", "dailymotion", "youtube",
+            "upstream", "mixdrop", "fembed", "ok.ru", "dailymotion",
             "vimeo", "voe", "vidoza", "filelions", "streamsb", "mivalyo", "sendvid"
         )
         return known.any { host.contains(it) }

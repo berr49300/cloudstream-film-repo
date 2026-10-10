@@ -76,6 +76,28 @@ class FilmMakinesiParserTest {
         assertTrue(tracks.any { it.lang == "İngilizce" && it.url == "https://example.test/subs/en.srt" })
     }
 
+
+    @Test
+    fun ignoresYoutubeFallbacksAndKeepsRealPlayerSources() {
+        val html = """
+            <div class="server-list">
+              <iframe src="https://www.youtube.com/embed/placeholder"></iframe>
+              <iframe src="https://rapid.filmmakinesi.to/embed/real-player"></iframe>
+              <iframe src="https://closeload.filmmakinesi.to/player/real-player"></iframe>
+            </div>
+        """.trimIndent()
+        val api = FilmMakinesi()
+        val sources = api.parseSourceCandidates(
+            org.jsoup.Jsoup.parse(html),
+            html,
+            "https://filmmakinesi.to/film/test/"
+        )
+
+        assertTrue(sources.none { it.url.contains("youtube", ignoreCase = true) })
+        assertTrue(sources.any { it.url.contains("rapid.filmmakinesi.to") })
+        assertTrue(sources.any { it.url.contains("closeload.filmmakinesi.to") })
+    }
+
     @Test
     fun escapedSubtitleUrlsAndLanguageNamesAreDecoded() {
         val html = """{"file":"\\/subtitles\\/tr.vtt","label":"T\u00fcrk\u00e7e"}"""
