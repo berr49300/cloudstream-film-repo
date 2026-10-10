@@ -376,7 +376,7 @@ class FilmMakinesi : MainAPI() {
             val uri = runCatching { URI(absolute) }.getOrNull() ?: return
             if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return
             val host = uri.host.lowercase()
-            if (isYouTubeHost(host)) return
+            if (FilmMakinesiSourceRules.isYouTubeHost(host)) return
             val direct = isDirectMediaUrl(absolute)
             val knownPlayer = isKnownPlayerHost(host)
             val localPlayer = host.endsWith("filmmakinesi.to") &&
@@ -483,13 +483,10 @@ class FilmMakinesi : MainAPI() {
         .replace("&amp;", "&")
         .trim()
 
-    private fun isYouTubeHost(host: String): Boolean =
-        host == "youtube.com" || host.endsWith(".youtube.com") ||
-            host == "youtu.be" || host.endsWith(".youtu.be") ||
-            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+
 
     private fun isYouTubeLink(link: ExtractorLink): Boolean =
-        isYouTubeHost(runCatching { URI(link.url).host.orEmpty().lowercase() }.getOrDefault("")) ||
+        FilmMakinesiSourceRules.isYouTubeHost(runCatching { URI(link.url).host.orEmpty().lowercase() }.getOrDefault("")) ||
             link.source.contains("youtube", ignoreCase = true) ||
             link.name.contains("youtube", ignoreCase = true)
 
