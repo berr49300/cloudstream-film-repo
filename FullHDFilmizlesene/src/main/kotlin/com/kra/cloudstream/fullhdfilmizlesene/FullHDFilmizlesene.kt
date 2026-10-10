@@ -66,8 +66,13 @@ class FullHDFilmizlesene : MainAPI() {
         // The site's autocomplete endpoint can change; try common site-search routes too.
         val searchUrls = listOf(
             "$mainUrl/?s=$encodedQuery",
+            "$mainUrl/?q=$encodedQuery",
             "$mainUrl/arama/$encodedQuery",
+            "$mainUrl/arama?q=$encodedQuery",
+            "$mainUrl/arama/?q=$encodedQuery",
             "$mainUrl/search/$encodedQuery",
+            "$mainUrl/search?q=$encodedQuery",
+            "$mainUrl/film-ara?q=$encodedQuery",
             "$mainUrl/?s=$encodedQuery&post_type=film"
         )
         for (searchUrl in searchUrls) {
