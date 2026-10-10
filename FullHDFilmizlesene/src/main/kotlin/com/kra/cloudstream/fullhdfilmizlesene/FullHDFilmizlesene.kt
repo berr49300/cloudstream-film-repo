@@ -226,7 +226,7 @@ class FullHDFilmizlesene : MainAPI() {
         // "tr"/"en". Decode every long string inside scx and keep only valid URLs.
         // Don't filter by the legacy ROT13+Base64 decoder here. Source
         // encodings can rotate; decodeAny below tries ROT13, Base64 and plain URLs.
-        return Regex("""["']([^"'\\\\]{8,})["']""")
+        return Regex("""["']([^"'\\]{8,})["']""")
             .findAll(html.substring(start, end))
             .map { it.groupValues[1] }
             .distinct()
