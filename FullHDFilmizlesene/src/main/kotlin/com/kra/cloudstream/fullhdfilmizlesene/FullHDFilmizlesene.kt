@@ -189,9 +189,9 @@ class FullHDFilmizlesene : MainAPI() {
      */
     private suspend fun resolveTurboImgz(embedUrl: String): String? {
         val html = app.get(embedUrl, referer = "$mainUrl/").text
-        val raw = Regex("""(?i)["']?file["']?\\s*:\\s*["']([^"']+)["']""")
+        val raw = Regex("""(?i)["']?file["']?\s*:\s*["']([^"']+)["']""")
             .find(html)?.groupValues?.get(1)
-            ?.replace("\\\\/", "/")
+            ?.replace("\\/", "/")
             ?.trim()
             ?: return null
         val normalized = when {
