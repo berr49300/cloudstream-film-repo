@@ -527,6 +527,40 @@ class FullHDFilmizlesene : MainAPI() {
         return org.jsoup.parser.Parser.unescapeEntities(decoded.replace("\\\\/", "/"), false)
     }
 
+    /**
+     * Return the innermost brace-delimited object containing a match. Player configs
+     * commonly store several subtitle tracks next to each other; searching a fixed
+     * +/-400 character window can accidentally borrow another track's language/label.
+     */
+    private fun subtitleObjectContext(text: String, position: Int): String {
+        val start = text.lastIndexOf('{', position).takeIf { it >= 0 } ?: return
+            text.substring((position - 120).coerceAtLeast(0), (position + 180).coerceAtMost(text.length))
+        var depth = 0
+        var quoted = false
+        var quote = '\u0000'
+        var escaped = false
+        for (i in start until text.length) {
+            val c = text[i]
+            if (quoted) {
+                if (escaped) escaped = false
+                else if (c == '\\') escaped = true
+                else if (c == quote) quoted = false
+                continue
+            }
+            if (c == '"' || c == '\'') {
+                quoted = true
+                quote = c
+                continue
+            }
+            if (c == '{') depth++
+            if (c == '}') {
+                depth--
+                if (depth == 0) return text.substring(start, i + 1)
+            }
+        }
+        return text.substring(start, (position + 180).coerceAtMost(text.length))
+    }
+
     /** Emit only real Turkish subtitle tracks found in an embed player's markup. */
     private fun subtitleTrackName(
         label: String?,
@@ -543,8 +577,9 @@ class FullHDFilmizlesene : MainAPI() {
         val contextNormalized = context.lowercase()
             .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
             .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-        val forced = Regex("(?i)\\bforced\\b").containsMatchIn(normalized) ||
-            Regex("(?i)\\bforced\\b").containsMatchIn(contextNormalized)
+        // Do not infer Forced from a wide neighboring snippet: several subtitle
+        // entries are often packed together, which made every track inherit it.
+        val forced = Regex("(?i)\\bforced\\b").containsMatchIn(normalized)
         val isTurkish = turkishMarker.containsMatchIn(normalized)
         val isEnglish = englishMarker.containsMatchIn(normalized)
         val labelNormalized = rawLabel.lowercase()
@@ -636,9 +671,7 @@ class FullHDFilmizlesene : MainAPI() {
 
         val filePattern = Regex("""(?is)["']?(?:file|src|url|subtitle|captions)["']?\s*[:=]\s*["']([^"']+)["']""")
         for (match in filePattern.findAll(normalized)) {
-            val from = (match.range.first - 400).coerceAtLeast(0)
-            val to = (match.range.last + 400).coerceAtMost(normalized.length)
-            val context = normalized.substring(from, to)
+            val context = subtitleObjectContext(normalized, match.range.first)
             val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
                 .find(context)?.groupValues?.getOrNull(1)
             add(match.groupValues.getOrNull(1), label, context)
@@ -666,17 +699,13 @@ class FullHDFilmizlesene : MainAPI() {
                 .replace("\\u0026", "&", ignoreCase = true)
                 .replace("&amp;", "&", ignoreCase = true)
             for (match in filePattern.findAll(scriptText)) {
-                val from = (match.range.first - 400).coerceAtLeast(0)
-                val to = (match.range.last + 400).coerceAtMost(scriptText.length)
-                val context = scriptText.substring(from, to)
+                val context = subtitleObjectContext(scriptText, match.range.first)
                 val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
                     .find(context)?.groupValues?.getOrNull(1)
                 add(match.groupValues.getOrNull(1), label, context)
             }
             for (match in directUrlPattern.findAll(scriptText)) {
-                val from = (match.range.first - 250).coerceAtLeast(0)
-                val to = (match.range.last + 250).coerceAtMost(scriptText.length)
-                add(match.value, null, scriptText.substring(from, to))
+                add(match.value, null, subtitleObjectContext(scriptText, match.range.first))
             }
         }
 
