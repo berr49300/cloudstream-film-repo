@@ -385,6 +385,11 @@ class FullHDFilmizlesene : MainAPI() {
         val p8 = Regex("""window\s*\.\s*_p8\s*=\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
         if (p8 != null) {
             val json = decodeImgz(p8)
+            // Older imgz embeds keep subtitle tracks in the decoded JSON's ct[] array.
+            // Scan that decoded payload too; those VTT URLs are not present in raw HTML.
+            if (!json.isNullOrBlank()) {
+                runCatching { emitTurkishSubtitles(json, embedUrl, subtitleCallback) }
+            }
             val master = json?.let { runCatching { mapper.readTree(it) }.getOrNull() }
                 ?.let { it.path("cm").asText().ifBlank { it.path("tm").asText() } }
             if (!master.isNullOrBlank() && master.startsWith("http")) return master
@@ -581,10 +586,15 @@ class FullHDFilmizlesene : MainAPI() {
         }
 
         for ((url, metadata) in candidates) {
-            // Never trust a filename/nearby JS label by itself: sites sometimes attach the wrong label.
-            // Fetch and classify every candidate, including those marked tr/turkish in the player.
-            val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
-            if (!looksLikeTurkishSubtitle(body, url)) continue
+            // The imgz player explicitly labels tracks (or filenames) as Turkish.
+            // Trust an explicit Turkish marker here: short/atypical VTT samples can
+            // fail dialogue heuristics even though the URL is a valid Turkish track.
+            val explicitlyTurkish = turkishMarker.containsMatchIn(metadata) &&
+                !englishMarker.containsMatchIn(metadata)
+            if (!explicitlyTurkish) {
+                val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
+                if (!looksLikeTurkishSubtitle(body, url)) continue
+            }
             subtitleCallback(newSubtitleFile("Türkçe", url) {
                 this.headers = mapOf("Referer" to pageUrl)
             })
