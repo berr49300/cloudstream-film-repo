@@ -93,3 +93,13 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - The CloudStream core API defines SubtitleFile.headers and newSubtitleFile accepts an initializer. The ContentX extractor previously emitted only language + URL.
 - Commit 245b47a7585be9b237c8110421803ca622f3f8f9 now sets the subtitle request Referer to the ContentX iframe URL. This is a targeted, testable hypothesis because subtitle hosts may validate their embedding page.
 - Status: build pending at time of note; runtime not verified. If still failing, inspect actual subtitle response status/content-type/body and supported headers before changing parser regex again.
+
+
+## FullHDFilmizlesene: CloudStream vs Stremio boundary (2026-10-10)
+
+- A public Stremio reference project documents the site's autocomplete and `scx` source encoding. This is useful prior-art for discovering the site's protocol, but it does not validate CloudStream behavior.
+- Stremio implementations may resolve streams on a server, proxy HLS playlists, rewrite segment URLs and attach headers. CloudStream providers instead need to return data through the app's `MainAPI` and supported `ExtractorApi`/extractor registry; server proxy behavior cannot be assumed to exist in the app.
+- Current external inspection of the site returned 403, so homepage DOM selectors and live response shapes are BLOCKED, not confirmed. Search snippets and a reference README are not substitutes for sanitized live fixtures.
+- The current FullHDFilmizlesene module compiled and packaged in GitHub Actions, but the user reports the provider homepage only displays “None” and “Random”. Treat catalog as a runtime failure until a real response and selector-level regression test establish the cause.
+- The initial install error's root cause is UNKNOWN. The user screenshots show the plugin later appeared installed, but do not include a diagnostic message/log that identifies the cause.
+- Required change to process: for every new site, separate (1) site protocol evidence, (2) CloudStream API/packaging correctness, and (3) real-device catalog/playback/subtitle verification. Never use a successful build as a proxy for the other two.
