@@ -3,6 +3,7 @@ package com.kra.cloudstream.dizilla
 import android.util.Log
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
+import com.kra.cloudstream.common.SourceCandidateParser
 import com.lagradost.cloudstream3.LoadResponse.Companion.addActors
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Document
@@ -145,27 +146,67 @@ class Dizilla : MainAPI() {
     }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        Log.d("DZL", "data » $data")
-        val veri     = sayfaVerisi(app.get(data, referer = "${mainUrl}/").document) ?: return false
+        Log.d("DZL", "Bölüm kaynakları okunuyor: " + data.substringBefore('?'))
+
+        val veri = sayfaVerisi(app.get(data, referer = "${mainUrl}/").document) ?: run {
+            Log.w("DZL", "Bölüm sayfasının yapılandırılmış verisi okunamadı.")
+            return false
+        }
         val kaynaklar = veri.related?.episodeSources?.result.orEmpty()
+        val candidates = kaynaklar.flatMap { source ->
+            SourceCandidateParser.extract(source.content, data).map { url -> source to url }
+        }.distinctBy { it.second }
 
-        val iframes = kaynaklar.mapNotNull { kaynak ->
-            val src = Regex("""src=["']([^"']+)["']""").find(kaynak.content ?: "")?.groupValues?.get(1) ?: return@mapNotNull null
-            if (src.startsWith("//")) "https:$src" else src
-        }.distinct()
+        if (candidates.isEmpty()) {
+            Log.w("DZL", "Bölüm verisinde desteklenen bir URL/iframe adayı bulunamadı.")
+            return false
+        }
 
-        iframes.forEach { iframe ->
-            Log.d("DZL", "iframe » $iframe")
+        var emittedLinks = 0
+        val emitLink: (ExtractorLink) -> Unit = { link ->
+            emittedLinks += 1
+            callback(link)
+        }
+
+        candidates.forEach { (source, url) ->
+            val label = listOfNotNull(
+                source.name?.takeIf { it.isNotBlank() },
+                source.language?.takeIf { it.isNotBlank() }
+            ).distinct().joinToString(" - ").ifBlank { "Dizilla" }
+
+            Log.d("DZL", "Kaynak adayı: " + url.substringBefore('?'))
             runCatching {
-                if (ContentXGenel.uygunMu(iframe)) {
-                    ContentXGenel().getUrl(iframe, "${mainUrl}/", subtitleCallback, callback)
-                } else {
-                    loadExtractor(iframe, "${mainUrl}/", subtitleCallback, callback)
+                val path = url.substringBefore('?').substringBefore('#').lowercase()
+                val directMedia = path.endsWith(".m3u8") ||
+                    path.endsWith(".mp4") ||
+                    path.endsWith(".webm") ||
+                    path.endsWith(".mkv") ||
+                    path.endsWith(".mpd")
+
+                when {
+                    directMedia -> {
+                        val type = if (path.endsWith(".m3u8")) ExtractorLinkType.M3U8 else null
+                        emitLink(newExtractorLink(label, label, url, type) {
+                            this.referer = data
+                            this.quality = Qualities.Unknown.value
+                        })
+                    }
+                    ContentXGenel.uygunMu(url) -> {
+                        ContentXGenel().getUrl(url, data, subtitleCallback, emitLink)
+                    }
+                    else -> {
+                        loadExtractor(url, data, subtitleCallback, emitLink)
+                    }
                 }
+            }.onFailure { error ->
+                Log.w("DZL", "Kaynak çözümlenemedi: " + url.substringBefore('?'), error)
             }
         }
 
-        return iframes.isNotEmpty()
+        if (emittedLinks == 0) {
+            Log.w("DZL", "Kaynak adayları bulundu ancak hiçbir oynatılabilir bağlantı çıkarılamadı.")
+        }
+        return emittedLinks > 0
     }
 
     // ! __NEXT_DATA__ içindeki "secureData" alanı AES-256-CBC ile şifrelenmiştir
