@@ -2,6 +2,8 @@
 
 CloudStream sağlayıcısı: https://filmmakinesi.to/
 
-Lisans: GPL-3.0-or-later. Üçüncü taraf kaynak ve lisans bildirimleri için [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) dosyasına bakın.
+CloseLoad ve Rapid için ayrı kaynak çözücüleri, ayrıca JavaScript P.A.C.K.E.R. biçimini kodu çalıştırmadan açan sınırlı bir ayrıştırıcı içerir.
+
+Lisans: GPL-3.0-or-later.
 
 Derlemenin başarılı olması canlı sitede video/altyazı oynatımının doğrulandığı anlamına gelmez; gerçek cihaz testi henüz tamamlanmadı.
