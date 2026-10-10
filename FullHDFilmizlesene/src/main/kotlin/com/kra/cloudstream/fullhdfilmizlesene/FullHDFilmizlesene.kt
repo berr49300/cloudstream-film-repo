@@ -467,37 +467,39 @@ class FullHDFilmizlesene : MainAPI() {
         pageUrl: String,
         subtitleCallback: (SubtitleFile) -> Unit
     ) {
-        val normalized = html
+        // Players often escape URLs in JS, or keep subtitle tracks in packed scripts.
+        val normalized = (unpackPacker(html) ?: html)
             .replace("\\\\/", "/")
             .replace("\\/", "/")
             .replace("\\u002f", "/", ignoreCase = true)
             .replace("\\u003a", ":", ignoreCase = true)
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("&amp;", "&", ignoreCase = true)
+            .replace("&#038;", "&", ignoreCase = true)
         val found = linkedMapOf<String, String>()
 
-        fun add(raw: String?, label: String?) {
-            if (raw.isNullOrBlank() || !isTurkishSubtitleLabel(label)) return
-            val clean = raw.trim().replace("\\\\/", "/").replace("\\/", "/")
+        fun add(raw: String?, label: String?, context: String = "") {
+            if (raw.isNullOrBlank()) return
+            val clean = raw.trim().trim('\'', '"')
+                .replace("\\\\/", "/").replace("\\/", "/")
                 .replace("&amp;", "&", ignoreCase = true)
             val absolute = runCatching { URI(pageUrl).resolve(URI(clean)).toASCIIString() }.getOrNull() ?: return
             val uri = runCatching { URI(absolute) }.getOrNull() ?: return
             if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return
             val path = uri.path.orEmpty().lowercase()
-            if (path.endsWith(".vtt") || path.endsWith(".srt") || path.endsWith(".ass") ||
-                path.endsWith(".ssa") || path.endsWith(".ttml") || path.endsWith(".xml")
-            ) found.putIfAbsent(absolute, "Türkçe")
+            if (!Regex("""(?i)\.(srt|vtt|ass|ssa|ttml|xml)$""").containsMatchIn(path)) return
+
+            val nearby = (label.orEmpty() + " " + absolute + " " + context)
+                .lowercase()
+                .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
+                .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+            val hasTurkishMarker = Regex("""(?i)(?:\btr\b|tr[-_](?:tr|tur)|turkish|turkce|lang(?:uage)?[=:/"']+tr\b|srclang[=:/"']+tr\b)""")
+                .containsMatchIn(nearby)
+            if (!hasTurkishMarker) return
+            found.putIfAbsent(absolute, "Türkçe")
         }
 
-        val trackObjects = Regex("""(?is)\{[^{}]*?(?:["']?(?:file|src|url)["']?)\s*[:=]\s*["']([^"']+)["'][^{}]*\}""")
-        val filePattern = Regex("""(?is)["']?(?:file|src|url)["']?\s*[:=]\s*["']([^"']+)["']""")
-        val labelPattern = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
-        for (match in trackObjects.findAll(normalized)) {
-            val fragment = match.value
-            add(filePattern.find(fragment)?.groupValues?.getOrNull(1),
-                labelPattern.find(fragment)?.groupValues?.getOrNull(1))
-        }
-
+        // Standard HTML5 tracks, including data-src variants.
         val trackTag = Regex("""(?is)<track\b([^>]+)>""")
         val attrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
         for (match in trackTag.findAll(normalized)) {
@@ -505,7 +507,28 @@ class FullHDFilmizlesene : MainAPI() {
                 .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
             val kind = attrs["kind"].orEmpty().lowercase()
             if (kind.isNotBlank() && kind !in setOf("subtitles", "captions")) continue
-            add(attrs["src"], attrs["srclang"] ?: attrs["label"])
+            add(attrs["src"] ?: attrs["data-src"], attrs["srclang"] ?: attrs["label"], match.value)
+        }
+
+        // JWPlayer and similar JSON-like player configs. Read the entire object
+        // surrounding a URL, rather than assuming all fields fit a flat object.
+        val filePattern = Regex("""(?is)["']?(?:file|src|url|subtitle|captions)["']?\s*[:=]\s*["']([^"']+)["']""")
+        for (match in filePattern.findAll(normalized)) {
+            val from = (match.range.first - 400).coerceAtLeast(0)
+            val to = (match.range.last + 400).coerceAtMost(normalized.length)
+            val context = normalized.substring(from, to)
+            val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
+                .find(context)?.groupValues?.getOrNull(1)
+            add(match.groupValues.getOrNull(1), label, context)
+        }
+
+        // Last-resort scan: some players store direct SRT/VTT URLs in packed
+        // JavaScript without a recognizable "file" or "track" property.
+        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\\s<>]+?\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\\s<>]*)?""")
+        for (match in directUrlPattern.findAll(normalized)) {
+            val from = (match.range.first - 250).coerceAtLeast(0)
+            val to = (match.range.last + 250).coerceAtMost(normalized.length)
+            add(match.value, null, normalized.substring(from, to))
         }
 
         found.forEach { (url, label) ->
