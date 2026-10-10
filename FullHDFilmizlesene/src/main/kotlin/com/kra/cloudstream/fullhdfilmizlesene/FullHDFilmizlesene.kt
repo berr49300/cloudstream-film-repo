@@ -224,10 +224,12 @@ class FullHDFilmizlesene : MainAPI() {
         if (end <= start) return emptyList()
         // Player keys are host names (for example atom/advid/fast), not just
         // "tr"/"en". Decode every long string inside scx and keep only valid URLs.
-        return Regex("""["']([^"'\\]{13,})["']""")
+        // Don't filter by the legacy ROT13+Base64 decoder here. Source
+        // encodings can rotate; decodeAny below tries ROT13, Base64 and plain URLs.
+        return Regex("""["']([^"'\\\\]{8,})["']""")
             .findAll(html.substring(start, end))
             .map { it.groupValues[1] }
-            .filter { decodeEntry(it) != null }
+            .distinct()
             .toList()
     }
 
