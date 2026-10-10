@@ -72,3 +72,18 @@ This file records reusable lessons from provider debugging so future site integr
 - Commit `10bd00d0f16dec8307e9b32d3c54a962b8af1ca7` passed `testDebugUnitTest`, plugin build and index generation in [GitHub Actions run 38047192466](https://github.com/berr49300/cloudstream-film-repo/actions/runs/38047192466).
 - The public publishing step was skipped as intended; a test artifact was uploaded to the workflow run.
 - This verifies compilation and the parser's unit fixtures only. It does not prove that Dizilla's live subtitle URLs are valid or that CloudStream displays them, and it does not validate live category completeness.
+
+
+## Process improvement: discover the source of truth before asking for sample links (2026-10-10)
+
+### Lesson from the first Dizilla integration
+The first investigation requested a homepage-to-episode URL too early. Later evidence showed that important page data is loaded from an encrypted Next.js state/API flow. In future integrations, a visible page URL is only a navigation example—not proof that HTML contains the data or that no API is involved.
+
+### New required default
+- Follow `docs/SITE_DISCOVERY_PLAYBOOK.md` before implementation and fill `docs/SITE_PROFILE_TEMPLATE.md`.
+- Inspect public HTML, redirects/status/content type, hydration state, scripts/bundles, API routes, iframes and response shapes before requesting user-supplied URLs.
+- Ask the user for an artifact only after naming the exact unobservable gap it fills (for example, device-only playback behavior or region/session-specific response).
+- Record the full flow from catalog/search to detail, episode, player, media and subtitles; do not assume all paths share one architecture.
+- Reuse generic parsing utilities only for stable shared formats. Keep per-site APIs and player-family protocols isolated, with sanitized fixtures and regression tests.
+- Distinguish CONFIRMED, HYPOTHESIS, BLOCKED and NOT TESTED. Build success does not promote runtime hypotheses to facts.
+- A universal auto-scraper is not a realistic acceptance criterion. The goal is a universal *investigation and adapter framework*: fast architecture discovery, reusable generic components, isolated site/player adapters and reliable tests.
