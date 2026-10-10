@@ -134,3 +134,13 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             .replace("&amp;", "&")
     }
 }
+
+
+/**
+ * Rapid uses the same conservative HTML/packed-script inspection pipeline,
+ * but has its own host identity and source label.
+ */
+class FilmMakinesiRapidExtractor : FilmMakinesiCloseLoadExtractor() {
+    override val playerLabel = "Rapid"
+    override val mainUrl = "https://rapid.filmmakinesi.to"
+}
