@@ -136,8 +136,22 @@ class FullHDFilmizlesene : MainAPI() {
             val path = uri.path.orEmpty().lowercase()
             val origin = "${uri.scheme}://${uri.host}/"
 
-            // Resolve known player pages before considering a URL to be media.
-            if (host.contains("rapidvid") || host.contains("imgz.me")) {
+            // TurboImgz is a distinct player: its page contains a plain HLS
+            // "file" field and is not handled by the generic RapidVid decoder.
+            if (host == "turbo.imgz.me" || host.endsWith(".turbo.imgz.me")) {
+                val resolved = runCatching { resolveTurboImgz(link) }.getOrNull()
+                if (!resolved.isNullOrBlank()) {
+                    callback.invoke(newExtractorLink("FullHDFilmizlesene • TurboImgz", "TurboImgz", resolved, ExtractorLinkType.M3U8) {
+                        this.referer = "$mainUrl/"
+                        this.headers = mapOf("Referer" to "$mainUrl/")
+                    })
+                    emitted = true
+                }
+                return@forEach
+            }
+
+            // Resolve known RapidVid player pages before considering a URL to be media.
+            if (host.contains("rapidvid") || (host.contains("imgz.me") && !host.contains("turbo.imgz.me"))) {
                 val resolved = runCatching { resolveRapidVid(link) }.getOrNull()
                 if (!resolved.isNullOrBlank() && isDirectMediaUrl(resolved)) {
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, INFER_TYPE) {
@@ -167,6 +181,25 @@ class FullHDFilmizlesene : MainAPI() {
             }
         }
         return emitted
+    }
+
+    /**
+     * TurboImgz embeds expose the playable HLS master in a JavaScript file field.
+     * The embed page itself is not a media URL and must never be emitted as a stream.
+     */
+    private suspend fun resolveTurboImgz(embedUrl: String): String? {
+        val html = app.get(embedUrl, referer = "$mainUrl/").text
+        val raw = Regex("""(?i)["']?file["']?\\s*:\\s*["']([^"']+)["']""")
+            .find(html)?.groupValues?.get(1)
+            ?.replace("\\\\/", "/")
+            ?.trim()
+            ?: return null
+        val normalized = when {
+            raw.startsWith("//") -> "https:$raw"
+            raw.startsWith("http://") || raw.startsWith("https://") -> raw
+            else -> return null
+        }
+        return normalized.takeIf { it.startsWith("http") }
     }
 
     private fun isDirectMediaUrl(url: String): Boolean {
