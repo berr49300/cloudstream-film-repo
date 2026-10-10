@@ -49,7 +49,8 @@ The user observes both English and Turkish subtitle labels but no loaded subtitl
 - [ ] Verify subtitle URL host/path pattern without logging signatures or token query values.
 - [ ] Check status/content type/body size and first bytes for an actual permitted subtitle request; never record session secrets.
 - [ ] Confirm SRT/VTT/ASS/SSA format and encoding.
-- [ ] Check if the subtitle request needs a Referer/cookie/header that the CloudStream SubtitleFile mechanism can actually carry.
+- [x] Code change applied: emitted subtitle tracks now receive a Referer header set to the ContentX iframe URL via CloudStream's SubtitleFile headers field (commit 245b47a). This is a hypothesis-driven fix; runtime success remains unverified.
+- [ ] Check whether the actual subtitle server accepts that Referer and whether cookies or other permitted headers are also required.
 - [ ] Compare one independently known-good subtitle file with one returned by the provider, to isolate player configuration vs provider URL.
 - [ ] Confirm the exact track renders in CloudStream on device.
 
