@@ -20,6 +20,27 @@
         "name": "Dizilla"
     },
     {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
+        "fileHash": "sha256-6384a8877c9e456310beb3e73265df216de5c2a11db398bcb9ba7c0ecf7d5101",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 45982,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 7,
+        "internalName": "FilmMakinesi",
+        "description": "FilmMakinesi film/dizi sa\u011flay\u0131c\u0131s\u0131; HTML, oynat\u0131c\u0131, video ve altyaz\u0131 ayr\u0131\u015ft\u0131rma",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FilmMakinesi.cs3",
+        "name": "FilmMakinesi"
+    },
+    {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=fullhdfilmizlesene.now",
         "fileHash": "sha256-b5986f0d705830be777e5ae15ced388321e5b4234b5342119eda929637b9a3c6",
         "apiVersion": 1,
