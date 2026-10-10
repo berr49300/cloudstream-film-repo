@@ -174,7 +174,7 @@ class FullHDFilmizlesene : MainAPI() {
         if (end <= start) return emptyList()
         // Player keys are host names (for example atom/advid/fast), not just
         // "tr"/"en". Decode every long string inside scx and keep only valid URLs.
-        return Regex("""["']([^"'\\\\]{13,})["']""")
+        return Regex("""["']([^"'\\]{13,})["']""")
             .findAll(html.substring(start, end))
             .map { it.groupValues[1] }
             .filter { decodeEntry(it) != null }
