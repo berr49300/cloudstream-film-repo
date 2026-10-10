@@ -6,12 +6,10 @@
  */
 package com.kra.cloudstream.filmmakinesi
 
-import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.utils.newSubtitleFile
 import org.jsoup.parser.Parser
 import java.io.ByteArrayOutputStream
 import java.net.URI
