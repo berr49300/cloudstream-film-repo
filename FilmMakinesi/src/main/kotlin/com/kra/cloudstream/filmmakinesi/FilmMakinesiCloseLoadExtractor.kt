@@ -202,11 +202,37 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             }.getOrDefault("")
         }
 
+        /**
+         * Small JVM/Android-compatible Base64 decoder. Avoids linking the
+         * android.util.Base64 stub into local JVM unit tests while supporting
+         * standard and URL-safe alphabets on API 21+.
+         */
         private fun decodeBase64(value: String): ByteArray? {
-            val padded = value + "=".repeat((4 - value.length % 4) % 4)
-            return runCatching { android.util.Base64.decode(padded, android.util.Base64.DEFAULT) }
-                .recoverCatching { android.util.Base64.decode(padded, android.util.Base64.URL_SAFE) }
-                .getOrNull()
+            val input = value.filterNot(Char::isWhitespace).trimEnd('=')
+            if (input.isEmpty()) return byteArrayOf()
+            if (input.length % 4 == 1) return null
+
+            val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            val output = java.io.ByteArrayOutputStream(input.length * 3 / 4)
+            var buffer = 0
+            var bits = 0
+            for (ch in input) {
+                val normalized = when (ch) {
+                    '-' -> '+'
+                    '_' -> '/'
+                    else -> ch
+                }
+                val digit = alphabet.indexOf(normalized)
+                if (digit < 0) return null
+                buffer = (buffer shl 6) or digit
+                bits += 6
+                if (bits >= 8) {
+                    bits -= 8
+                    output.write((buffer shr bits) and 0xff)
+                    buffer = buffer and ((1 shl bits) - 1)
+                }
+            }
+            return output.toByteArray()
         }
 
         private fun decodeBase64Latin1(value: String): String {
