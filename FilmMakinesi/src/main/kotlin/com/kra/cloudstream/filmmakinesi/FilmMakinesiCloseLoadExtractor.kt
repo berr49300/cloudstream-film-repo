@@ -64,6 +64,26 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
     }
 
     companion object {
+        fun extractStreamUrls(html: String, baseUrl: String, player: String = "CloseLoad"): List<String> =
+            FilmMakinesiStreamParser.extractStreamUrls(html, baseUrl, player)
+
+        internal fun mediaTypeForUrl(url: String): ExtractorLinkType {
+            val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+            return when {
+                path.endsWith(".mpd") -> ExtractorLinkType.DASH
+                path.endsWith(".m3u8") || path.endsWith("/txt/master.txt") || path.endsWith("/master.txt") -> ExtractorLinkType.M3U8
+                else -> ExtractorLinkType.VIDEO
+            }
+        }
+
+        internal fun mediaLabelForUrl(url: String): String = FilmMakinesiStreamParser.mediaLabelForUrl(url)
+
+        internal fun isMediaUrl(url: String): Boolean = FilmMakinesiStreamParser.isMediaUrl(url)
+    }
+}
+
+
+internal object FilmMakinesiStreamParser {
         private val fileField = Regex(
             """(?is)["']?(?:file|src|source|url|hls|mp4)["']?\s*[:=]\s*["']([^"']+)["']"""
         )
@@ -358,15 +378,6 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             if (isMediaUrl(absolute)) result.add(absolute)
         }
 
-        internal fun mediaTypeForUrl(url: String): ExtractorLinkType {
-            val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
-            return when {
-                path.endsWith(".mpd") -> ExtractorLinkType.DASH
-                path.endsWith(".m3u8") || path.endsWith("/txt/master.txt") || path.endsWith("/master.txt") -> ExtractorLinkType.M3U8
-                else -> ExtractorLinkType.VIDEO
-            }
-        }
-
         internal fun mediaLabelForUrl(url: String): String {
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             return when {
@@ -404,8 +415,6 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("&amp;", "&")
     }
-}
-
 /** Rapid has its own token format; it must not be treated as CloseLoad. */
 class FilmMakinesiRapidExtractor : FilmMakinesiCloseLoadExtractor() {
     override val playerLabel = "Rapid"
