@@ -173,7 +173,6 @@ class FullHDFilmizlesene : MainAPI() {
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
         return path.endsWith(".m3u8") || path.endsWith(".mp4") || path.endsWith(".mpd")
     }
-    }
 
     private fun parseScx(html: String): List<String> {
         val m = Regex("""\bscx\s*=\s*\{""").find(html) ?: return emptyList()
