@@ -216,13 +216,13 @@ class FullHDFilmizlesene : MainAPI() {
         }
 
         // Newer RapidVid embeds put the HLS master in jwSetup.sources via av()/_.()
-        val encoded = Regex("""["']file["']\\s*:\\s*(?:av|_)\\(\\s*["']([^"']+)["']\\s*\\)""")
+        val encoded = Regex("""['"]file['"]\s*:\s*(?:av|_)\(\s*['"]([^'"]+)['"]\s*\)""")
             .find(html)?.groupValues?.get(1)
         if (encoded != null) {
             val master = decodeImgz(encoded)
             if (!master.isNullOrBlank() && master.startsWith("http")) return master
         }
-        val plain = Regex("""jwSetup\\.sources\\s*=\\s*\\[[\\s\\S]*?["']file["']\\s*:\\s*["'](https?://[^"']+)["']""")
+        val plain = Regex("""jwSetup\s*\.\s*sources\s*=\s*\[[\s\S]*?['"]file['"]\s*:\s*['"](https?://[^'"]+)['"]""")
             .find(html)?.groupValues?.get(1)
         if (!plain.isNullOrBlank()) return plain
         return null
