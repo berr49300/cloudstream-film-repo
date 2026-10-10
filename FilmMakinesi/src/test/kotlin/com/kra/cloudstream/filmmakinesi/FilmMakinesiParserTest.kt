@@ -13,7 +13,7 @@ class FilmMakinesiParserTest {
         val html = """
             <video>
               <track kind="subtitles" src="/subs/tr.vtt" srclang="tr" label="Türkçe" />
-              <track kind="subtitles" src="/subs/en.vtt" srclang="en" label="English" />
+              <track kind="subtitles" src="/subs/caption2.vtt" label="İngilizce" />
               <track kind="subtitles" src="/subs/tr-forced.vtt" srclang="tr" label="Türkçe Forced" />
             </video>
         """.trimIndent()
@@ -28,7 +28,7 @@ class FilmMakinesiParserTest {
         assertEquals(
             listOf(
                 "https://closeload.filmmakinesi.to/subs/tr.vtt",
-                "https://closeload.filmmakinesi.to/subs/en.vtt",
+                "https://closeload.filmmakinesi.to/subs/caption2.vtt",
                 "https://closeload.filmmakinesi.to/subs/tr-forced.vtt"
             ),
             tracks.map { it.url }
@@ -41,7 +41,7 @@ class FilmMakinesiParserTest {
             var player = {
               tracks: [
                 {"file": "/captions/tur-default.vtt", "label": "Türkçe"},
-                {"file": "/captions/en-default.vtt", "label": "English"},
+                {"file": "/captions/second.vtt", "label": "İngilizce"},
                 {"file": "/captions/tur-forced.vtt", "label": "Türkçe Forced"}
               ]
             };

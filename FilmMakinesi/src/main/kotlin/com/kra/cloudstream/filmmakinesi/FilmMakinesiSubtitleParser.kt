@@ -70,12 +70,8 @@ internal object FilmMakinesiSubtitleParser {
 
     internal fun normalizeLabel(label: String, url: String, context: String = ""): String {
         val raw = decode(label).trim()
-        val languageEvidence = (raw + " " + url).lowercase()
-            .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
-            .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-        val normalizedLabel = raw.lowercase()
-            .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
-            .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+        val languageEvidence = normalizeForMatch(raw + " " + url)
+        val normalizedLabel = normalizeForMatch(raw)
         val forced = Regex("""(?i)\bforced\b""").containsMatchIn(languageEvidence)
         val turkish = Regex(
             """(?i)(?:\btr\b|\btur\b|\bturkish\b|\bturkce\b|türkçe|turkçe|tur[-_.]|\btur[-_]?\d)"""
@@ -94,15 +90,17 @@ internal object FilmMakinesiSubtitleParser {
         return if (forced && !base.contains("forced", ignoreCase = true)) "$base Forced" else base
     }
 
-    private fun priority(label: String): Int {
+    private fun normalizeForMatch(value: String): String = value.lowercase()
         // Unicode lowercasing of capital dotted İ can produce i + combining dot.
-        val key = label.lowercase().replace("\u0307", "")
-        return when (key) {
-            "türkçe" -> 0
-            "ingilizce" -> 1
-            "türkçe forced" -> 2
-            else -> 3
-        }
+        .replace("\u0307", "")
+        .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
+        .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+
+    private fun priority(label: String): Int = when (normalizeForMatch(label)) {
+        "türkçe" -> 0
+        "ingilizce" -> 1
+        "türkçe forced" -> 2
+        else -> 3
     }
 
     private fun objectContext(text: String, position: Int): String {
