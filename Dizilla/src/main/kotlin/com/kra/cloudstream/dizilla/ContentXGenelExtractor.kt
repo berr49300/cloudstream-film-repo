@@ -63,7 +63,7 @@ open class ContentXGenel : ExtractorApi() {
     private suspend fun kaynakEkle(base: String, id: String, extRef: String, iframe: String, isim: String, callback: (ExtractorLink) -> Unit) {
         val vidSource = app.get("$base/source2.php?v=$id", referer = extRef).text
         val m3uLink   = Regex("""file\":\"([^\"]+)""").find(vidSource)?.groupValues?.get(1)?.replace("\\", "") ?: return
-        Log.d("NeO_ContentX", "$isim » $m3uLink")
+        Log.d("DizillaContentX", "$isim » $m3uLink")
 
         callback.invoke(
             newExtractorLink(isim, isim, m3uLink, ExtractorLinkType.M3U8) {
