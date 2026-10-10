@@ -33,7 +33,7 @@ This file records reusable lessons from provider debugging so future site integr
 - Keep site-specific parsing separate from reusable source/iframe extraction utilities where possible.
 
 ### Release and repository visibility
-- Current source module version observed: `3`; published `builds/plugins.json` also advertises version `3`.
+- Current source module version: `4` (test build). Public distribution is paused: `builds/plugins.json` is `[]` and the published `.cs3` artifact was removed.
 - Repository is currently public. Making the whole repository private would also make the published `builds` branch and raw plugin artifacts inaccessible to unauthenticated CloudStream clients. If source privacy is required while distributing a working plugin, use a private source repository and a separate public distribution repository/branch with only the release artifacts and required index.
 - Changing a public repository to private does not make existing public forks private. Review GitHub's visibility-change warnings before proceeding.
 
