@@ -42,7 +42,7 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             subtitleTracks.putIfAbsent(track.url, track.lang to track.url)
         }
         if (playerLabel.equals("Rapid", ignoreCase = true)) {
-            extractRapidSubtitleTracks(html, url).forEach { track ->
+            FilmMakinesiStreamParser.extractRapidSubtitleTracks(html, url).forEach { track ->
                 subtitleTracks.putIfAbsent(track.second, track)
             }
         }
@@ -207,7 +207,7 @@ internal object FilmMakinesiStreamParser {
             """(?is)\{[^{}]*"file"\s*:\s*"((?:\\.|[^"])*)"[^{}]*"label"\s*:\s*"((?:\\.|[^"])*)"[^{}]*}"""
         )
 
-        private fun extractRapidSubtitleTracks(html: String, baseUrl: String): List<Pair<String, String>> {
+        internal fun extractRapidSubtitleTracks(html: String, baseUrl: String): List<Pair<String, String>> {
             val tracks = linkedMapOf<String, Pair<String, String>>()
             rapidDecodedCandidates(normalize(html)).forEach { payload ->
                 rapidCaptionObject.findAll(payload).forEach { match ->
