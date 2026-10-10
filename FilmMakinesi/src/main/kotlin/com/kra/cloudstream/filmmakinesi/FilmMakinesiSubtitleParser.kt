@@ -152,5 +152,16 @@ internal object FilmMakinesiSubtitleParser {
         .replace("\\u0026", "&", ignoreCase = true)
         .replace("&amp;", "&")
 
-    private fun decode(text: String): String = Parser.unescapeEntities(text, false)
+    private fun decode(text: String): String {
+        var decoded = text
+        repeat(2) {
+            decoded = Regex("""\\u([0-9a-fA-F]{4})""").replace(decoded) { match ->
+                match.groupValues[1].toInt(16).toChar().toString()
+            }
+            decoded = Regex("""\\x([0-9a-fA-F]{2})""").replace(decoded) { match ->
+                match.groupValues[1].toInt(16).toChar().toString()
+            }
+        }
+        return Parser.unescapeEntities(decoded, false)
+    }
 }
