@@ -155,7 +155,9 @@ class FullHDFilmizlesene : MainAPI() {
             // reliably decode this player, so resolve it explicitly.
             if (host.contains("vidmoxy")) {
                 val resolved = runCatching { resolveVidMoxy(link) }.getOrNull()
-                if (!resolved.isNullOrBlank() && isDirectMediaUrl(resolved)) {
+                if (!resolved.isNullOrBlank() && (resolved.startsWith("https://") || resolved.startsWith("http://"))) {
+                    // RapidVid/imgz HLS masters often have extensionless CDN paths (/m9/…),
+                    // so checking for .m3u8 incorrectly drops valid playable streams.
                     val embedOrigin = "${uri.scheme}://${uri.host}/"
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • VidMoxy", "VidMoxy", resolved, ExtractorLinkType.M3U8) {
                         this.referer = embedOrigin
@@ -169,8 +171,9 @@ class FullHDFilmizlesene : MainAPI() {
             // Resolve known RapidVid player pages before considering a URL to be media.
             if (host.contains("rapidvid") || (host.contains("imgz.me") && !host.contains("turbo.imgz.me"))) {
                 val resolved = runCatching { resolveRapidVid(link) }.getOrNull()
-                if (!resolved.isNullOrBlank() && isDirectMediaUrl(resolved)) {
-                    callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, INFER_TYPE) {
+                if (!resolved.isNullOrBlank() && (resolved.startsWith("https://") || resolved.startsWith("http://"))) {
+                    // imgz HLS masters may not end in .m3u8; the reference scraper confirms these are HLS.
+                    callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, ExtractorLinkType.M3U8) {
                         this.referer = origin
                         this.headers = mapOf("Referer" to origin)
                     })
