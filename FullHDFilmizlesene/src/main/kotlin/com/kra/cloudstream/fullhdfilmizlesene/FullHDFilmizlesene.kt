@@ -462,7 +462,7 @@ class FullHDFilmizlesene : MainAPI() {
     }
 
     /** Emit only real Turkish subtitle tracks found in an embed player's markup. */
-    private fun emitTurkishSubtitles(
+    private suspend fun emitTurkishSubtitles(
         html: String,
         pageUrl: String,
         subtitleCallback: (SubtitleFile) -> Unit
