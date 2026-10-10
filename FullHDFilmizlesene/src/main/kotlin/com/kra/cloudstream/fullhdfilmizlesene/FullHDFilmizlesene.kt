@@ -489,17 +489,17 @@ class FullHDFilmizlesene : MainAPI() {
             ) found.putIfAbsent(absolute, "Türkçe")
         }
 
-        val trackObjects = Regex("""(?is)\\{[^{}]*?(?:["']?(?:file|src|url)["']?)\\s*[:=]\\s*["']([^"']+)["'][^{}]*\\}""")
-        val filePattern = Regex("""(?is)["']?(?:file|src|url)["']?\\s*[:=]\\s*["']([^"']+)["']""")
-        val labelPattern = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+        val trackObjects = Regex("""(?is)\{[^{}]*?(?:["']?(?:file|src|url)["']?)\s*[:=]\s*["']([^"']+)["'][^{}]*\}""")
+        val filePattern = Regex("""(?is)["']?(?:file|src|url)["']?\s*[:=]\s*["']([^"']+)["']""")
+        val labelPattern = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
         for (match in trackObjects.findAll(normalized)) {
             val fragment = match.value
             add(filePattern.find(fragment)?.groupValues?.getOrNull(1),
                 labelPattern.find(fragment)?.groupValues?.getOrNull(1))
         }
 
-        val trackTag = Regex("""(?is)<track\\b([^>]+)>""")
-        val attrPattern = Regex("""(?is)([\\w-]+)\\s*=\\s*["']([^"']*)["']""")
+        val trackTag = Regex("""(?is)<track\b([^>]+)>""")
+        val attrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
         for (match in trackTag.findAll(normalized)) {
             val attrs = attrPattern.findAll(match.groupValues[1])
                 .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
