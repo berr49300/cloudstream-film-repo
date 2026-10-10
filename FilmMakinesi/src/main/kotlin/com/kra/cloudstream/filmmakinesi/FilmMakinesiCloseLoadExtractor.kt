@@ -98,10 +98,9 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             if (keys != null && keys.size >= 3) {
                 val keyA = keys[1]
                 val keyB = keys[2]
-                val arrayStart = html.indexOf('[')
-                val arrayEnd = if (arrayStart >= 0) html.indexOf(']', arrayStart) else -1
-                if (arrayStart >= 0 && arrayEnd > arrayStart) {
-                    val joined = arrayString.findAll(html.substring(arrayStart, arrayEnd + 1))
+                val arrays = Regex("""(?s)\\[(?:\\s*["'][^"']*["']\\s*,){8,}\\s*["'][^"']*["']\\s*\\]""")
+                for (array in arrays.findAll(html).take(8)) {
+                    val joined = arrayString.findAll(array.value)
                         .joinToString("") { it.groupValues[1] }
                     decodeCloseLoad(joined, keyA, keyB).takeIf(String::isNotBlank)?.let(decoded::add)
                 }
