@@ -41,18 +41,29 @@ class Dizilla : MainAPI() {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), hasNext = false)
 
         val document = app.get(request.data, referer = "${mainUrl}/").document
-        val home     = if (request.data == "${mainUrl}/") {
-            document.select("a[href]").filter { Regex("""-sezon-\d+-bolum""").containsMatchIn(it.attr("href")) && it.selectFirst("h3") != null }
-                .mapNotNull { it.sonBolumler() }.distinctBy { it.url }
+        val home = if (request.data.trimEnd('/') == mainUrl) {
+            document.select("a[href]").filter {
+                Regex("""-sezon-\d+-bolum""").containsMatchIn(it.attr("href")) && it.selectFirst("h3") != null
+            }.mapNotNull { it.sonBolumler() }.distinctBy { it.url }
         } else {
-            document.select("a[href^='/dizi/'], a[href^='dizi/']").filter { it.selectFirst("img") != null }
-                .mapNotNull { it.diziler() }.distinctBy { it.url }
+            // Only take links inside the site's actual series-card wrapper. A global
+            // a[href] scan also catches recommendation/sidebar cards and mixes genres.
+            document.select("span.prm-borderb a[href^='/dizi/'], span.prm-borderb a[href^='dizi/']")
+                .filter { it.selectFirst("img") != null || it.selectFirst("img[alt]") != null }
+                .mapNotNull { it.diziler(categoryType(request.data)) }
+                .distinctBy { it.url }
         }
 
         return newHomePageResponse(request.name, home, hasNext = false)
     }
 
-    private fun Element.diziler(): SearchResponse? {
+    private fun categoryType(url: String): TvType = when {
+        url.contains("/anime-izle", ignoreCase = true) -> TvType.Anime
+        url.contains("/kdrama-izle", ignoreCase = true) -> TvType.AsianDrama
+        else -> TvType.TvSeries
+    }
+
+    private fun Element.diziler(type: TvType): SearchResponse? {
         val kart      = this.closest("span.prm-borderb") ?: this
         val title     = this.attr("title").removeSuffix(" izle").trim().ifBlank {
             kart.selectFirst("h3, span.line-clamp-1")?.text()?.trim() ?: this.selectFirst("img")?.attr("alt")?.trim() ?: ""
@@ -62,7 +73,7 @@ class Dizilla : MainAPI() {
         val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
         val score     = this.selectFirst("h4")?.text()?.trim()
 
-        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+        return newTvSeriesSearchResponse(title, href, type) {
             this.posterUrl = posterUrl
             this.score     = Score.from10(score)
         }
@@ -119,19 +130,26 @@ class Dizilla : MainAPI() {
             Actor(cast.name ?: return@mapNotNull null, resim(cast.image)) to cast.role
         }
 
-        val episodes = veri.related?.seasons?.result.orEmpty().flatMap { sezon ->
-            sezon.episodes.orEmpty().mapNotNull { bolum ->
-                val slug = bolum.slug ?: return@mapNotNull null
-                newEpisode(fixUrl("/${slug.trimStart('/')}")) {
-                    this.name        = listOfNotNull(bolum.subtitle?.takeIf { it != bolum.text }, bolum.language?.takeIf { it.contains("Dublaj") })
-                        .joinToString(" - ").ifBlank { bolum.text }
-                    this.season      = bolum.season ?: sezon.season
-                    this.episode     = bolum.episode
-                    this.description = bolum.description
-                    this.addDate(bolum.releaseDate?.substringBefore("T"))
+        val episodes = veri.related?.seasons?.result.orEmpty()
+            .flatMap { sezon ->
+                sezon.episodes.orEmpty().mapNotNull { bolum ->
+                    val slug = bolum.slug ?: return@mapNotNull null
+                    newEpisode(fixUrl("/${slug.trimStart('/')}")) {
+                        this.name = listOfNotNull(
+                            bolum.subtitle?.takeIf { it != bolum.text },
+                            bolum.language?.takeIf { it.contains("Dublaj", ignoreCase = true) }
+                        ).joinToString(" - ").ifBlank { bolum.text }
+                        this.season = bolum.season ?: sezon.season
+                        this.episode = bolum.episode
+                        this.description = bolum.description
+                        this.addDate(bolum.releaseDate?.substringBefore("T"))
+                    }
                 }
             }
-        }.distinctBy { it.data }
+            // Do not rely on the website's JSON order: CloudStream's next-episode
+            // navigation follows this list, so it must be stable by season/episode.
+            .distinctBy { it.data }
+            .sortedWith(compareBy({ it.season ?: Int.MAX_VALUE }, { it.episode ?: Int.MAX_VALUE }, { it.data }))
 
         return newTvSeriesLoadResponse(title, diziUrl, TvType.TvSeries, episodes) {
             this.posterUrl           = resim(dizi.poster)
