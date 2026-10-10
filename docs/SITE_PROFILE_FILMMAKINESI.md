@@ -12,11 +12,11 @@
 | Claim | Status | Evidence |
 |---|---|---|
 | Site offers film and series browsing | CONFIRMED from indexed public pages | Public search-indexed homepage and /kesfet/ page show film and series cards. |
-| Detail cards use a.item / data-title metadata | HYPOTHESIS | Public reference provider in Emre-Kahveci/CloudStreamHub uses these selectors; live HTML could not be fetched here. |
-| Search uses /arama/?s=... | HYPOTHESIS | Public reference provider uses this route; not verified against a live response in this environment. |
-| Series pages are under /dizi/ and have episode links containing bolum | HYPOTHESIS | Public reference provider maps /dizi/ to series and looks for episode links by bolum; this module includes selector fallbacks. |
-| Player sources include closeload.filmmakinesi.to and rapid.filmmakinesi.to | HYPOTHESIS | Public reference provider documents these player variants. |
-| Subtitles are provided as VTT and have language labels | HYPOTHESIS | Public reference provider parses VTT file/label pairs; current live subtitle payload is not available for inspection here. |
+| Detail cards use a.item / data-title metadata | HYPOTHESIS | Selector behavior remains unverified because live HTML could not be fetched here. |
+| Search uses /arama/?s=... | HYPOTHESIS | This route is not verified against a live response in this environment. |
+| Series pages are under /dizi/ and have episode links containing bolum | HYPOTHESIS | The module includes selector fallbacks, but the live markup has not been verified here. |
+| Player sources include closeload.filmmakinesi.to and rapid.filmmakinesi.to | HYPOTHESIS | These hostnames are inferred from player naming; current live responses have not been verified here. |
+| Subtitles are provided as VTT and have language labels | HYPOTHESIS | Current live subtitle payload is not available for inspection here. |
 | .m3u8, .mpd, .mp4, .mkv, WebM and related direct links can be returned by this implementation | CONFIRMED at parser/build level only | Extension-aware link classification and static tests; not proof that the website currently serves every format. |
 
 ## Request flow implemented
