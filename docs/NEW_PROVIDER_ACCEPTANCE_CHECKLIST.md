@@ -4,6 +4,8 @@
 
 A status is only **PASS** when there is evidence from the actual site and CloudStream. Build success alone is a **BUILD PASS**, not a runtime pass. Use **BLOCKED** when a site denies access or the available environment cannot verify it; never silently convert unknowns to passes.
 
+**Before starting a new provider:** follow [SITE_DISCOVERY_PLAYBOOK.md](SITE_DISCOVERY_PLAYBOOK.md), then fill [SITE_PROFILE_TEMPLATE.md](SITE_PROFILE_TEMPLATE.md). Inspect public routes, scripts, embedded state and APIs before asking the user for sample links. Ask for user evidence only to fill a clearly named gap (device-only, region-specific, session-only or unavailable live response). Never infer an API from a URL alone.
+
 ## Gate 0 — Scope, access and reproducibility
 
 - [ ] Record site base URL, date/time tested, locale/region, access result, redirects and whether a browser or device is needed.
