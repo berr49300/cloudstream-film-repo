@@ -207,7 +207,7 @@ class FullHDFilmizlesene : MainAPI() {
             String(Base64.getDecoder().decode(normalized + "=".repeat((4 - normalized.length % 4) % 4)), StandardCharsets.UTF_8)
         }.getOrNull()
 
-        val p8 = Regex("""window\\._p8\\s*=\\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
+        val p8 = Regex("""window\s*\.\s*_p8\s*=\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
         if (p8 != null) {
             val json = decodeImgz(p8)
             val master = json?.let { runCatching { mapper.readTree(it) }.getOrNull() }
