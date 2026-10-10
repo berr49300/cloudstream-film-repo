@@ -6,15 +6,14 @@ import java.net.URI
 /**
  * Extracts common HTTP(S) source candidates from provider response fragments.
  *
- * This is intentionally a generic candidate parser, not a universal video-host resolver:
+ * This is a generic candidate parser, not a universal video-host resolver:
  * player-specific token, signature, or API logic belongs in a dedicated ExtractorApi.
  */
 internal object SourceCandidateParser {
     private val propertyPattern = Regex(
-        """(?i)["']?(?:src|url|iframe|embed|link|file|playurl|video_url)["']?\\s*[:=]\\s*["']([^"'<>]+)["']"""
+        """(?i)["']?(?:src|url|iframe|embed|link|file|playurl|video_url)["']?\s*[:=]\s*["']([^"'<>]+)["']"""
     )
-
-    private val plainUrlPattern = Regex("""(?i)^(?:https?:)?//[^\\s"'<>]+$""")
+    private val plainUrlPattern = Regex("""(?i)^(?:https?:)?//[^\s"'<>]+$""")
 
     fun extract(content: String?, baseUrl: String): List<String> {
         if (content.isNullOrBlank()) return emptyList()
@@ -27,7 +26,7 @@ internal object SourceCandidateParser {
             normalize(decoded, baseUrl)?.let(candidates::add)
         }
 
-        // Parse HTML first so entity-escaped and relative attributes are handled correctly.
+        // Jsoup decodes HTML entities and handles relative attributes.
         val document = Jsoup.parseBodyFragment(decoded, baseUrl)
         val elements = document.select(
             "iframe, frame, embed, object, video, source, audio, a, " +
@@ -56,15 +55,15 @@ internal object SourceCandidateParser {
 
     private fun decodeEscapes(value: String): String =
         value
-            .replace("\\\\/", "/")
-            .replace("\\\\\"", "\"")
-            .replace("\\\\'", "'")
-            .replace("\\\\u002f", "/", ignoreCase = true)
-            .replace("\\\\u003a", ":", ignoreCase = true)
-            .replace("\\\\u003d", "=", ignoreCase = true)
-            .replace("\\\\u0026", "&", ignoreCase = true)
+            .replace("\\/", "/")
+            .replace("\\\"", "\"")
+            .replace("\\'", "'")
+            .replace("\\u002f", "/", ignoreCase = true)
+            .replace("\\u003a", ":", ignoreCase = true)
+            .replace("\\u003d", "=", ignoreCase = true)
+            .replace("\\u0026", "&", ignoreCase = true)
             .replace("&amp;", "&", ignoreCase = true)
-            .replace("&quot;", "\""", ignoreCase = true)
+            .replace("&quot;", "\"", ignoreCase = true)
             .replace("&#x2f;", "/", ignoreCase = true)
             .replace("&#47;", "/", ignoreCase = true)
 
@@ -75,9 +74,11 @@ internal object SourceCandidateParser {
 
         return runCatching {
             val parsed = URI(candidate)
-            val resolved = if (parsed.isAbsolute) parsed else URI(baseUrl).resolve(
-                if (candidate.startsWith("//")) URI("https:$candidate") else parsed
-            )
+            val resolved = if (parsed.isAbsolute) {
+                parsed
+            } else {
+                URI(baseUrl).resolve(if (candidate.startsWith("//")) URI("https:$candidate") else parsed)
+            }
             val scheme = resolved.scheme?.lowercase()
             if (scheme !in setOf("http", "https") || resolved.host.isNullOrBlank()) return null
             resolved.toASCIIString()
