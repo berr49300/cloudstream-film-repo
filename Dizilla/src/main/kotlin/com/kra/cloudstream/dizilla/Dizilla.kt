@@ -43,18 +43,40 @@ class Dizilla : MainAPI() {
         val document = app.get(request.data, referer = "${mainUrl}/").document
         val home = if (request.data.trimEnd('/') == mainUrl) {
             document.select("a[href]").filter {
-                Regex("""-sezon-\d+-bolum""").containsMatchIn(it.attr("href")) && it.selectFirst("h3") != null
+                Regex("""-sezon-\\d+-bolum""").containsMatchIn(it.attr("href")) && it.selectFirst("h3") != null
             }.mapNotNull { it.sonBolumler() }.distinctBy { it.url }
         } else {
-            // Only take links inside the site's actual series-card wrapper. A global
-            // a[href] scan also catches recommendation/sidebar cards and mixes genres.
-            document.select("span.prm-borderb a[href^='/dizi/'], span.prm-borderb a[href^='dizi/']")
-                .filter { it.selectFirst("img") != null || it.selectFirst("img[alt]") != null }
+            // Prefer catalog cards across a few observed wrapper variants. The older
+            // span-only selector produced empty lists when the site used a different
+            // card wrapper on Anime/K-drama pages, or when the poster was a sibling.
+            document.select("a[href]")
+                .filter { it.isDizillaCatalogCard() }
                 .mapNotNull { it.diziler(categoryType(request.data)) }
                 .distinctBy { it.url }
         }
 
         return newHomePageResponse(request.name, home, hasNext = false)
+    }
+
+    private fun Element.isDizillaCatalogCard(): Boolean {
+        val absoluteUrl = fixUrlNull(attr("href")) ?: return false
+        val path = runCatching { java.net.URI(absoluteUrl).path.orEmpty() }.getOrDefault("")
+        if (!Regex("""/(?:dizi|anime|kdrama|kore-dizileri)/.+""").containsMatchIn(path)) return false
+
+        val excluded = parents().any { parent ->
+            val marker = "${parent.id()} ${parent.className()}".lowercase()
+            parent.normalName() in setOf("aside", "nav", "footer") ||
+                listOf("sidebar", "recommend", "related", "footer", "widget").any(marker::contains)
+        }
+        if (excluded) return false
+
+        val card = closest(".prm-borderb, article, li, [class*=card]") ?: parent() ?: this
+        val image = selectFirst("img") ?: card.selectFirst("img")
+        val title = attr("title").isNotBlank() ||
+            selectFirst("h2, h3, h4, [class*=title], [class*=line-clamp]") != null ||
+            card.selectFirst("h2, h3, h4, [class*=title], [class*=line-clamp]") != null ||
+            image?.attr("alt").isNullOrBlank().not()
+        return image != null && title
     }
 
     private fun categoryType(url: String): TvType = when {
@@ -64,18 +86,21 @@ class Dizilla : MainAPI() {
     }
 
     private fun Element.diziler(type: TvType): SearchResponse? {
-        val kart      = this.closest("span.prm-borderb") ?: this
-        val title     = this.attr("title").removeSuffix(" izle").trim().ifBlank {
-            kart.selectFirst("h3, span.line-clamp-1")?.text()?.trim() ?: this.selectFirst("img")?.attr("alt")?.trim() ?: ""
+        val kart = this.closest(".prm-borderb, article, li, [class*=card]") ?: this.parent() ?: this
+        val image = this.selectFirst("img") ?: kart.selectFirst("img")
+        val title = this.attr("title").removeSuffix(" izle").trim().ifBlank {
+            kart.selectFirst("h3, h2, h4, [class*=title], [class*=line-clamp]")?.text()?.trim()
+                ?: image?.attr("alt")?.trim()
+                ?: ""
         }
         if (title.isBlank()) return null
-        val href      = fixUrlNull(this.attr("href")) ?: return null
-        val posterUrl = fixUrlNull(this.selectFirst("img")?.attr("src"))
-        val score     = this.selectFirst("h4")?.text()?.trim()
+        val href = fixUrlNull(this.attr("href")) ?: return null
+        val posterUrl = fixUrlNull(image?.let { it.attr("src").ifBlank { it.attr("data-src") } })
+        val score = kart.selectFirst("[class*=score], h4")?.text()?.trim()
 
         return newTvSeriesSearchResponse(title, href, type) {
             this.posterUrl = posterUrl
-            this.score     = Score.from10(score)
+            this.score = Score.from10(score)
         }
     }
 
