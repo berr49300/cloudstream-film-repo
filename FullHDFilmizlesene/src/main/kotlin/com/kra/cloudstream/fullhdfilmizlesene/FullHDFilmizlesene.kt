@@ -111,6 +111,8 @@ class FullHDFilmizlesene : MainAPI() {
             if (isTurkishSubtitleLabel(subtitle.lang)) subtitleCallback(subtitle)
         }
         val html = response.text
+        // Search the movie page itself too; some pages publish subtitles outside the player iframe.
+        runCatching { emitTurkishSubtitles(html, data, turkishSubtitleCallback) }
         val urls = linkedSetOf<String>()
 
         // Collect every URL-bearing player surface, not only known host names.
@@ -524,7 +526,7 @@ class FullHDFilmizlesene : MainAPI() {
 
         // Last-resort scan: some players store direct SRT/VTT URLs in packed
         // JavaScript without a recognizable "file" or "track" property.
-        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\\s<>]+?\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\\s<>]*)?""")
+        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\s<>]+?\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\s<>]*)?""")
         for (match in directUrlPattern.findAll(normalized)) {
             val from = (match.range.first - 250).coerceAtLeast(0)
             val to = (match.range.last + 250).coerceAtMost(normalized.length)
