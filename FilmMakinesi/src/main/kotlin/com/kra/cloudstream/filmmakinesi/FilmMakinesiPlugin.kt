@@ -11,5 +11,6 @@ class FilmMakinesiPlugin : BasePlugin() {
     override fun load() {
         registerMainAPI(FilmMakinesi())
         registerExtractorAPI(FilmMakinesiCloseLoadExtractor())
+        registerExtractorAPI(FilmMakinesiRapidExtractor())
     }
 }
