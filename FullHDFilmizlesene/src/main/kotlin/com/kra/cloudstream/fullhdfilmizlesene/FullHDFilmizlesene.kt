@@ -519,7 +519,7 @@ class FullHDFilmizlesene : MainAPI() {
             // imgz.me commonly names its Turkish track tur-1-default.vtt. Use that
             // explicit filename as a fallback when the first cues contain little text,
             // but still reject it when English dialogue clearly dominates.
-            val turkishFilename = Regex("""(?i)(?:^|[/_.-])tur(?:kish|kce|kçe)?[-_.](?:\\d+|default)(?:[-_.]|\\.)|/tur-\\d+-default\\.vtt(?:$|\\?)""")
+            val turkishFilename = Regex("""(?i)(?:^|[/_.-])tur(?:kish|kce|kçe)?[-_.](?:\d+|default)(?:[-_.]|\.)|/tur-\d+-default\.vtt(?:$|\?)""")
                 .containsMatchIn(url)
             return languageLooksTurkish || (turkishFilename && commonTurkish >= 1 && commonEnglish <= 2)
         }
