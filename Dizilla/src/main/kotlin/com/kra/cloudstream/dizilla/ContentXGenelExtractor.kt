@@ -29,17 +29,14 @@ open class ContentXGenel : ExtractorApi() {
         val extRef  = referer ?: "$base/"
         val iSource = app.get(tamUrl, referer = extRef).text
 
-        val altyazilar = mutableSetOf<String>()
-        Regex("""\"file\":\"([^\"]+)\",\"label\":\"([^\"]+)\"""").findAll(iSource).forEach {
-            val (subUrl, subLang) = it.destructured
-            if (!altyazilar.add(subUrl)) return@forEach
-
-            subtitleCallback.invoke(
-                newSubtitleFile(
-                    subLang.replace("\\u0131", "ı").replace("\\u0130", "İ").replace("\\u00fc", "ü").replace("\\u00e7", "ç"),
-                    subUrl.replace("\\", "").let { s -> if (s.startsWith("http")) s else "$base/${s.trimStart('/')}" }
-                )
-            )
+        val subtitleTracks = ContentXSubtitleParser.parse(iSource, tamUrl)
+        subtitleTracks.forEach { track ->
+            val subtitleHost = runCatching { java.net.URI(track.url).host }.getOrNull().orEmpty()
+            Log.d("DizillaSubtitle", "Altyazı adayı ayrıştırıldı: ${track.label} (${subtitleHost})")
+            subtitleCallback.invoke(newSubtitleFile(track.label, track.url))
+        }
+        if (subtitleTracks.isEmpty()) {
+            Log.d("DizillaSubtitle", "Player sayfasında tanınan bir harici altyazı izi bulunamadı.")
         }
 
         val iExtract = Regex("""window\.openPlayer\('([^']+)'""").find(iSource)?.groupValues?.get(1)
