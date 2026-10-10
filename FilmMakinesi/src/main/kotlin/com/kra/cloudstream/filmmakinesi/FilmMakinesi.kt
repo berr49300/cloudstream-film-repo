@@ -269,7 +269,7 @@ class FilmMakinesi : MainAPI() {
         var found = false
         val emittedUrls = linkedSetOf<String>()
 
-        fun emitSubtitleTracks(sourceHtml: String, sourceUrl: String) {
+        suspend fun emitSubtitleTracks(sourceHtml: String, sourceUrl: String) {
             FilmMakinesiSubtitleParser.parse(sourceHtml, sourceUrl).forEach { track ->
                 subtitleCallback(newSubtitleFile(track.lang, track.url) {
                     this.headers = headersFor(sourceUrl)
