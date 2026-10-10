@@ -121,7 +121,7 @@ class FullHDFilmizlesene : MainAPI() {
         parseScx(html).forEach { value ->
             val decoded = decodeAny(value)
             (listOfNotNull(decoded) + Regex("""https?:\\?/\\?/[^"'\\s<>\\]+""")
-                .findAll(value).map { it.value.replace("\\\\/", "/") }.toList())
+                .findAll(value).map { it.value.replace("\\/", "/") }.toList())
                 .forEach { raw -> fixUrlNull(raw)?.takeIf { isCandidateEmbed(it) }?.let(urls::add) }
         }
         Regex("""(?i)(?:https?:)?\\?/\\?/[^"'\\s<>\\]+""").findAll(html).forEach { m ->
