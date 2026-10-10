@@ -213,15 +213,15 @@ class FullHDFilmizlesene : MainAPI() {
 
     /** Decode the Dean Edwards P.A.C.K.E.R wrapper used by VidMoxy. */
     private fun unpackPacker(packed: String): String? = runCatching {
-        val m = Regex("""\\}\\s*\\(\\s*'([\\s\\S]*)',\\s*(\\d+),\\s*(\\d+),\\s*'([\\s\\S]*?)'\\.split\\('\\|'\\)""")
+        val m = Regex("""\}\s*\(\s*'([\s\S]*)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)""")
             .find(packed) ?: return null
-        var payload = m.groupValues[1].replace("\\\\'", "'").replace("\\\\\\\\", "\\\\")
+        var payload = m.groupValues[1].replace("\\'", "'").replace("\\\\", "\\")
         val radix = m.groupValues[2].toInt()
         var count = m.groupValues[3].toInt()
         val dict = m.groupValues[4].split('|')
         while (count-- > 0) {
             if (dict.getOrNull(count).orEmpty().isNotEmpty()) {
-                val token = Regex("""\\b${Regex.escape(baseN(count, radix))}\\b""")
+                val token = Regex("\\b" + Regex.escape(baseN(count, radix)) + "\\b")
                 payload = token.replace(payload) { dict[count] }
             }
         }
@@ -229,9 +229,9 @@ class FullHDFilmizlesene : MainAPI() {
     }.getOrNull()
 
     private fun hexEscapesToString(value: String): String =
-        Regex("""\\\\x([0-9a-fA-F]{2})""").replace(value) { m ->
+        Regex("""\\x([0-9a-fA-F]{2})""").replace(value) { m ->
             m.groupValues[1].toInt(16).toChar().toString()
-        }.replace("\\\\/", "/")
+        }.replace("\\/", "/")
 
     /**
      * VidMoxy embeds can expose a hex-escaped file directly or hide it in a
@@ -239,18 +239,18 @@ class FullHDFilmizlesene : MainAPI() {
      */
     private suspend fun resolveVidMoxy(embedUrl: String): String? {
         val html = app.get(embedUrl, referer = "$mainUrl/").text
-        val direct = Regex(""""file"\\s*:\\s*"([^"]*\\\\x[^"]*)"""")
+        val direct = Regex(""""file"\s*:\s*"([^"]*\\x[^"]*)"""")
             .find(html)?.groupValues?.get(1)
         var master = direct?.let { hexEscapesToString(it) }.orEmpty()
 
         if (master.isBlank()) {
-            val packed = Regex("""\\};\\s*(eval\\(function[\\s\\S]*?)var played = \\d+;""")
+            val packed = Regex("""\};\s*(eval\(function[\s\S]*?)var played = \d+;""")
                 .find(html)?.groupValues?.get(1)
             if (packed != null) {
                 val once = unpackPacker(packed)
                 val twice = once?.let { unpackPacker(it) }
-                val decoded = (twice ?: once).orEmpty().replace("\\\\\\\\", "\\\\")
-                val file = Regex("""file"\\s*:\\s*"([^"]*)"""").find(decoded)?.groupValues?.get(1)
+                val decoded = (twice ?: once).orEmpty().replace("\\\\", "\\")
+                val file = Regex("""file"\s*:\s*"([^"]*)"""").find(decoded)?.groupValues?.get(1)
                 if (file != null) master = hexEscapesToString(file)
             }
         }
