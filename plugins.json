@@ -1,10 +1,10 @@
 [
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=dizilla.now",
-        "fileHash": "sha256-74e9634e542009df9e6d7c9dad3efafe699d3ba17dff0e43762678e8b07f7142",
+        "fileHash": "sha256-a3c7a564b05c6001e5bfbd1c714442cc66fb2cffc49961bc146402b064e9b146",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 51463,
+        "fileSize": 52564,
         "status": 1,
         "language": "tr",
         "authors": [
