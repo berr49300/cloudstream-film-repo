@@ -479,8 +479,8 @@ class FullHDFilmizlesene : MainAPI() {
             .replace("&amp;", "&", ignoreCase = true)
             .replace("&#038;", "&", ignoreCase = true)
         val candidates = linkedMapOf<String, String>()
-        val turkishMarker = Regex("""(?i)(?:\\btr\\b|\\btur\\b|tr[-_](?:tr|tur)|tur(?:kish)?[-_.](?:\\d+|default)|turkish|turkce|turkçe|türkçe|turkısh|\\bforced\\b.*(?:\\btr\\b|tur)|(?:\\btr\\b|tur).*\\bforced\\b|lang(?:uage)?[=:/"']+(?:tr|tur)\\b|srclang[=:/"']+(?:tr|tur)\\b)""")
-        val englishMarker = Regex("""(?i)(?:\\ben\\b|\\beng\\b|english|ingilizce|\\bing\\b|en[-_]us|en[-_]gb|srclang[=:/"']+en\\b|lang(?:uage)?[=:/"']+en\\b)""")
+        val turkishMarker = Regex("""(?i)(?:\btr\b|\btur\b|tr[-_](?:tr|tur)|tur(?:kish)?[-_.](?:\d+|default)|turkish|turkce|turkçe|türkçe|turkısh|\bforced\b.*(?:\btr\b|tur)|(?:\btr\b|tur).*\bforced\b|lang(?:uage)?[=:/"']+(?:tr|tur)\b|srclang[=:/"']+(?:tr|tur)\b)""")
+        val englishMarker = Regex("""(?i)(?:\ben\b|\beng\b|english|ingilizce|\bing\b|en[-_]us|en[-_]gb|srclang[=:/"']+en\b|lang(?:uage)?[=:/"']+en\b)""")
 
         fun add(raw: String?, label: String?, context: String = "") {
             if (raw.isNullOrBlank()) return
@@ -491,7 +491,7 @@ class FullHDFilmizlesene : MainAPI() {
             val uri = runCatching { URI(absolute) }.getOrNull() ?: return
             if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return
             val path = uri.path.orEmpty().lowercase()
-            if (!Regex("""(?i)\\.(srt|vtt|ass|ssa|ttml|xml)$""").containsMatchIn(path)) return
+            if (!Regex("""(?i)\.(srt|vtt|ass|ssa|ttml|xml)$""").containsMatchIn(path)) return
 
             val nearby = (label.orEmpty() + " " + absolute + " " + context)
                 .lowercase()
@@ -504,16 +504,16 @@ class FullHDFilmizlesene : MainAPI() {
         fun looksLikeTurkishSubtitle(text: String): Boolean {
             val sample = text.take(12000).lowercase()
             val turkishChars = Regex("[çğıöşüÇĞİÖŞÜ]").findAll(text).count()
-            val commonTurkish = Regex("""\\b(ve|bir|bu|şey|için|ama|değil|ben|sen|biz|siz|onlar|ne|neden|nasıl|biliyor|musun|mi|mı|mu|mü|evet|hayır|tamam|oldu|gibi|çok|daha|var|yok|kadar|şimdi|burada|orada|lütfen|teşekkür)\\b""", RegexOption.IGNORE_CASE)
+            val commonTurkish = Regex("""\b(ve|bir|bu|şey|için|ama|değil|ben|sen|biz|siz|onlar|ne|neden|nasıl|biliyor|musun|mi|mı|mu|mü|evet|hayır|tamam|oldu|gibi|çok|daha|var|yok|kadar|şimdi|burada|orada|lütfen|teşekkür)\b""", RegexOption.IGNORE_CASE)
                 .findAll(sample).count()
-            val commonEnglish = Regex("""\\b(the|and|you|that|what|this|with|have|for|not|are|your|was|were|hello|yes|no|okay|know|think|because|about)\\b""", RegexOption.IGNORE_CASE)
+            val commonEnglish = Regex("""\b(the|and|you|that|what|this|with|have|for|not|are|your|was|were|hello|yes|no|okay|know|think|because|about)\b""", RegexOption.IGNORE_CASE)
                 .findAll(sample).count()
             return turkishChars >= 3 || (commonTurkish >= 3 && commonTurkish > commonEnglish)
         }
 
         // Standard HTML5 tracks, including data-src variants.
-        val trackTag = Regex("""(?is)<track\\b([^>]+)>""")
-        val attrPattern = Regex("""(?is)([\\w-]+)\\s*=\\s*["']([^"']*)["']""")
+        val trackTag = Regex("""(?is)<track\b([^>]+)>""")
+        val attrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
         for (match in trackTag.findAll(normalized)) {
             val attrs = attrPattern.findAll(match.groupValues[1])
                 .associate { it.groupValues[1].lowercase() to it.groupValues[2] }
@@ -522,24 +522,24 @@ class FullHDFilmizlesene : MainAPI() {
             add(attrs["src"] ?: attrs["data-src"], attrs["srclang"] ?: attrs["label"], match.value)
         }
 
-        val filePattern = Regex("""(?is)["']?(?:file|src|url|subtitle|captions)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+        val filePattern = Regex("""(?is)["']?(?:file|src|url|subtitle|captions)["']?\s*[:=]\s*["']([^"']+)["']""")
         for (match in filePattern.findAll(normalized)) {
             val from = (match.range.first - 400).coerceAtLeast(0)
             val to = (match.range.last + 400).coerceAtMost(normalized.length)
             val context = normalized.substring(from, to)
-            val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+            val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
                 .find(context)?.groupValues?.getOrNull(1)
             add(match.groupValues.getOrNull(1), label, context)
         }
 
-        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\\s<>]+?\\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\\?[^"'\\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\\?[^"'\\s<>]*)?""")
+        val directUrlPattern = Regex("""(?i)(?:https?:)?//[^"'\s<>]+?\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\s<>]*)?|(?:/[A-Za-z0-9_./%+-]+)\.(?:srt|vtt|ass|ssa|ttml|xml)(?:\?[^"'\s<>]*)?""")
         for (match in directUrlPattern.findAll(normalized)) {
             val from = (match.range.first - 250).coerceAtLeast(0)
             val to = (match.range.last + 250).coerceAtMost(normalized.length)
             add(match.value, null, normalized.substring(from, to))
         }
 
-        val scriptUrls = Regex("""(?is)<script\\b[^>]*\\bsrc\\s*=\\s*["']([^"']+)["'][^>]*>""")
+        val scriptUrls = Regex("""(?is)<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>""")
             .findAll(normalized)
             .mapNotNull { match -> runCatching { URI(pageUrl).resolve(URI(match.groupValues[1])).toASCIIString() }.getOrNull() }
             .filter { it.startsWith("http://") || it.startsWith("https://") }
@@ -557,7 +557,7 @@ class FullHDFilmizlesene : MainAPI() {
                 val from = (match.range.first - 400).coerceAtLeast(0)
                 val to = (match.range.last + 400).coerceAtMost(scriptText.length)
                 val context = scriptText.substring(from, to)
-                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\\s*[:=]\\s*["']([^"']+)["']""")
+                val label = Regex("""(?is)["']?(?:label|srclang|language|lang)["']?\s*[:=]\s*["']([^"']+)["']""")
                     .find(context)?.groupValues?.getOrNull(1)
                 add(match.groupValues.getOrNull(1), label, context)
             }
