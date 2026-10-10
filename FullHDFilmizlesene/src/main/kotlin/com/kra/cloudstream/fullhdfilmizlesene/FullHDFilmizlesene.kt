@@ -533,8 +533,8 @@ class FullHDFilmizlesene : MainAPI() {
      * +/-400 character window can accidentally borrow another track's language/label.
      */
     private fun subtitleObjectContext(text: String, position: Int): String {
-        val start = text.lastIndexOf('{', position).takeIf { it >= 0 } ?: return
-            text.substring((position - 120).coerceAtLeast(0), (position + 180).coerceAtMost(text.length))
+        val start = text.lastIndexOf('{', position).takeIf { it >= 0 }
+            ?: return text.substring((position - 120).coerceAtLeast(0), (position + 180).coerceAtMost(text.length))
         var depth = 0
         var quoted = false
         var quote = '\u0000'
