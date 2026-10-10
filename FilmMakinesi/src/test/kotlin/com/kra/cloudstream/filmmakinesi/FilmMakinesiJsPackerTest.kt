@@ -1,0 +1,25 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+package com.kra.cloudstream.filmmakinesi
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class FilmMakinesiJsPackerTest {
+    @Test
+    fun decodesCommonPackerPayloadWithoutExecutingIt() {
+        val packed = """eval(function(p,a,c,k,e,d){return p;}('0.1(\\'2 3!\\');',62,4,'console|log|hello|world'.split('|'),0,{}))"""
+
+        assertEquals(
+            listOf("console.log('hello world!');"),
+            FilmMakinesiJsPacker.unpackAll(packed)
+        )
+    }
+
+    @Test
+    fun ignoresUnrelatedScriptsAndMalformedPackerPayloads() {
+        assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("var player = { file: '/video.m3u8' };"))
+        assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("eval(function(p,a,c,k,e,d){return p;}('0',999,1,'x'.split('|'),0,{}))"))
+    }
+}
