@@ -25,14 +25,14 @@
 2. Card parsing prefers semantic card anchors, then restricts fallback results to same-site content routes.
 3. load() parses film metadata or creates a series response from season/episode anchors.
 4. loadLinks() inspects embedded frames, source buttons, media tags and inline player URLs.
-5. Direct media URLs are emitted by media type. Other embeds are passed to CloudStream's registered extractors; FilmMakinesi's CloseLoad/Rapid variants are inspected with the dedicated resolver first.
+5. Direct media URLs are emitted by media type. Other embeds are passed to CloudStream's registered extractors. The custom CloseLoad resolver currently extracts only URLs exposed directly in player HTML; obfuscated payload decoding is intentionally not included.
 6. Subtitle discovery runs on both the content page and the CloseLoad player page, normalizes language labels, deduplicates identical URLs and orders Turkish, English, then Turkish Forced.
 
 ## Release gate
 
 - [x] Provider module, registration and metadata added without modifying existing provider source files.
 - [x] Subtitle parser regression tests cover Turkish / English / Turkish Forced labels, distinct tracks, URL de-duplication and escaped labels.
-- [x] GitHub Actions build and unit tests pass for version 9: https://github.com/berr49300/cloudstream-film-repo/actions/runs/38087568366
+- [x] Earlier GitHub Actions build and unit tests passed for version 9: https://github.com/berr49300/cloudstream-film-repo/actions/runs/38087568366
 - [x] The published plugin index contains FilmMakinesi version 9: https://github.com/berr49300/cloudstream-film-repo/blob/builds/plugins.json
 - [ ] User installs this exact build and verifies search, detail, playback/source switching and all subtitle tracks on a real device.
 
