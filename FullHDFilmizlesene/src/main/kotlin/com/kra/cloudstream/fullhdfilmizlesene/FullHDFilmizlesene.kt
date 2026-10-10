@@ -20,13 +20,8 @@ class FullHDFilmizlesene : MainAPI() {
     override val mainPage = mainPageOf(
         "$mainUrl/yeni-filmler" to "Yeni Filmler",
         "$mainUrl/en-cok-izlenen-filmler" to "En Çok İzlenen Filmler",
-        "$mainUrl/filmizle/imdb-puani-yuksek-filmler" to "IMDb Puanı Yüksek Filmler",
         "$mainUrl/filmizle/aile-filmleri" to "Aile Filmleri",
-        "$mainUrl/filmizle/aksiyon-filmleri" to "Aksiyon Filmleri",
-        "$mainUrl/filmizle/animasyon-filmleri" to "Animasyon Filmleri",
-        "$mainUrl/filmizle/bilim-kurgu-filmleri" to "Bilim Kurgu Filmleri",
-        "$mainUrl/filmizle/komedi-filmleri" to "Komedi Filmleri",
-        "$mainUrl/filmizle/korku-filmleri" to "Korku Filmleri"
+        "$mainUrl/filmizle/aksiyon-filmleri" to "Aksiyon Filmleri"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -34,15 +29,15 @@ class FullHDFilmizlesene : MainAPI() {
         val doc = app.get(request.data, referer = "$mainUrl/").document
         // The live catalogue uses li.film cards; the fallback is intentionally
         // limited to catalogue containers so navigation/category links aren't movies.
-        val cards = doc.select("li.film")
-        val items = (if (cards.isNotEmpty()) cards else
-            doc.select("main article, main .film-card, main .movie-card, #content article, #content .film-card"))
-            .mapNotNull { card ->
-                val a = card.selectFirst("a[href]") ?: return@mapNotNull null
-                val href = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
-                if (!isMovieUrl(href)) return@mapNotNull null
-                card.toSearchResult(href)
-            }.distinctBy { it.url }
+        val cards = doc.select("li.film, li.movie, article.film, article.movie, .film-item, .movie-item, .film-card, .movie-card, .poster-item")
+        val scoped = if (cards.isNotEmpty()) cards else
+            doc.select(".films li, .movies li, .film-list li, .movie-list li, .film-list article, .movie-list article, main article, #content article")
+        val items = scoped.mapNotNull { card ->
+            val a = card.selectFirst("a[href]") ?: return@mapNotNull null
+            val href = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
+            if (!isMovieUrl(href)) return@mapNotNull null
+            card.toSearchResult(href)
+        }.distinctBy { it.url }
         return newHomePageResponse(request.name, items, hasNext = false)
     }
 
@@ -109,16 +104,46 @@ class FullHDFilmizlesene : MainAPI() {
 
     override suspend fun loadLinks(data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val d = app.get(data, referer = "$mainUrl/").document
+        val response = app.get(data, referer = "$mainUrl/")
+        val d = response.document
+        val html = response.text
         val urls = linkedSetOf<String>()
-        d.select("iframe[src], video[src], source[src]").forEach { e ->
-            fixUrlNull(e.attr("src"))?.takeIf { isCandidateEmbed(it) }?.let(urls::add)
+
+        // Collect every URL-bearing player surface, not only known host names.
+        d.select("iframe[src], iframe[data-src], video[src], video[data-src], source[src], embed[src], a[href]")
+            .forEach { e ->
+                listOf("src", "data-src", "data-url", "href").forEach { attr ->
+                    val raw = e.attr(attr).trim()
+                    if (raw.isNotBlank()) fixUrlNull(raw)?.takeIf { isCandidateEmbed(it) }?.let(urls::add)
+                }
+            }
+        // Decode all scx values and scan inline scripts for direct/escaped media URLs.
+        parseScx(html).forEach { value ->
+            val decoded = decodeAny(value)
+            (listOfNotNull(decoded) + Regex("""https?:\\?/\\?/[^"'\\s<>\\]+""")
+                .findAll(value).map { it.value.replace("\\\\/", "/") }.toList())
+                .forEach { raw -> fixUrlNull(raw)?.takeIf { isCandidateEmbed(it) }?.let(urls::add) }
         }
-        parseScx(d.html()).forEach { encoded ->
-            decodeEntry(encoded)?.let { fixUrlNull(it) }?.takeIf { isCandidateEmbed(it) }?.let(urls::add)
+        Regex("""(?i)(?:https?:)?\\?/\\?/[^"'\\s<>\\]+""").findAll(html).forEach { m ->
+            val raw = m.value.replace("\\\\/", "/").let { if (it.startsWith("//")) "https:$it" else it }
+            fixUrlNull(raw)?.takeIf { isCandidateEmbed(it) }?.let(urls::add)
         }
-        urls.forEach { link -> runCatching { loadExtractor(link, data, subtitleCallback, callback) } }
-        return urls.isNotEmpty()
+
+        var emitted = false
+        urls.forEach { link ->
+            // The generic extractor registry covers supported hosts; a direct HLS/MP4
+            // URL can be emitted without relying on a named extractor.
+            if (link.contains(".m3u8", true) || link.contains(".mp4", true) ||
+                link.contains(".mpd", true)) {
+                callback.invoke(newExtractorLink(name, name, link, INFER_TYPE) {
+                    this.referer = data
+                })
+                emitted = true
+            } else {
+                runCatching { loadExtractor(link, data, subtitleCallback) { callback(it); emitted = true } }
+            }
+        }
+        return emitted
     }
 
     private fun parseScx(html: String): List<String> {
@@ -154,8 +179,29 @@ class FullHDFilmizlesene : MainAPI() {
         val normalized = rot.replace('-', '+').replace('_', '/')
         val padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
         String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8)
-            .takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            .takeIf { it.startsWith("http://") || it.startsWith("https://") || it.startsWith("//") }
     }.getOrNull()
+
+    private fun decodeAny(value: String): String? {
+        val direct = value.trim().replace("\\\\/", "/")
+        if (direct.startsWith("https://") || direct.startsWith("http://") || direct.startsWith("//")) return direct
+        decodeEntry(value)?.let { return it }
+        // Sites may use plain Base64, URL-safe Base64, or ROT13 + Base64.
+        val candidates = listOf(value, value.map { ch -> when (ch) {
+            in 'a'..'z' -> 'a' + (ch - 'a' + 13) % 26
+            in 'A'..'Z' -> 'A' + (ch - 'A' + 13) % 26
+            else -> ch
+        } }.joinToString(""))
+        for (candidate in candidates) runCatching {
+            val normalized = candidate.replace('-', '+').replace('_', '/')
+            val padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
+            String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8)
+                .replace("\\\\/", "/")
+        }.getOrNull()?.let { decoded ->
+            Regex("""https?://[^"'\\s<>]+|//[^"'\\s<>]+""").find(decoded)?.value?.let { return it }
+        }
+        return Regex("""https?://[^"'\\s<>]+|//[^"'\\s<>]+""").find(value)?.value
+    }
 
     private fun isMovieUrl(url: String): Boolean {
         val host = runCatching { URI(url).host.orEmpty() }.getOrDefault("")
@@ -167,8 +213,13 @@ class FullHDFilmizlesene : MainAPI() {
             "en-cok-izlenen", "en-cok-izlenen-filmler", "autocomplete", "search",
             "arama", "etiket", "tag", "oyuncu", "yonetmen", "sayfa"
         )
+        val looksLikeTaxonomy = path.trim('/').split('/').lastOrNull().orEmpty().lowercase() in setOf(
+            "filmizle", "kategori", "kategoriler", "turler", "film-turleri", "film-listeleri",
+            "aile-filmleri", "aksiyon-filmleri", "komedi-filmleri", "korku-filmleri",
+            "animasyon-filmleri", "bilim-kurgu-filmleri", "yeni-filmler", "en-cok-izlenen-filmler"
+        )
         return host.endsWith("fullhdfilmizlesene.now", true) && path.isNotBlank() && path != "/" &&
-            nonMoviePath.none { slug.contains(it) }
+            !looksLikeTaxonomy && nonMoviePath.none { slug.contains(it) }
     }
 
     private fun isCandidateEmbed(url: String): Boolean =
