@@ -94,11 +94,15 @@ internal object FilmMakinesiSubtitleParser {
         return if (forced && !base.contains("forced", ignoreCase = true)) "$base Forced" else base
     }
 
-    private fun priority(label: String): Int = when (label.lowercase()) {
-        "türkçe" -> 0
-        "ingilizce" -> 1
-        "türkçe forced" -> 2
-        else -> 3
+    private fun priority(label: String): Int {
+        // Unicode lowercasing of capital dotted İ can produce i + combining dot.
+        val key = label.lowercase().replace("\u0307", "")
+        return when (key) {
+            "türkçe" -> 0
+            "ingilizce" -> 1
+            "türkçe forced" -> 2
+            else -> 3
+        }
     }
 
     private fun objectContext(text: String, position: Int): String {
