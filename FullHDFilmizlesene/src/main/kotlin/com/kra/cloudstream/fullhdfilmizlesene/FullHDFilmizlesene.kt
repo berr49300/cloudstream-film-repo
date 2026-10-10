@@ -22,7 +22,7 @@ class FullHDFilmizlesene : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), false)
         val doc = app.get(request.data, referer = "$mainUrl/").document
-        val items = doc.select("a[href]").mapNotNull { a ->
+        val items = doc.select("article a[href], .film a[href], .movie a[href], .film-card a[href], .movie-card a[href], .poster a[href], .item a[href]").mapNotNull { a ->
             val href = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
             if (!isMovieUrl(href)) return@mapNotNull null
             a.toSearchResult(href)
@@ -139,8 +139,15 @@ class FullHDFilmizlesene : MainAPI() {
     private fun isMovieUrl(url: String): Boolean {
         val host = runCatching { URI(url).host.orEmpty() }.getOrDefault("")
         val path = runCatching { URI(url).path.orEmpty() }.getOrDefault("")
+        val slug = path.lowercase()
+        val nonMoviePath = listOf(
+            "kategori", "category", "categories", "genre", "turler", "film-turleri",
+            "film-listeleri", "seri-filmler", "aile-filmleri", "aksiyon-filmleri",
+            "en-cok-izlenen", "en-cok-izlenen-filmler", "autocomplete", "search",
+            "arama", "etiket", "tag", "oyuncu", "yonetmen", "sayfa"
+        )
         return host.endsWith("fullhdfilmizlesene.now", true) && path.isNotBlank() && path != "/" &&
-            !path.contains("kategori") && !path.contains("autocomplete") && !path.contains("search")
+            nonMoviePath.none { slug.contains(it) }
     }
 
     private fun isCandidateEmbed(url: String): Boolean =
