@@ -12,10 +12,10 @@ This file records reusable lessons from provider debugging so future site integr
 - The ContentX extractor has a dedicated subtitle-parsing regex and invokes CloudStream's subtitle callback for matches.
 
 ### User-observed symptoms (not yet resolved)
-- Opening a video/source can remain on a spinner or take a long time.
-- Subtitle menu can show options such as Turkish, but selecting them does not produce visible subtitles.
+- Opening a video/source previously remained on a spinner or took a long time. The user now reports that the opening-speed improvement is successful in their latest test; the exact root cause and timing have not been instrumented.
+- Subtitle menu can show options such as Turkish, but selecting them does not produce visible subtitles. The player explicitly reports “Henüz altyazı yüklenmedi” (subtitle has not loaded). A new parser now handles normal/escaped track metadata and relative URL resolution with unit tests; device-level rendering remains unverified.
 - Directly opening an episode can behave differently from advancing to it with the next-episode control.
-- Some home/category lists previously mixed anime, Korean dramas, and regular series.
+- The latest screenshots show some dedicated category rows (Yabancı Diziler, Anime, Kore Dizileri) as empty, while some genre rows can contain titles whose media type is unexpected. The old selector required one specific wrapper and could reject sibling-poster cards; catalog selection has been broadened to multiple card wrappers with sidebar filtering. Live-page structure is still unverified because external requests return 403.
 
 ### Working hypotheses — verify before changing code
 1. Slow playback startup may be caused by sequential extractor requests, slow/unavailable hosts, or source-page network delays. Measure per-source duration and success before optimizing.
@@ -42,3 +42,28 @@ This file records reusable lessons from provider debugging so future site integr
 - Subtitle root cause: not confirmed.
 - Direct-vs-next episode discrepancy: not confirmed.
 - Category selector/type fix: compiles, but still needs in-app validation.
+
+## Additional findings and changes (2026-10-10)
+
+### Subtitle parser correction
+- The previous ContentX track matcher only recognized one exact escaped-quote sequence with no whitespace and with `file` before `label`.
+- Added `ContentXSubtitleParser`, which normalizes quote/slash/Unicode escapes, supports either field order, resolves relative URLs against the iframe page URL, rejects non-HTTP(S) URLs, and deduplicates by URL.
+- Added unit tests for normal JSON, escaped quotes/slashes/Unicode labels, reversed field order, duplicates, and unsafe schemes.
+- This is a targeted fix to a code-level weakness, not proof that the site's actual subtitle payload matches the tested examples. Runtime subtitle loading is still an acceptance blocker until the actual player response and device rendering are verified.
+
+### Catalog correction
+- Broadened card discovery from a single `span.prm-borderb` shape to supported card wrapper variants and image/title lookup in the card parent. Added exclusions for common sidebar/navigation/recommendation containers.
+- This implementation is based on the app screenshots and observed code paths; because the live site currently returns HTTP 403 to the external inspection environment, it still needs an in-app comparison against the site.
+- Dedicated Anime/Korean routes map to their corresponding CloudStream types. Generic genre pages currently default to TvSeries; whether a genre's cards can be mixed types must be verified from actual item metadata before considering type labeling complete.
+
+### Independent implementation and reference provenance
+- The earliest Dizilla implementation was bootstrapped by studying/adapting parts of the public Neowatch/Dizilla approach, including the encrypted page-data/search pattern and some source-resolution ideas. It would be inaccurate to claim that the first version was built without that reference.
+- A reference is not a permanent dependency: future providers should start from the acceptance checklist, capture the target site's own response shapes, and implement site-specific parsing against evidence. Reuse only the generic project-owned utilities where appropriate; do not copy a provider wholesale or assume selectors/API schemas carry over.
+- The lasting project memory is stored in this repository's engineering notes and acceptance checklist. This is documentation for future tasks, not a claim that the underlying model is retrained or permanently changes its weights from one conversation.
+
+### Distribution pause
+- The root `repo.json` has been changed to an empty plugin list, and the README no longer instructs users to install the repository. Once the publish workflow finishes, the standard repository URL should present no plugin entries to new users.
+- The GitHub repository itself remains public; hiding its page/source URL requires changing its repository visibility in GitHub Settings. This GitHub connector cannot perform that visibility setting change.
+- Current provider speed report: user-confirmed improvement, root cause not benchmarked.
+- Current subtitle status: code-level parser strengthened; runtime still not confirmed.
+- Current catalog status: selector broadened; in-app categories still require verification.
