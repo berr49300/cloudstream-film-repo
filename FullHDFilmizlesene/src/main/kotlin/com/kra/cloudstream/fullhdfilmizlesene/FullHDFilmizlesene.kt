@@ -150,6 +150,22 @@ class FullHDFilmizlesene : MainAPI() {
                 return@forEach
             }
 
+            // VidMoxy's current player is often double-packed and stores the
+            // HLS URL as hex escapes. The generic CloudStream extractor cannot
+            // reliably decode this player, so resolve it explicitly.
+            if (host.contains("vidmoxy")) {
+                val resolved = runCatching { resolveVidMoxy(link) }.getOrNull()
+                if (!resolved.isNullOrBlank() && isDirectMediaUrl(resolved)) {
+                    val embedOrigin = "${uri.scheme}://${uri.host}/"
+                    callback.invoke(newExtractorLink("FullHDFilmizlesene • VidMoxy", "VidMoxy", resolved, ExtractorLinkType.M3U8) {
+                        this.referer = embedOrigin
+                        this.headers = mapOf("Referer" to embedOrigin)
+                    })
+                    emitted = true
+                    return@forEach
+                }
+            }
+
             // Resolve known RapidVid player pages before considering a URL to be media.
             if (host.contains("rapidvid") || (host.contains("imgz.me") && !host.contains("turbo.imgz.me"))) {
                 val resolved = runCatching { resolveRapidVid(link) }.getOrNull()
@@ -181,6 +197,64 @@ class FullHDFilmizlesene : MainAPI() {
             }
         }
         return emitted
+    }
+
+    private fun baseN(value: Int, radix: Int): String {
+        val digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        if (value == 0) return "0"
+        var n = value
+        var out = ""
+        while (n > 0) {
+            out = digits[n % radix] + out
+            n /= radix
+        }
+        return out
+    }
+
+    /** Decode the Dean Edwards P.A.C.K.E.R wrapper used by VidMoxy. */
+    private fun unpackPacker(packed: String): String? = runCatching {
+        val m = Regex("""\\}\\s*\\(\\s*'([\\s\\S]*)',\\s*(\\d+),\\s*(\\d+),\\s*'([\\s\\S]*?)'\\.split\\('\\|'\\)""")
+            .find(packed) ?: return null
+        var payload = m.groupValues[1].replace("\\\\'", "'").replace("\\\\\\\\", "\\\\")
+        val radix = m.groupValues[2].toInt()
+        var count = m.groupValues[3].toInt()
+        val dict = m.groupValues[4].split('|')
+        while (count-- > 0) {
+            if (dict.getOrNull(count).orEmpty().isNotEmpty()) {
+                val token = Regex("""\\b${Regex.escape(baseN(count, radix))}\\b""")
+                payload = token.replace(payload) { dict[count] }
+            }
+        }
+        payload
+    }.getOrNull()
+
+    private fun hexEscapesToString(value: String): String =
+        Regex("""\\\\x([0-9a-fA-F]{2})""").replace(value) { m ->
+            m.groupValues[1].toInt(16).toChar().toString()
+        }.replace("\\\\/", "/")
+
+    /**
+     * VidMoxy embeds can expose a hex-escaped file directly or hide it in a
+     * twice-packed P.A.C.K.E.R block. Return only a real HTTP(S) HLS URL.
+     */
+    private suspend fun resolveVidMoxy(embedUrl: String): String? {
+        val html = app.get(embedUrl, referer = "$mainUrl/").text
+        val direct = Regex(""""file"\\s*:\\s*"([^"]*\\\\x[^"]*)"""")
+            .find(html)?.groupValues?.get(1)
+        var master = direct?.let { hexEscapesToString(it) }.orEmpty()
+
+        if (master.isBlank()) {
+            val packed = Regex("""\\};\\s*(eval\\(function[\\s\\S]*?)var played = \\d+;""")
+                .find(html)?.groupValues?.get(1)
+            if (packed != null) {
+                val once = unpackPacker(packed)
+                val twice = once?.let { unpackPacker(it) }
+                val decoded = (twice ?: once).orEmpty().replace("\\\\\\\\", "\\\\")
+                val file = Regex("""file"\\s*:\\s*"([^"]*)"""").find(decoded)?.groupValues?.get(1)
+                if (file != null) master = hexEscapesToString(file)
+            }
+        }
+        return master.takeIf { it.startsWith("https://") || it.startsWith("http://") }
     }
 
     /**
