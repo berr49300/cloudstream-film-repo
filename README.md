@@ -1,49 +1,34 @@
-# CloudStream Film Repo
+# CloudStream Film Repo — TEST AŞAMASINDA
 
-CloudStream için site sağlayıcıları ve otomatik derleme/yayınlama altyapısı. Şu anda bu depoda Dizilla sağlayıcısı bulunur; yeni siteler ayrı modüller olarak eklenir.
+> **Geçici uyarı:** Dizilla sağlayıcısı test aşamasındadır. Lütfen bu depoyu şu an CloudStream'e eklemeyin. Herkese açık kurulum listesi geçici olarak kapatılmıştır; altyazı ve katalog testleri tamamlanınca yeniden açılacaktır.
 
-## CloudStream'e ekleme
+Bu depo, CloudStream sağlayıcılarının kaynak kodunu ve derleme/test altyapısını barındırır. Kullanıcıya açık dağıtımın açılması için aşağıdaki kontrol listesinin tamamlanması gerekir: [Yeni sağlayıcı kabul kontrol listesi](docs/NEW_PROVIDER_ACCEPTANCE_CHECKLIST.md).
 
-1. CloudStream uygulamasını aç.
-2. **Ayarlar → Eklentiler → Depo ekle** bölümüne gir.
-3. Şu adresi ekle:
-
-   `https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/repo.json`
-
-4. Depoda **Dizilla** eklentisini kur.
-
-Ana dal kaynak kodunu, `builds` dalı ise derlenmiş `.cs3` dosyasını ve `plugins.json` dizinini içerir. `main` dalına her push yapıldığında GitHub Actions birim testlerini çalıştırır, eklentileri derler ve başarılı çıktıları `builds` dalına yayımlar.
-
-## Mimari
+## Geliştirme mimarisi
 
 - Her site için ayrı `MainAPI` sağlayıcı modülü.
-- Sitelerin ortak kullandığı HTML/JSON/URL işleme işlemleri için `shared/` kaynak kodu.
-- Oynatıcı ailelerine özgü bağlantı çözücüleri (`ExtractorApi`).
-- Bütün modüller için otomatik birim testleri ve derleme/yayınlama hattı.
+- Birden fazla sitenin ortak kullandığı HTML/JSON/URL işlemleri `shared/` kaynak kodunda tutulur.
+- Oynatıcı ailelerine özgü bağlantı çözücüleri ayrı `ExtractorApi` sınıflarında tutulur.
+- Otomatik derleme ve birim testleri, gerçek CloudStream oynatma testiyle ayrı sonuçlar olarak değerlendirilir.
+- Sağlayıcı hata ayıklama bulguları ve genellenebilir dersler [Provider Engineering Notes](docs/PROVIDER_ENGINEERING_NOTES.md) içinde tutulur.
 
-Bir siteyi eklemeden önce hangi arama API'sini kullandığı, dizi/bölüm verisinin nereden geldiği, iframe/video kaynağının nasıl sunulduğu, gerekli başlıklar ve varsa token/şifreleme biçimi araştırılır. Alan adları ve parametreler tahminle varsayılmaz. Ayrıntılı kararlar ve test kapıları için [Sağlayıcı mimarisi belgesi](docs/PROVIDER_ARCHITECTURE.md) dosyasına bak.
+## Dizilla — bilinen durum
 
-## Dizilla sağlayıcısı
+- Video açılış hızı kullanıcı testinde iyileşmiştir.
+- Altyazı menüsünde Türkçe/İngilizce seçenekleri görünebilse de uygulama altyazının yüklenmediğini bildiriyor; altyazı hâlâ **çözülmemiş** bir sorundur.
+- Bazı ana sayfa kategori şeritleri boş görünüyor veya tür dağılımı beklenenden farklı; katalog doğrulaması tamamlanmamıştır.
+- Doğrudan bölüm açma ve “Sonraki bölüm” davranışı ayrı ayrı doğrulanmalıdır.
+- Derlemenin başarılı olması gerçek kaynakların ve altyazıların çalıştığını kanıtlamaz.
 
-Dizilla'nın arama yanıtı `/api/bg/searchContent` üzerinden alınır; ayrıntı ve bölüm verileri sayfanın `__NEXT_DATA__` içindeki `secureData` alanından çözülür. Bölüm kaynakları ayrı ayrı işlenir: yaygın HTML/JSON/URL biçimleri ortak ayrıştırıcıdan geçirilir, ContentX/Pichive iframe'leri ilgili extractor'a gönderilir, diğer hostlar CloudStream extractor kayıt defterinde aranır.
+## Derleme
 
-Bu yaklaşım yaygın kaynak biçimlerinin kaçırılmasını azaltır fakat her video hostunun kendine özgü API, imza veya token mantığını otomatik olarak çözmez. Yeni bir host özel protokol kullanıyorsa ona özel extractor gerekir.
-
-## Bilinen sınırlar
-
-- **Derlemenin başarılı olması çalışma zamanında her içeriğin açılacağını kanıtlamaz.** Canlı site, kaynak hostu, gerekli referer/başlıklar ve gerçek video akışı ayrıca doğrulanır.
-- `ERROR_CODE_DECODING_FAILED` / `NO_EXCEEDS_CAPABILITIES` gibi hatalar, doğru URL alınmış olsa bile cihazın video profilini/bit derinliğini çözümleyememesinden kaynaklanabilir. Sağlayıcı, sunulan videoyu kendi başına farklı codec'e dönüştürmez; uyumlu alternatif kaynak varsa onu sunmak gerekir.
-- HTTP 403, CAPTCHA, oturum gereksinimi ve sitenin değişen API/HTML yapısı ayrı teşhislerdir. Erişim denetimi veya DRM atlatılmaz.
-
-## Derleme ve test
-
-Gereksinimler: JDK 17, Android SDK ve Gradle 8.12. Yerel derleme:
+Gereksinimler: JDK 17, Android SDK ve Gradle 8.12.
 
 ```bash
 gradle testDebugUnitTest make makePluginsJson
 ```
 
-CI aynı test ve derleme adımlarını uygular. Testler geçmeden yayın yapılmamalıdır.
+Lütfen kullanıcıya açık dağıtımı, gerçek CloudStream cihaz testleri tamamlanmadan tekrar etkinleştirmeyin.
 
 ## Lisans
 
