@@ -17,11 +17,11 @@ class FullHDFilmizlesene : MainAPI() {
     override val hasQuickSearch = true
     override val supportedTypes = setOf(TvType.Movie)
     override var sequentialMainPage = true
-    override val mainPage = mainPageOf("$" + "mainUrl/" to "Öne Çıkan Filmler")
+    override val mainPage = mainPageOf("$mainUrl/" to "Öne Çıkan Filmler")
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), false)
-        val doc = app.get(request.data, referer = "$" + "mainUrl/").document
+        val doc = app.get(request.data, referer = "$mainUrl/").document
         val items = doc.select("a[href]").mapNotNull { a ->
             val href = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
             if (!isMovieUrl(href)) return@mapNotNull null
@@ -32,15 +32,15 @@ class FullHDFilmizlesene : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         if (query.isBlank()) return emptyList()
-        val response = app.get("$" + "mainUrl/autocomplete/q.php?q=" + query.urlEncoded(),
-            referer = "$" + "mainUrl/", headers = mapOf("Accept" to "application/json, text/plain, */*"))
+        val response = app.get("$mainUrl/autocomplete/q.php?q=" + query.urlEncoded(),
+            referer = "$mainUrl/", headers = mapOf("Accept" to "application/json, text/plain, */*"))
         val results = mutableListOf<SearchResponse>()
         runCatching { collectJsonResults(mapper.readTree(response.text), results) }
         if (results.isEmpty()) response.document.select("a[href]").forEach { a ->
             val href = fixUrlNull(a.attr("href")) ?: return@forEach
             if (isMovieUrl(href)) a.toSearchResult(href)?.let(results::add)
         }
-        if (results.isEmpty()) app.get("$" + "mainUrl/?s=" + query.urlEncoded(), referer = "$" + "mainUrl/")
+        if (results.isEmpty()) app.get("$mainUrl/?s=" + query.urlEncoded(), referer = "$mainUrl/")
             .document.select("a[href]").forEach { a ->
                 val href = fixUrlNull(a.attr("href")) ?: return@forEach
                 if (isMovieUrl(href)) a.toSearchResult(href)?.let(results::add)
@@ -72,7 +72,7 @@ class FullHDFilmizlesene : MainAPI() {
             .firstOrNull { it.isNotBlank() }
 
     override suspend fun load(url: String): LoadResponse? {
-        val d = app.get(url, referer = "$" + "mainUrl/").document
+        val d = app.get(url, referer = "$mainUrl/").document
         val title = d.selectFirst("h1")?.text()?.trim()
             ?: d.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
             ?: d.title().substringBefore("|").substringBefore(" - ").trim()
@@ -93,7 +93,7 @@ class FullHDFilmizlesene : MainAPI() {
 
     override suspend fun loadLinks(data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val d = app.get(data, referer = "$" + "mainUrl/").document
+        val d = app.get(data, referer = "$mainUrl/").document
         val urls = linkedSetOf<String>()
         d.select("iframe[src], video[src], source[src]").forEach { e ->
             fixUrlNull(e.attr("src"))?.takeIf { isCandidateEmbed(it) }?.let(urls::add)
