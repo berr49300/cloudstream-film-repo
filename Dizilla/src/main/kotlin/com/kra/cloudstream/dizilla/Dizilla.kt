@@ -49,8 +49,18 @@ class Dizilla : MainAPI() {
             // Prefer catalog cards across a few observed wrapper variants. The older
             // span-only selector produced empty lists when the site used a different
             // card wrapper on Anime/K-drama pages, or when the poster was a sibling.
-            document.select("a[href]")
+            // Prefer the site's known catalogue-card wrapper. Scanning every anchor
+            // also picks up cards from recommendation rails and adjacent category widgets,
+            // which can make Anime and Korean Drama rows appear mixed.
+            val catalogAnchors = document.select(".prm-borderb a[href], span.prm-borderb[href]")
                 .filter { it.isDizillaCatalogCard() }
+            val candidates = if (catalogAnchors.isNotEmpty()) catalogAnchors else {
+                // Layout fallback: only use anchors inside a main catalogue/list container,
+                // not every link in the document.
+                document.select("main a[href], #content a[href], .catalog a[href], .grid a[href]")
+                    .filter { it.isDizillaCatalogCard() }
+            }
+            candidates
                 .mapNotNull { it.diziler(categoryType(request.data)) }
                 .distinctBy { it.url }
         }
