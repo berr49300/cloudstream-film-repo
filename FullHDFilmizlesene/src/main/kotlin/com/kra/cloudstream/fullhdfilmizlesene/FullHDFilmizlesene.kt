@@ -131,30 +131,48 @@ class FullHDFilmizlesene : MainAPI() {
 
         var emitted = false
         urls.forEach { link ->
-            val host = runCatching { URI(link).host.orEmpty().lowercase() }.getOrDefault("")
+            val uri = runCatching { URI(link) }.getOrNull() ?: return@forEach
+            val host = uri.host.orEmpty().lowercase()
+            val path = uri.path.orEmpty().lowercase()
+            val origin = "${uri.scheme}://${uri.host}/"
+
+            // Resolve known player pages before considering a URL to be media.
             if (host.contains("rapidvid") || host.contains("imgz.me")) {
                 val resolved = runCatching { resolveRapidVid(link) }.getOrNull()
-                if (!resolved.isNullOrBlank()) {
+                if (!resolved.isNullOrBlank() && isDirectMediaUrl(resolved)) {
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, INFER_TYPE) {
-                        this.referer = "${URI(link).scheme}://${URI(link).host}/"
-                        this.headers = mapOf("Referer" to this.referer)
+                        this.referer = origin
+                        this.headers = mapOf("Referer" to origin)
                     })
                     emitted = true
                     return@forEach
                 }
             }
-            if (link.contains(".m3u8", true) || link.contains(".mp4", true) ||
-                link.contains(".mpd", true)) {
-                callback.invoke(newExtractorLink(name, name, link, INFER_TYPE) {
+
+            // A URL containing ".mp4" in its query is not necessarily a video.
+            // Only emit direct media when the URL path itself has a media extension.
+            if (isDirectMediaUrl(link)) {
+                val type = when {
+                    path.endsWith(".m3u8") -> ExtractorLinkType.M3U8
+                    path.endsWith(".mpd") -> ExtractorLinkType.DASH
+                    else -> ExtractorLinkType.VIDEO
+                }
+                callback.invoke(newExtractorLink(name, name, link, type) {
                     this.referer = data
                     this.headers = mapOf("Referer" to data)
                 })
                 emitted = true
-            } else {
+            } else if (host != URI(mainUrl).host && !host.endsWith("fullhdfilmizlesene.now")) {
                 runCatching { loadExtractor(link, data, subtitleCallback) { callback(it); emitted = true } }
             }
         }
         return emitted
+    }
+
+    private fun isDirectMediaUrl(url: String): Boolean {
+        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+        return path.endsWith(".m3u8") || path.endsWith(".mp4") || path.endsWith(".mpd")
+    }
     }
 
     private fun parseScx(html: String): List<String> {
