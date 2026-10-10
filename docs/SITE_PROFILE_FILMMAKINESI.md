@@ -3,7 +3,7 @@
 - Base URL: https://filmmakinesi.to/
 - Provider module: FilmMakinesi
 - Content scope: films and series
-- Investigation status: INVESTIGATING
+- Investigation status: BUILD_AND_INDEX_VERIFIED; DEVICE_TEST_PENDING
 - Live site fetch from this automation environment: BLOCKED (the page-fetch tool returned HTTP 451; this does not establish that the user's device or CloudStream is blocked)
 - Real-device CloudStream status: NOT TESTED
 
@@ -31,9 +31,9 @@
 ## Release gate
 
 - [x] Provider module, registration and metadata added without modifying existing provider source files.
-- [x] Parser regression tests added for film/series card separation, episode numbering, subtitle labels/order, direct HLS/MP4 discovery and a CloseLoad decoder fixture.
-- [ ] GitHub Actions build and unit tests pass.
-- [ ] Published plugin index contains the new FilmMakinesi entry.
+- [x] Subtitle parser regression tests cover Turkish / English / Turkish Forced labels, distinct tracks, URL de-duplication and escaped labels.
+- [x] GitHub Actions build and unit tests pass for version 9: https://github.com/berr49300/cloudstream-film-repo/actions/runs/38087568366
+- [x] The published plugin index contains FilmMakinesi version 9: https://github.com/berr49300/cloudstream-film-repo/blob/builds/plugins.json
 - [ ] User installs this exact build and verifies search, detail, playback/source switching and all subtitle tracks on a real device.
 
-A successful build proves compilation and static parsing only. Live response shape, each player family, subtitle response validity and device playback remain unverified until the runtime checks above are completed.
+The successful build proves compilation and the listed static parser tests only. Automated live-site retrieval remains blocked in this environment; actual current site responses, every player family / format and device playback still need a CloudStream runtime test.
