@@ -43,7 +43,7 @@ class Dizilla : MainAPI() {
         val document = app.get(request.data, referer = "${mainUrl}/").document
         val home = if (request.data.trimEnd('/') == mainUrl) {
             document.select("a[href]").filter {
-                Regex("""-sezon-\\d+-bolum""").containsMatchIn(it.attr("href")) && it.selectFirst("h3") != null
+                Regex("""-sezon-\d+-bolum""").containsMatchIn(it.attr("href")) && it.selectFirst("h3") != null
             }.mapNotNull { it.sonBolumler() }.distinctBy { it.url }
         } else {
             // Prefer catalog cards across a few observed wrapper variants. The older
