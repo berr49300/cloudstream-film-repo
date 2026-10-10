@@ -131,12 +131,23 @@ class FullHDFilmizlesene : MainAPI() {
 
         var emitted = false
         urls.forEach { link ->
-            // The generic extractor registry covers supported hosts; a direct HLS/MP4
-            // URL can be emitted without relying on a named extractor.
+            val host = runCatching { URI(link).host.orEmpty().lowercase() }.getOrDefault("")
+            if (host.contains("rapidvid") || host.contains("imgz.me")) {
+                val resolved = runCatching { resolveRapidVid(link) }.getOrNull()
+                if (!resolved.isNullOrBlank()) {
+                    callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, INFER_TYPE) {
+                        this.referer = "${URI(link).scheme}://${URI(link).host}/"
+                        this.headers = mapOf("Referer" to this.referer)
+                    })
+                    emitted = true
+                    return@forEach
+                }
+            }
             if (link.contains(".m3u8", true) || link.contains(".mp4", true) ||
                 link.contains(".mpd", true)) {
                 callback.invoke(newExtractorLink(name, name, link, INFER_TYPE) {
                     this.referer = data
+                    this.headers = mapOf("Referer" to data)
                 })
                 emitted = true
             } else {
@@ -168,6 +179,53 @@ class FullHDFilmizlesene : MainAPI() {
             .map { it.groupValues[1] }
             .filter { decodeEntry(it) != null }
             .toList()
+    }
+
+    /**
+     * Resolve the site's Atom/RapidVid embed directly. The provider's scx value
+     * only points to the embed page; it is not itself a playable stream.
+     */
+    private suspend fun resolveRapidVid(embedUrl: String): String? {
+        val uri = URI(embedUrl)
+        val origin = "${uri.scheme}://${uri.host}"
+        val html = app.get(embedUrl, referer = "$mainUrl/").text
+
+        fun decodeImgz(blob: String): String? = runCatching {
+            val reversed = blob.reversed()
+            val first = String(Base64.getDecoder().decode(
+                reversed.replace('-', '+').replace('_', '/').let { s ->
+                    s + "=".repeat((4 - s.length % 4) % 4)
+                }
+            ), StandardCharsets.ISO_8859_1)
+            val shifted = buildString {
+                first.forEachIndexed { i, ch ->
+                    val key = "K9L"[i % 3].code % 5 + 1
+                    append((ch.code - key).toChar())
+                }
+            }
+            val normalized = shifted.replace('-', '+').replace('_', '/')
+            String(Base64.getDecoder().decode(normalized + "=".repeat((4 - normalized.length % 4) % 4)), StandardCharsets.UTF_8)
+        }.getOrNull()
+
+        val p8 = Regex("""window\\._p8\\s*=\\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
+        if (p8 != null) {
+            val json = decodeImgz(p8)
+            val master = json?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+                ?.let { it.path("cm").asText().ifBlank { it.path("tm").asText() } }
+            if (!master.isNullOrBlank() && master.startsWith("http")) return master
+        }
+
+        // Newer RapidVid embeds put the HLS master in jwSetup.sources via av()/_.()
+        val encoded = Regex("""["']file["']\\s*:\\s*(?:av|_)\\(\\s*["']([^"']+)["']\\s*\\)""")
+            .find(html)?.groupValues?.get(1)
+        if (encoded != null) {
+            val master = decodeImgz(encoded)
+            if (!master.isNullOrBlank() && master.startsWith("http")) return master
+        }
+        val plain = Regex("""jwSetup\\.sources\\s*=\\s*\\[[\\s\\S]*?["']file["']\\s*:\\s*["'](https?://[^"']+)["']""")
+            .find(html)?.groupValues?.get(1)
+        if (!plain.isNullOrBlank()) return plain
+        return null
     }
 
     private fun decodeEntry(s: String): String? = runCatching {
