@@ -355,7 +355,7 @@ class FullHDFilmizlesene : MainAPI() {
 
         fun decodeImgz(blob: String): String? = runCatching {
             val reversed = blob.reversed()
-            val first = String(Base64.getDecoder().decode(
+            val first = String(Base64.getMimeDecoder().decode(
                 reversed.replace('-', '+').replace('_', '/').let { s ->
                     s + "=".repeat((4 - s.length % 4) % 4)
                 }
@@ -367,7 +367,7 @@ class FullHDFilmizlesene : MainAPI() {
                 }
             }
             val normalized = shifted.replace('-', '+').replace('_', '/')
-            String(Base64.getDecoder().decode(normalized + "=".repeat((4 - normalized.length % 4) % 4)), StandardCharsets.UTF_8)
+            String(Base64.getMimeDecoder().decode(normalized + "=".repeat((4 - normalized.length % 4) % 4)), StandardCharsets.UTF_8)
         }.getOrNull()
 
         val p8 = Regex("""window\s*\.\s*_p8\s*=\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
@@ -399,7 +399,7 @@ class FullHDFilmizlesene : MainAPI() {
         } }.joinToString("")
         val normalized = rot.replace('-', '+').replace('_', '/')
         val padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
-        String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8)
+        String(Base64.getMimeDecoder().decode(padded), StandardCharsets.UTF_8)
             .takeIf { it.startsWith("http://") || it.startsWith("https://") || it.startsWith("//") }
     }.getOrNull()
 
@@ -416,7 +416,7 @@ class FullHDFilmizlesene : MainAPI() {
         for (candidate in candidates) runCatching {
             val normalized = candidate.replace('-', '+').replace('_', '/')
             val padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
-            String(Base64.getDecoder().decode(padded), StandardCharsets.UTF_8)
+            String(Base64.getMimeDecoder().decode(padded), StandardCharsets.UTF_8)
                 .replace("\\\\/", "/")
         }.getOrNull()?.let { decoded ->
             Regex("""https?://[^"'\\s<>]+|//[^"'\\s<>]+""").find(decoded)?.value?.let { return it }
