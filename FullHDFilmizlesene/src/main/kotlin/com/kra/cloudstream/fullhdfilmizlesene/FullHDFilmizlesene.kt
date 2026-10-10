@@ -574,9 +574,6 @@ class FullHDFilmizlesene : MainAPI() {
         val normalized = languageText.lowercase()
             .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
             .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-        val contextNormalized = context.lowercase()
-            .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
-            .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
         // Do not infer Forced from a wide neighboring snippet: several subtitle
         // entries are often packed together, which made every track inherit it.
         val forced = Regex("(?i)\\bforced\\b").containsMatchIn(normalized)
