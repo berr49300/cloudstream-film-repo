@@ -25,7 +25,8 @@ internal object ContentXSubtitleParser {
         for (fragment in fragments) {
             val rawFile = filePattern.find(fragment)?.groupValues?.getOrNull(1) ?: continue
             val rawLabel = labelPattern.find(fragment)?.groupValues?.getOrNull(1) ?: continue
-            val label = decodeEscapes(rawLabel).trim().ifBlank { continue }
+            val label = decodeEscapes(rawLabel).trim()
+            if (label.isBlank()) continue
             val url = resolveHttpUrl(decodeEscapes(rawFile), pageUrl) ?: continue
             tracks.putIfAbsent(url, ContentXSubtitle(label, url))
         }
