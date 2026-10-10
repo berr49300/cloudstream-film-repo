@@ -502,15 +502,21 @@ class FullHDFilmizlesene : MainAPI() {
         }
 
         fun looksLikeTurkishSubtitle(text: String): Boolean {
-            val sample = text.take(12000).lowercase()
-            val turkishChars = Regex("[çğıöşüÇĞİÖŞÜ]").findAll(text).count()
-            val commonTurkish = Regex("""\b(ve|bir|bu|şey|için|ama|değil|ben|sen|biz|siz|onlar|ne|neden|nasıl|biliyor|musun|mi|mı|mu|mü|evet|hayır|tamam|oldu|gibi|çok|daha|var|yok|kadar|şimdi|burada|orada|lütfen|teşekkür)\b""", RegexOption.IGNORE_CASE)
+            // Strip markup/timestamps so language scoring uses dialogue rather than player metadata.
+            val sample = text.take(20000).lowercase()
+                .replace(Regex("""(?is)<[^>]+>"""), " ")
+                .replace(Regex("""(?m)^\s*(?:\d+\s*)?(?:\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->.*|WEBVTT.*|\d+)\s*$"""), " ")
+            val normalized = sample.replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
+                .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
+            val turkishChars = Regex("[çğıöşü]").findAll(sample).count()
+            val commonTurkish = Regex("""\b(ve|bir|bu|şey|için|ama|değil|ben|sen|biz|siz|onlar|ne|neden|nasıl|biliyor|musun|mi|mı|mu|mü|evet|hayır|tamam|oldu|gibi|çok|daha|var|yok|kadar|şimdi|burada|orada|lütfen|teşekkür|istiyorum|istemiyorum|yapabilir|olabilir|gelecek|git|gel|bak|bana|sana|onu|bunu|çünkü|her|şu|olan|olarak)\b""", RegexOption.IGNORE_CASE)
                 .findAll(sample).count()
-            val commonEnglish = Regex("""\b(the|and|you|that|what|this|with|have|for|not|are|your|was|were|hello|yes|no|okay|know|think|because|about)\b""", RegexOption.IGNORE_CASE)
-                .findAll(sample).count()
-            return turkishChars >= 3 || (commonTurkish >= 3 && commonTurkish > commonEnglish)
+            val commonEnglish = Regex("""\b(the|and|you|that|what|this|with|have|for|not|are|your|was|were|hello|yes|no|okay|know|think|because|about|there|their|they|them|then|when|where|who|how|why|would|could|should|from|just|like|want|well|really|right|here|she|him|her|we|our|us|but|can|did|does|got|has|had|will|all|one|out|too|very)\b""", RegexOption.IGNORE_CASE)
+                .findAll(normalized).count()
+            // Require dialogue evidence. Turkish diacritics alone are not enough to classify a track.
+            return (commonTurkish >= 2 && commonTurkish > commonEnglish) ||
+                (turkishChars >= 4 && commonEnglish <= commonTurkish)
         }
-
         // Standard HTML5 tracks, including data-src variants.
         val trackTag = Regex("""(?is)<track\b([^>]+)>""")
         val attrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
@@ -569,10 +575,10 @@ class FullHDFilmizlesene : MainAPI() {
         }
 
         for ((url, metadata) in candidates) {
-            if (!turkishMarker.containsMatchIn(metadata)) {
-                val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
-                if (!looksLikeTurkishSubtitle(body)) continue
-            }
+            // Never trust a filename/nearby JS label by itself: sites sometimes attach the wrong label.
+            // Fetch and classify every candidate, including those marked tr/turkish in the player.
+            val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
+            if (!looksLikeTurkishSubtitle(body)) continue
             subtitleCallback(newSubtitleFile("Türkçe", url) {
                 this.headers = mapOf("Referer" to pageUrl)
             })
