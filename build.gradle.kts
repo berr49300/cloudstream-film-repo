@@ -41,6 +41,8 @@ subprojects {
 
     android {
         namespace = "com.kra.cloudstream.${project.name.lowercase()}"
+        sourceSets.getByName("main").java.srcDir(rootProject.file("shared/src/main/kotlin"))
+        sourceSets.getByName("test").java.srcDir(rootProject.file("shared/src/test/kotlin"))
         defaultConfig {
             minSdk = 21
             compileSdkVersion(35)
