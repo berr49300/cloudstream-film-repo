@@ -281,27 +281,64 @@ class FullHDFilmizlesene : MainAPI() {
         return path.endsWith(".m3u8") || path.endsWith(".mp4") || path.endsWith(".mpd")
     }
 
+    private fun collectScxText(node: JsonNode, out: MutableList<String>) {
+        when {
+            node.isTextual -> node.asText().takeIf { it.isNotBlank() }?.let(out::add)
+            node.isArray -> node.forEach { collectScxText(it, out) }
+            node.isObject -> node.fields().forEachRemaining { (_, child) -> collectScxText(child, out) }
+        }
+    }
+
     private fun parseScx(html: String): List<String> {
-        val m = Regex("""\bscx\s*=\s*\{""").find(html) ?: return emptyList()
-        val start = html.indexOf('{', m.range.first)
-        var depth = 0; var quoted = false; var quote = '\u0000'; var escaped = false; var end = -1
+        val marker = Regex("""\bscx\s*=\s*\{""").find(html) ?: return emptyList()
+        val start = html.indexOf('{', marker.range.first)
+        var depth = 0
+        var quoted = false
+        var quote = '\u0000'
+        var escaped = false
+        var end = -1
         for (i in start until html.length) {
             val c = html[i]
             if (quoted) {
-                if (escaped) escaped = false else if (c == '\\') escaped = true else if (c == quote) quoted = false
+                if (escaped) escaped = false
+                else if (c == '\\') escaped = true
+                else if (c == quote) quoted = false
                 continue
             }
-            if (c == '"' || c == '\'') { quoted = true; quote = c; continue }
+            if (c == '"' || c == '\'') {
+                quoted = true
+                quote = c
+                continue
+            }
             if (c == '{') depth++
-            if (c == '}') { depth--; if (depth == 0) { end = i + 1; break } }
+            if (c == '}') {
+                depth--
+                if (depth == 0) {
+                    end = i + 1
+                    break
+                }
+            }
         }
         if (end <= start) return emptyList()
-        // Player keys are host names (for example atom/advid/fast), not just
-        // "tr"/"en". Decode every long string inside scx and keep only valid URLs.
-        // Don't filter by the legacy ROT13+Base64 decoder here. Source
-        // encodings can rotate; decodeAny below tries ROT13, Base64 and plain URLs.
+
+        val objectText = html.substring(start, end)
+        // Match Neo's working approach: scx is a structured object and playable
+        // source values live under each provider's sx.t field, not in every
+        // quoted string in the object (keys and labels are not source URLs).
+        val root = runCatching { mapper.readTree(objectText) }.getOrNull()
+        if (root != null && root.isObject) {
+            val values = mutableListOf<String>()
+            root.fields().forEachRemaining { (_, provider) ->
+                val t = provider.path("sx").path("t")
+                if (!t.isMissingNode && !t.isNull) collectScxText(t, values)
+            }
+            if (values.isNotEmpty()) return values.distinct()
+        }
+
+        // Some mirrors emit slightly non-JSON scx. Keep a narrow fallback for
+        // quoted payload values, but never stop the main path from trying them.
         return Regex("""["']([^"'\\]{8,})["']""")
-            .findAll(html.substring(start, end))
+            .findAll(objectText)
             .map { it.groupValues[1] }
             .distinct()
             .toList()
