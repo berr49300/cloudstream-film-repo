@@ -305,8 +305,13 @@ class FilmMakinesi : MainAPI() {
                 host == "rapid.filmmakinesi.to" || host.startsWith("rapid.")
             if (closeLoadOrRapid) {
                 var emittedByCloseLoad = false
+                val playerResolver = if (host == "rapid.filmmakinesi.to" || host.startsWith("rapid.")) {
+                    FilmMakinesiRapidExtractor()
+                } else {
+                    closeLoad
+                }
                 runCatching {
-                    closeLoad.getUrl(sourceUrl, pageUrl, subtitleCallback) { link ->
+                    playerResolver.getUrl(sourceUrl, pageUrl, subtitleCallback) { link ->
                         if (!isYouTubeLink(link)) {
                             val key = mediaDedupeKey(link.url)
                             if (emittedMediaUrls.add(key)) {
