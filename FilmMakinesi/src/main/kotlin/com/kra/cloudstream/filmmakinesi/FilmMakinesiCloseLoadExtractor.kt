@@ -181,17 +181,17 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
         }
 
         private val rapidCaptionObject = Regex(
-            """(?is)\\{[^{}]*"file"\\s*:\\s*"((?:\\\\.|[^"])*)"[^{}]*"label"\\s*:\\s*"((?:\\\\.|[^"])*)"[^{}]*}"""
+            """(?is)\{[^{}]*"file"\s*:\s*"((?:\\.|[^"])*)"[^{}]*"label"\s*:\s*"((?:\\.|[^"])*)"[^{}]*}"""
         )
 
         private fun extractRapidSubtitleTracks(html: String, baseUrl: String): List<Pair<String, String>> {
             val tracks = linkedMapOf<String, Pair<String, String>>()
             rapidDecodedCandidates(normalize(html)).forEach { payload ->
                 rapidCaptionObject.findAll(payload).forEach { match ->
-                    val rawUrl = normalize(match.groupValues[1].replace("\\\\/", "/"))
+                    val rawUrl = normalize(match.groupValues[1])
                     val subtitleUrl = resolveUrl(rawUrl, baseUrl) ?: return@forEach
                     val label = normalize(match.groupValues[2])
-                        .replace("\\\\\"", "\"")
+                        .replace("\\\"", "\"")
                         .ifBlank { "Türkçe" }
                     tracks.putIfAbsent(subtitleUrl, label to subtitleUrl)
                 }
