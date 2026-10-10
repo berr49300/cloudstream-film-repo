@@ -21,10 +21,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=fullhdfilmizlesene.now",
-        "fileHash": "sha256-01a25e015cf445560148647266949fb48358cdcc8e1d30e3f950dc443dd0d0a4",
+        "fileHash": "sha256-5d7b73ad2cdc48b4b590507238ecffa528eb00739f440fd07ec6046973f335ba",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 43622,
+        "fileSize": 43755,
         "status": 1,
         "language": "tr",
         "authors": [
