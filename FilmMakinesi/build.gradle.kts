@@ -1,4 +1,4 @@
-version = 2
+version = 3
 
 cloudstream {
     authors = listOf("berr49300")
@@ -7,4 +7,10 @@ cloudstream {
     status = 1
     tvTypes = listOf("Movie", "TvSeries")
     iconUrl = "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to"
+}
+
+dependencies {
+    // The provider Gradle plugin keeps the runtime CloudStream artifact in its
+    // dedicated "cloudstream" configuration; parser tests also need it on test classpath.
+    testImplementation("com.lagradost:cloudstream3:pre-release")
 }
