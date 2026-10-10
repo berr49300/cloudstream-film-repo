@@ -2,7 +2,7 @@
 
 > **Geçici uyarı:** Dizilla sağlayıcısı test aşamasındadır. Lütfen bu depoyu şu an CloudStream'e eklemeyin. Herkese açık kurulum listesi geçici olarak kapatılmıştır; altyazı ve katalog testleri tamamlanınca yeniden açılacaktır.
 
-Bu depo, CloudStream sağlayıcılarının kaynak kodunu ve derleme/test altyapısını barındırır. Kullanıcıya açık dağıtımın açılması için aşağıdaki kontrol listesinin tamamlanması gerekir: [Yeni sağlayıcı kabul kontrol listesi](docs/NEW_PROVIDER_ACCEPTANCE_CHECKLIST.md).
+Bu depo, CloudStream sağlayıcılarının kaynak kodunu ve derleme/test altyapısını barındırır. Yeni bir siteye başlamadan önce [Site keşif playbook'u](docs/SITE_DISCOVERY_PLAYBOOK.md) izlenmeli ve [Site profil şablonu](docs/SITE_PROFILE_TEMPLATE.md) doldurulmalıdır. Kullanıcıya açık dağıtımın açılması için [Yeni sağlayıcı kabul kontrol listesinin](docs/NEW_PROVIDER_ACCEPTANCE_CHECKLIST.md) tamamlanması gerekir.
 
 ## Geliştirme mimarisi
 
