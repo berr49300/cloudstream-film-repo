@@ -96,6 +96,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Dizilla-cs3
+          name: CloudStream-plugins-cs3
           path: source/**/*.cs3
           if-no-files-found: error
