@@ -88,14 +88,27 @@ class Dizilla : MainAPI() {
     private fun Element.diziler(type: TvType): SearchResponse? {
         val kart = this.closest(".prm-borderb, article, li, [class*=card]") ?: this.parent() ?: this
         val image = this.selectFirst("img") ?: kart.selectFirst("img")
-        val title = this.attr("title").removeSuffix(" izle").trim().ifBlank {
-            kart.selectFirst("h3, h2, h4, [class*=title], [class*=line-clamp]")?.text()?.trim()
-                ?: image?.attr("alt")?.trim()
-                ?: ""
-        }
+        // A link's title attribute may contain the rating or accessibility text.
+        // Prefer visible heading/title text, then meaningful image alt, then link title.
+        val titleCandidates = listOf(
+            kart.selectFirst("h2, h3, h4, [class*=title], [class*=line-clamp]")?.text(),
+            image?.attr("alt"),
+            this.attr("aria-label"),
+            this.attr("title"),
+            this.text()
+        ).map { it.orEmpty().removeSuffix(" izle").trim() }
+        val title = titleCandidates.firstOrNull {
+            it.isNotBlank() && !it.matches(Regex("""\d+(?:[.,]\d+)?""")) &&
+                !it.matches(Regex("""(?i)(imdb\s*)?\d+(?:[.,]\d+)?\s*/\s*10"""))
+        }.orEmpty()
         if (title.isBlank()) return null
         val href = fixUrlNull(this.attr("href")) ?: return null
-        val posterUrl = fixUrlNull(image?.let { it.attr("src").ifBlank { it.attr("data-src") } })
+        val posterUrl = fixUrlNull(image?.let { img ->
+            listOf("data-src", "data-lazy-src", "data-original", "data-original-src", "src")
+                .asSequence()
+                .map { img.attr(it).trim() }
+                .firstOrNull { it.isNotBlank() && !it.startsWith("data:image", ignoreCase = true) }
+        })
         val score = kart.selectFirst("[class*=score], h4")?.text()?.trim()
 
         return newTvSeriesSearchResponse(title, href, type) {
@@ -110,7 +123,12 @@ class Dizilla : MainAPI() {
         val href   = fixUrlNull(this.attr("href")) ?: return null
 
         return newTvSeriesSearchResponse(if (epName.isNullOrBlank()) name else "$name - $epName", href, TvType.TvSeries) {
-            this.posterUrl = fixUrlNull(this@sonBolumler.selectFirst("img")?.attr("src"))
+            this.posterUrl = fixUrlNull(this@sonBolumler.selectFirst("img")?.let { img ->
+                listOf("data-src", "data-lazy-src", "data-original", "data-original-src", "src")
+                    .asSequence()
+                    .map { img.attr(it).trim() }
+                    .firstOrNull { it.isNotBlank() && !it.startsWith("data:image", ignoreCase = true) }
+            })
         }
     }
 
