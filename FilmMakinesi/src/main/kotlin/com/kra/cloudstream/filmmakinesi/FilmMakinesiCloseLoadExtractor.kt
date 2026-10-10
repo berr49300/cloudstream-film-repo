@@ -73,10 +73,11 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             val candidates = mutableListOf(normalized)
             candidates += FilmMakinesiJsPacker.unpackAll(normalized)
 
+            // The site's Rapid endpoint has also served the CloseLoad-style
+            // payload; run the shared path first, then Rapid-specific formats.
+            closeLoadDecodedCandidates(normalized).forEach(candidates::add)
             if (player.equals("Rapid", ignoreCase = true)) {
                 rapidDecodedCandidates(normalized).forEach(candidates::add)
-            } else {
-                closeLoadDecodedCandidates(normalized).forEach(candidates::add)
             }
 
             val result = linkedSetOf<String>()
