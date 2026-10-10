@@ -495,7 +495,7 @@ class FullHDFilmizlesene : MainAPI() {
                 .lowercase()
                 .replace('ı', 'i').replace('ş', 's').replace('ğ', 'g')
                 .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
-            val hasTurkishMarker = Regex("""(?i)(?:\btr\b|tr[-_](?:tr|tur)|turkish|turkce|lang(?:uage)?[=:/"']+tr\b|srclang[=:/"']+tr\b)""")
+            val hasTurkishMarker = Regex("""(?i)(?:\btr\b|\btur\b|tr[-_](?:tr|tur)|tur(?:kish)?[-_.](?:\d+|default)|turkish|turkce|lang(?:uage)?[=:/"']+(?:tr|tur)\b|srclang[=:/"']+(?:tr|tur)\b)""")
                 .containsMatchIn(nearby)
             if (!hasTurkishMarker) return
             found.putIfAbsent(absolute, "Türkçe")
