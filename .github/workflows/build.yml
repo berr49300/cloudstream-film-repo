@@ -37,10 +37,10 @@ jobs:
         with:
           gradle-version: '8.12'
 
-      - name: Run unit tests, build .cs3 and generate plugin index
+      - name: Run all provider unit tests, build .cs3 and generate plugin index
         working-directory: source
         run: |
-          gradle :Dizilla:testDebugUnitTest make makePluginsJson --stacktrace
+          gradle testDebugUnitTest make makePluginsJson --stacktrace
           test -s build/plugins.json
           find . -type f -name '*.cs3' -print -quit | grep -q .
 
