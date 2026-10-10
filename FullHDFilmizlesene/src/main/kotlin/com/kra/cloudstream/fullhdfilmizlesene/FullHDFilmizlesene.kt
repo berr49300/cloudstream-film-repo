@@ -501,7 +501,7 @@ class FullHDFilmizlesene : MainAPI() {
             candidates.putIfAbsent(absolute, nearby)
         }
 
-        fun looksLikeTurkishSubtitle(text: String): Boolean {
+        fun looksLikeTurkishSubtitle(text: String, url: String): Boolean {
             // Strip markup/timestamps so language scoring uses dialogue rather than player metadata.
             val sample = text.take(20000).lowercase()
                 .replace(Regex("""(?is)<[^>]+>"""), " ")
@@ -514,8 +514,14 @@ class FullHDFilmizlesene : MainAPI() {
             val commonEnglish = Regex("""\b(the|and|you|that|what|this|with|have|for|not|are|your|was|were|hello|yes|no|okay|know|think|because|about|there|their|they|them|then|when|where|who|how|why|would|could|should|from|just|like|want|well|really|right|here|she|him|her|we|our|us|but|can|did|does|got|has|had|will|all|one|out|too|very)\b""", RegexOption.IGNORE_CASE)
                 .findAll(normalized).count()
             // Require dialogue evidence. Turkish diacritics alone are not enough to classify a track.
-            return (commonTurkish >= 2 && commonTurkish > commonEnglish) ||
+            val languageLooksTurkish = (commonTurkish >= 2 && commonTurkish > commonEnglish) ||
                 (turkishChars >= 4 && commonEnglish <= commonTurkish)
+            // imgz.me commonly names its Turkish track tur-1-default.vtt. Use that
+            // explicit filename as a fallback when the first cues contain little text,
+            // but still reject it when English dialogue clearly dominates.
+            val turkishFilename = Regex("""(?i)(?:^|[/_.-])tur(?:kish|kce|kçe)?[-_.](?:\\d+|default)(?:[-_.]|\\.)|/tur-\\d+-default\\.vtt(?:$|\\?)""")
+                .containsMatchIn(url)
+            return languageLooksTurkish || (turkishFilename && commonTurkish >= 1 && commonEnglish <= 2)
         }
         // Standard HTML5 tracks, including data-src variants.
         val trackTag = Regex("""(?is)<track\b([^>]+)>""")
@@ -549,7 +555,7 @@ class FullHDFilmizlesene : MainAPI() {
             .findAll(normalized)
             .mapNotNull { match -> runCatching { URI(pageUrl).resolve(URI(match.groupValues[1])).toASCIIString() }.getOrNull() }
             .filter { it.startsWith("http://") || it.startsWith("https://") }
-            .distinct().take(10).toList()
+            .distinct().take(30).toList()
 
         for (scriptUrl in scriptUrls) {
             val script = runCatching { app.get(scriptUrl, referer = pageUrl).text }.getOrNull() ?: continue
@@ -578,7 +584,7 @@ class FullHDFilmizlesene : MainAPI() {
             // Never trust a filename/nearby JS label by itself: sites sometimes attach the wrong label.
             // Fetch and classify every candidate, including those marked tr/turkish in the player.
             val body = runCatching { app.get(url, referer = pageUrl).text }.getOrNull() ?: continue
-            if (!looksLikeTurkishSubtitle(body)) continue
+            if (!looksLikeTurkishSubtitle(body, url)) continue
             subtitleCallback(newSubtitleFile("Türkçe", url) {
                 this.headers = mapOf("Referer" to pageUrl)
             })
