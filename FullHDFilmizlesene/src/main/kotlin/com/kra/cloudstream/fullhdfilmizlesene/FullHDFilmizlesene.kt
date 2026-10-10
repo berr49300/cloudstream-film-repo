@@ -17,16 +17,32 @@ class FullHDFilmizlesene : MainAPI() {
     override val hasQuickSearch = true
     override val supportedTypes = setOf(TvType.Movie)
     override var sequentialMainPage = true
-    override val mainPage = mainPageOf("$mainUrl/" to "Öne Çıkan Filmler")
+    override val mainPage = mainPageOf(
+        "$mainUrl/yeni-filmler" to "Yeni Filmler",
+        "$mainUrl/en-cok-izlenen-filmler" to "En Çok İzlenen Filmler",
+        "$mainUrl/filmizle/imdb-puani-yuksek-filmler" to "IMDb Puanı Yüksek Filmler",
+        "$mainUrl/filmizle/aile-filmleri" to "Aile Filmleri",
+        "$mainUrl/filmizle/aksiyon-filmleri" to "Aksiyon Filmleri",
+        "$mainUrl/filmizle/animasyon-filmleri" to "Animasyon Filmleri",
+        "$mainUrl/filmizle/bilim-kurgu-filmleri" to "Bilim Kurgu Filmleri",
+        "$mainUrl/filmizle/komedi-filmleri" to "Komedi Filmleri",
+        "$mainUrl/filmizle/korku-filmleri" to "Korku Filmleri"
+    )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), false)
         val doc = app.get(request.data, referer = "$mainUrl/").document
-        val items = doc.select("article a[href], .film a[href], .movie a[href], .film-card a[href], .movie-card a[href], .poster a[href], .item a[href]").mapNotNull { a ->
-            val href = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
-            if (!isMovieUrl(href)) return@mapNotNull null
-            a.toSearchResult(href)
-        }.distinctBy { it.url }
+        // The live catalogue uses li.film cards; the fallback is intentionally
+        // limited to catalogue containers so navigation/category links aren't movies.
+        val cards = doc.select("li.film")
+        val items = (if (cards.isNotEmpty()) cards else
+            doc.select("main article, main .film-card, main .movie-card, #content article, #content .film-card"))
+            .mapNotNull { card ->
+                val a = card.selectFirst("a[href]") ?: return@mapNotNull null
+                val href = fixUrlNull(a.attr("href")) ?: return@mapNotNull null
+                if (!isMovieUrl(href)) return@mapNotNull null
+                card.toSearchResult(href)
+            }.distinctBy { it.url }
         return newHomePageResponse(request.name, items, hasNext = false)
     }
 
@@ -120,8 +136,13 @@ class FullHDFilmizlesene : MainAPI() {
             if (c == '}') { depth--; if (depth == 0) { end = i + 1; break } }
         }
         if (end <= start) return emptyList()
-        return Regex("""["'](?:tr|en|\d+)["']\s*:\s*["']([^"']+)["']""")
-            .findAll(html.substring(start, end)).map { it.groupValues[1] }.filter { it.length > 12 }.toList()
+        // Player keys are host names (for example atom/advid/fast), not just
+        // "tr"/"en". Decode every long string inside scx and keep only valid URLs.
+        return Regex("""["']([^"'\\\\]{13,})["']""")
+            .findAll(html.substring(start, end))
+            .map { it.groupValues[1] }
+            .filter { decodeEntry(it) != null }
+            .toList()
     }
 
     private fun decodeEntry(s: String): String? = runCatching {
@@ -154,9 +175,10 @@ class FullHDFilmizlesene : MainAPI() {
         url.startsWith("http") && runCatching { URI(url).host?.isNotBlank() == true }.getOrDefault(false)
 
     private fun Element.toSearchResult(href: String): SearchResponse? {
-        val card = closest("article, li, .film, .movie, .card, .item") ?: parent() ?: this
+        val card = closest("article, li, .film, .movie, .card, .item") ?: this
         val image = selectFirst("img") ?: card.selectFirst("img")
-        val title = listOf(selectFirst("h2, h3, h4")?.text(), card.selectFirst("h2, h3, h4")?.text(),
+        val title = listOf(selectFirst("span.film-title")?.text(), card.selectFirst("span.film-title")?.text(),
+            selectFirst("h2, h3, h4, [class*=title]")?.text(), card.selectFirst("h2, h3, h4, [class*=title]")?.text(),
             attr("title"), image?.attr("alt"), attr("aria-label"), text())
             .map { it.orEmpty().trim() }.firstOrNull { it.isNotBlank() && it.length > 1 } ?: return null
         return newMovieSearchResponse(title.decodeHtml(), href, TvType.Movie) {
