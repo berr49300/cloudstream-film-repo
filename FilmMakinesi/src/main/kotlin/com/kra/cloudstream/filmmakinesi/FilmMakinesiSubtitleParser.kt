@@ -97,9 +97,9 @@ internal object FilmMakinesiSubtitleParser {
         .replace('ü', 'u').replace('ö', 'o').replace('ç', 'c')
 
     private fun priority(label: String): Int = when (normalizeForMatch(label)) {
-        "türkçe" -> 0
+        "turkce" -> 0
         "ingilizce" -> 1
-        "türkçe forced" -> 2
+        "turkce forced" -> 2
         else -> 3
     }
 
