@@ -164,7 +164,7 @@ class FullHDFilmizlesene : MainAPI() {
             // TurboImgz is a distinct player: its page contains a plain HLS
             // "file" field and is not handled by the generic RapidVid decoder.
             if (host == "turbo.imgz.me" || host.endsWith(".turbo.imgz.me")) {
-                val resolved = runCatching { resolveTurboImgz(link, turkishSubtitleCallback) }.getOrNull()
+                val resolved = runCatching { resolveTurboImgz(link, subtitleCallback) }.getOrNull()
                 if (!resolved.isNullOrBlank()) {
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • TurboImgz", "TurboImgz", resolved, ExtractorLinkType.M3U8) {
                         this.referer = "$mainUrl/"
@@ -179,7 +179,7 @@ class FullHDFilmizlesene : MainAPI() {
             // HLS URL as hex escapes. The generic CloudStream extractor cannot
             // reliably decode this player, so resolve it explicitly.
             if (host.contains("vidmoxy")) {
-                val resolved = runCatching { resolveVidMoxy(link, turkishSubtitleCallback) }.getOrNull()
+                val resolved = runCatching { resolveVidMoxy(link, subtitleCallback) }.getOrNull()
                 if (!resolved.isNullOrBlank() && (resolved.startsWith("https://") || resolved.startsWith("http://"))) {
                     // RapidVid/imgz HLS masters often have extensionless CDN paths (/m9/…),
                     // so checking for .m3u8 incorrectly drops valid playable streams.
@@ -195,7 +195,7 @@ class FullHDFilmizlesene : MainAPI() {
 
             // Resolve known RapidVid player pages before considering a URL to be media.
             if (host.contains("rapidvid") || (host.contains("imgz.me") && !host.contains("turbo.imgz.me"))) {
-                val resolved = runCatching { resolveRapidVid(link, turkishSubtitleCallback) }.getOrNull()
+                val resolved = runCatching { resolveRapidVid(link, subtitleCallback) }.getOrNull()
                 if (!resolved.isNullOrBlank() && (resolved.startsWith("https://") || resolved.startsWith("http://"))) {
                     // imgz HLS masters may not end in .m3u8; the reference scraper confirms these are HLS.
                     callback.invoke(newExtractorLink("FullHDFilmizlesene • RapidVid", "RapidVid", resolved, ExtractorLinkType.M3U8) {
@@ -221,7 +221,7 @@ class FullHDFilmizlesene : MainAPI() {
                 })
                 emitted = true
             } else if (host != URI(mainUrl).host && !host.endsWith("fullhdfilmizlesene.now")) {
-                runCatching { loadExtractor(link, data, turkishSubtitleCallback) { callback(it); emitted = true } }
+                runCatching { loadExtractor(link, data, subtitleCallback) { callback(it); emitted = true } }
             }
         }
         return emitted
