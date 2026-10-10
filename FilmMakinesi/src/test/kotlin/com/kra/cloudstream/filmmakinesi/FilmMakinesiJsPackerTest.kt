@@ -9,7 +9,7 @@ import org.junit.Test
 class FilmMakinesiJsPackerTest {
     @Test
     fun decodesCommonPackerPayloadWithoutExecutingIt() {
-        val packed = """eval(function(p,a,c,k,e,d){return p;}('0.1(\\'2 3!\\');',62,4,'console|log|hello|world'.split('|'),0,{}))"""
+        val packed = """eval(function(p,a,c,k,e,d){return p;}('0.1(\'2 3!\');',62,4,'console|log|hello|world'.split('|'),0,{}))"""
 
         assertEquals(
             listOf("console.log('hello world!');"),
