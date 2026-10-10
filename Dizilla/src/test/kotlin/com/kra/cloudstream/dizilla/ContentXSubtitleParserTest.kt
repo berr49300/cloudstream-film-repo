@@ -41,6 +41,30 @@ class ContentXSubtitleParserTest {
     }
 
     @Test
+    fun parsesHtmlTrackAndLanguageAttributes() {
+        val result = ContentXSubtitleParser.parse(
+            """<video><track kind="subtitles" src="../subs/tr.srt" srclang="tr" label="Türkçe"></video>""",
+            "https://player.example/embed/iframe.php?v=123"
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("Türkçe", result.single().label)
+        assertEquals("https://player.example/subs/tr.srt", result.single().url)
+    }
+
+    @Test
+    fun parsesSrcAndSrclangPlayerConfig() {
+        val result = ContentXSubtitleParser.parse(
+            """{ "src": "/subs/en.vtt", "srclang": "English" }""",
+            "https://player.example/iframe.php?v=123"
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("English", result.single().label)
+        assertEquals("https://player.example/subs/en.vtt", result.single().url)
+    }
+
+    @Test
     fun rejectsNonHttpSubtitleUrls() {
         val result = ContentXSubtitleParser.parse(
             """{"file":"javascript:alert(1)","label":"bad"} {"file":"data:text/plain,hi","label":"bad2"}""",
