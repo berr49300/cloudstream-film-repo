@@ -13,6 +13,11 @@ internal object ContentXSubtitleParser {
     private val objectPattern = Regex("""(?s)\{[^{}]*\}""")
     private val filePattern = Regex("""(?is)["']?file["']?\s*:\s*["']((?:\\.|[^"'\\])*)["']""")
     private val labelPattern = Regex("""(?is)["']?label["']?\s*:\s*["']((?:\\.|[^"'\\])*)["']""")
+    private val srcPattern = Regex("""(?is)\bsrc\s*=\s*["']([^"']+)["']""")
+    private val htmlTrackPattern = Regex("""(?is)<track\b([^>]+)>""")
+    private val htmlAttrPattern = Regex("""(?is)([\w-]+)\s*=\s*["']([^"']*)["']""")
+    private val langPattern = Regex("""(?is)["']?(?:srclang|language|lang)["']?\s*:\s*["']((?:\\.|[^"'\\])*)["']""")
+    private val kindPattern = Regex("""(?is)["']?kind["']?\s*:\s*["'](captions|subtitles)["']""")
 
     fun parse(playerPage: String, pageUrl: String): List<ContentXSubtitle> {
         if (playerPage.isBlank()) return emptyList()
@@ -40,6 +45,34 @@ internal object ContentXSubtitleParser {
                 if (url != null) tracks[url] = ContentXSubtitle(decodeEscapes(rawLabel).trim(), url)
             }
         }
+        // Common HTML5 players expose subtitles as <track src="..." kind="subtitles">.
+        for (match in htmlTrackPattern.findAll(normalized)) {
+            val attrs = htmlAttrPattern.findAll(match.groupValues[1])
+                .associate { it.groupValues[1].lowercase() to decodeEscapes(it.groupValues[2]) }
+            val src = attrs["src"] ?: continue
+            val kind = attrs["kind"].orEmpty()
+            if (kind.isNotBlank() && kind !in setOf("subtitles", "captions")) continue
+            val label = attrs["label"]?.trim()
+                .takeUnless { it.isNullOrBlank() }
+                ?: attrs["srclang"]?.trim().takeUnless { it.isNullOrBlank() }
+                ?: "Altyazı"
+            val url = resolveHttpUrl(src, pageUrl) ?: continue
+            tracks.putIfAbsent(url, ContentXSubtitle(label, url))
+        }
+
+        // Some player configs use src + srclang/language instead of file + label.
+        if (tracks.isEmpty()) {
+            for (fragment in fragments) {
+                val rawFile = srcPattern.find(fragment)?.groupValues?.getOrNull(1) ?: continue
+                val rawLabel = langPattern.find(fragment)?.groupValues?.getOrNull(1)
+                    ?: labelPattern.find(fragment)?.groupValues?.getOrNull(1)
+                    ?: continue
+                val url = resolveHttpUrl(decodeEscapes(rawFile), pageUrl) ?: continue
+                val label = decodeEscapes(rawLabel).trim()
+                if (label.isNotBlank()) tracks.putIfAbsent(url, ContentXSubtitle(label, url))
+            }
+        }
+
         return tracks.values.toList()
     }
 
