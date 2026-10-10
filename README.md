@@ -1,66 +1,49 @@
-# CloudStream Film Repo — Dizilla
+# CloudStream Film Repo
 
-Bu depo, CloudStream için **Dizilla'nın herkese açık HTML sayfalarını** okuyan bir sağlayıcı ve otomatik derleme/yayınlama altyapısı içerir.
+CloudStream için site sağlayıcıları ve otomatik derleme/yayınlama altyapısı. Şu anda bu depoda Dizilla sağlayıcısı bulunur; yeni siteler ayrı modüller olarak eklenir.
 
 ## CloudStream'e ekleme
 
 1. CloudStream uygulamasını aç.
 2. **Ayarlar → Eklentiler → Depo ekle** bölümüne gir.
-3. Şu depo adresini ekle:
+3. Şu adresi ekle:
 
-   https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/repo.json
+   `https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/repo.json`
 
-4. Depoda **Dizilla** eklentisini açıp **Yükle** seçeneğine bas.
+4. Depoda **Dizilla** eklentisini kur.
 
-İlk yayınlama, GitHub Actions derlemesi tamamlandıktan sonra oluşur. Ana dal kaynak kodunu, builds dalı ise derlenmiş .cs3 dosyasını ve CloudStream'in kullandığı plugins.json manifestini içerir.
+Ana dal kaynak kodunu, `builds` dalı ise derlenmiş `.cs3` dosyasını ve `plugins.json` dizinini içerir. `main` dalına her push yapıldığında GitHub Actions birim testlerini çalıştırır, eklentileri derler ve başarılı çıktıları `builds` dalına yayımlar.
 
-## Sağlayıcı özellikleri
+## Mimari
 
-- Dizilla'nın ana sayfası ve tanımlı katalog sayfaları için listeleme.
-- Kullanıcıya açık HTML arama sayfasından arama.
-- Dizi detay sayfasından başlık, kapak görseli, açıklama, yıl ve sayfa üzerinde açıkça listelenen bölüm bağlantılarını okuma.
-- Bölüm sayfasının HTML'sinde açık olarak yer alan standart video/iframe kaynaklarını CloudStream'in yerleşik extractor'larına gönderme.
-- Bölüm sezon/bölüm numaralarını URL veya görünen bölüm metninden ayıklamak için birim testleri.
-- main dalına her push'ta otomatik test, derleme ve builds dalına yayınlama.
+- Her site için ayrı `MainAPI` sağlayıcı modülü.
+- Sitelerin ortak kullandığı HTML/JSON/URL işleme işlemleri için `shared/` kaynak kodu.
+- Oynatıcı ailelerine özgü bağlantı çözücüleri (`ExtractorApi`).
+- Bütün modüller için otomatik birim testleri ve derleme/yayınlama hattı.
 
-## Durum ve sınırlamalar
+Bir siteyi eklemeden önce hangi arama API'sini kullandığı, dizi/bölüm verisinin nereden geldiği, iframe/video kaynağının nasıl sunulduğu, gerekli başlıklar ve varsa token/şifreleme biçimi araştırılır. Alan adları ve parametreler tahminle varsayılmaz. Ayrıntılı kararlar ve test kapıları için [Sağlayıcı mimarisi belgesi](docs/PROVIDER_ARCHITECTURE.md) dosyasına bak.
 
-Bu sağlayıcı, site tarafından normal HTML içinde herkese açık olarak sunulan verilerle sınırlıdır. Site erişim engeli (ör. HTTP 403), JavaScript arkasında tutulan kapalı veriler veya izin gerektiren/korumalı oynatma kaynakları nedeniyle bazı sayfalar ya da oynatıcılar çalışmayabilir. Bu proje erişim denetimini aşmaz, gizlenmiş sayfa verilerinin şifresini çözmez ve DRM/abonelik korumasını atlatmaz. Dolayısıyla alan adının herkesten erişilebilir olduğu veya her oynatıcının çalıştığı doğrulanmış değildir.
+## Dizilla sağlayıcısı
 
-Site tasarımını değiştirdiğinde HTML seçicileri güncellemek gerekebilir. Çalışmayan bir sayfa için mümkünse sayfanın herkese açık HTML yapısına dair bilgiyle bir GitHub issue aç.
+Dizilla'nın arama yanıtı `/api/bg/searchContent` üzerinden alınır; ayrıntı ve bölüm verileri sayfanın `__NEXT_DATA__` içindeki `secureData` alanından çözülür. Bölüm kaynakları ayrı ayrı işlenir: yaygın HTML/JSON/URL biçimleri ortak ayrıştırıcıdan geçirilir, ContentX/Pichive iframe'leri ilgili extractor'a gönderilir, diğer hostlar CloudStream extractor kayıt defterinde aranır.
 
-## Kaynak kodunu yerel derleme
+Bu yaklaşım yaygın kaynak biçimlerinin kaçırılmasını azaltır fakat her video hostunun kendine özgü API, imza veya token mantığını otomatik olarak çözmez. Yeni bir host özel protokol kullanıyorsa ona özel extractor gerekir.
 
-Gereksinimler: JDK 17, Android SDK ve Gradle 8.12.
+## Bilinen sınırlar
 
-~~~bash
-gradle :Dizilla:testDebugUnitTest
-gradle make makePluginsJson
-~~~
+- **Derlemenin başarılı olması çalışma zamanında her içeriğin açılacağını kanıtlamaz.** Canlı site, kaynak hostu, gerekli referer/başlıklar ve gerçek video akışı ayrıca doğrulanır.
+- `ERROR_CODE_DECODING_FAILED` / `NO_EXCEEDS_CAPABILITIES` gibi hatalar, doğru URL alınmış olsa bile cihazın video profilini/bit derinliğini çözümleyememesinden kaynaklanabilir. Sağlayıcı, sunulan videoyu kendi başına farklı codec'e dönüştürmez; uyumlu alternatif kaynak varsa onu sunmak gerekir.
+- HTTP 403, CAPTCHA, oturum gereksinimi ve sitenin değişen API/HTML yapısı ayrı teşhislerdir. Erişim denetimi veya DRM atlatılmaz.
 
-Derleme başarılı olduğunda .cs3 dosyası üretilir. GitHub Actions aynı işi otomatik yapıp artefaktları builds dalına yayımlar.
+## Derleme ve test
 
-## Dosya yapısı
+Gereksinimler: JDK 17, Android SDK ve Gradle 8.12. Yerel derleme:
 
-~~~
-.
-├── .github/workflows/build.yml
-├── Dizilla/
-│   ├── build.gradle.kts
-│   └── src/
-│       ├── main/
-│       │   ├── AndroidManifest.xml
-│       │   └── kotlin/com/kra/cloudstream/dizilla/
-│       │       ├── Dizilla.kt
-│       │       ├── DizillaParser.kt
-│       │       └── DizillaPlugin.kt
-│       └── test/kotlin/com/kra/cloudstream/dizilla/
-│           └── DizillaParserTest.kt
-├── build.gradle.kts
-├── gradle.properties
-├── repo.json
-└── settings.gradle.kts
-~~~
+```bash
+gradle testDebugUnitTest make makePluginsJson
+```
+
+CI aynı test ve derleme adımlarını uygular. Testler geçmeden yayın yapılmamalıdır.
 
 ## Lisans
 
