@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publicly publish the plugin (leave disabled while testing)"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: write
@@ -45,6 +51,7 @@ jobs:
           find . -type f -name '*.cs3' -print -quit | grep -q .
 
       - name: Prepare publish branch
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
