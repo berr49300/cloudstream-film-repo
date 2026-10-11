@@ -95,6 +95,14 @@ class DDiziParserTest {
         assertEquals(null, DDiziParser.youtubeWatchUrlIfEmbed(
             "https://example.com/player/youtube.php?id=BC30qtjYt3E"
         ))
+        assertEquals(
+            "https://www.youtube.com/watch?v=BC30qtjYt3E",
+            DDiziParser.youtubeWatchUrlIfEmbed("https://www.youtube.com/embed/BC30qtjYt3E")
+        )
+        assertEquals(
+            "https://www.youtube.com/watch?v=BC30qtjYt3E",
+            DDiziParser.youtubeWatchUrlIfEmbed("https://youtu.be/BC30qtjYt3E")
+        )
     }
 
     @Test
