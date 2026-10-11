@@ -334,6 +334,49 @@ class FilmMakinesi : MainAPI() {
         addDecodedStreams(html, pageUrl)
         unpackedPlayerScripts.forEach { addDecodedStreams(it, pageUrl) }
 
+        // Recursive player discovery: the site frequently points to a wrapper
+        // iframe which then loads another player or exposes the actual stream
+        // only in its own HTML/JavaScript. Inspect a bounded number of layers
+        // before asking registered extractors to resolve the remaining URLs.
+        val inspectedPlayerPages = linkedSetOf<String>()
+        repeat(3) {
+            val nextPlayerPages = sourceMap.values
+                .filter { candidate ->
+                    val host = runCatching { URI(candidate.url).host.orEmpty().lowercase() }
+                        .getOrDefault("")
+                    candidate.url !in inspectedPlayerPages &&
+                        !isDirectMediaUrl(candidate.url) &&
+                        (isKnownPlayerHost(host) || host.endsWith("filmmakinesi.to") ||
+                            candidate.label.contains("player", true) ||
+                            candidate.label.contains("rapid", true) ||
+                            candidate.label.contains("close", true))
+                }
+                .map { it.url }
+                .filter { inspectedPlayerPages.add(it) }
+                .take(12)
+            if (nextPlayerPages.isEmpty()) return@repeat
+
+            for (playerPage in nextPlayerPages) {
+                val playerHtml = runCatching {
+                    app.get(playerPage, headers = headersFor(pageUrl)).text
+                }.getOrNull() ?: continue
+                val playerDoc = runCatching { org.jsoup.Jsoup.parse(playerHtml, playerPage) }
+                    .getOrNull() ?: continue
+                parseSourceCandidates(playerDoc, playerHtml, playerPage).forEach(::addSource)
+                FilmMakinesiJsPacker.unpackAll(playerHtml).forEach { unpacked ->
+                    parseSourceCandidates(org.jsoup.Jsoup.parse(unpacked, playerPage), unpacked, playerPage)
+                        .forEach(::addSource)
+                    addDecodedStreams(unpacked, playerPage)
+                }
+                addDecodedStreams(playerHtml, playerPage)
+                FilmMakinesiSubtitleParser.parse(playerHtml, playerPage).forEach { track ->
+                    subtitleCallback(newSubtitleFile(track.lang, track.url) {
+                        this.headers = headersFor(playerPage)
+                    })
+                }
+            }
+        }
+
         // Resolve the site's actual player endpoints before speculative URLs
         // found in packed scripts. This mirrors CloudStreamHub's progressive
         // candidate strategy and avoids wasting the resolution window on noise.
