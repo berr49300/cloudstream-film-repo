@@ -98,11 +98,17 @@ class DDiziParserTest {
     }
 
     @Test
-    fun resolvesCurrentTelifRelayWithNestedYoutubeUrl() {
+    fun resolvesCurrentTelifRelayWithSingleAndDoubleEncodedUrls() {
         assertEquals(
             "https://www.youtube.com/watch?v=qYvM26WeYeg",
             DDiziParser.youtubeWatchUrlIfEmbed(
                 "https://www.ddizi.tel/player/telif/index.php?id=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DqYvM26WeYeg"
+            )
+        )
+        assertEquals(
+            "https://www.youtube.com/watch?v=qYvM26WeYeg",
+            DDiziParser.youtubeWatchUrlIfEmbed(
+                "https://www.ddizi.tel/player/telif/index.php?id=https%253A%252F%252Fwww.youtube.com%252Fwatch%253Fv%253DqYvM26WeYeg"
             )
         )
     }
