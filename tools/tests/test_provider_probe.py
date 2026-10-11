@@ -35,7 +35,7 @@ class ProviderProbeTests(unittest.TestCase):
 
     def test_player_and_obfuscation_signals_are_reported(self):
         report = analyze(
-            "<script>var sources = []; atob('eA==');</script>",
+            "<script>var player = {sources: []}; atob('eA==');</script>",
             "https://video.example/movie",
         )
 
