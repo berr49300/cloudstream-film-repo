@@ -121,7 +121,10 @@ internal object FilmMakinesiStreamParser {
                 }
             }
             val rapidPayloads = if (player.equals("Rapid", ignoreCase = true)) {
-                rapidDecodedCandidates(normalized).also(candidates::addAll)
+                candidates.toList()
+                    .flatMap(::rapidDecodedCandidates)
+                    .distinct()
+                    .also(candidates::addAll)
             } else {
                 emptyList()
             }
@@ -329,7 +332,11 @@ internal object FilmMakinesiStreamParser {
 
         internal fun extractRapidSubtitleTracks(html: String, baseUrl: String): List<Pair<String, String>> {
             val tracks = linkedMapOf<String, Pair<String, String>>()
-            rapidDecodedCandidates(normalize(html)).forEach { payload ->
+            val normalized = normalize(html)
+            val payloads = (listOf(normalized) + FilmMakinesiJsPacker.unpackAll(normalized))
+                .flatMap(::rapidDecodedCandidates)
+                .distinct()
+            payloads.forEach { payload ->
                 rapidCaptionObject.findAll(payload).forEach { match ->
                     val rawUrl = normalize(match.groupValues[1])
                     val subtitleUrl = resolveUrl(rawUrl, baseUrl) ?: return@forEach
