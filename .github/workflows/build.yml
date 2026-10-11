@@ -1,26 +1,31 @@
 name: Build and publish CloudStream plugin
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publicly publish the plugin (leave disabled while testing)"
+        description: "Publish to the builds branch (only works when run from main)"
         type: boolean
         required: true
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: cloudstream-publish
-  cancel-in-progress: false
+  group: cloudstream-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Validate, test and build plugins
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -43,15 +48,56 @@ jobs:
         with:
           gradle-version: '8.12'
 
-      - name: Run all provider unit tests, build .cs3 and generate plugin index
+      - name: Run provider unit tests, build .cs3 and generate plugin index
         working-directory: source
         run: |
+          set -euo pipefail
           gradle testDebugUnitTest make makePluginsJson --stacktrace
           test -s build/plugins.json
-          find . -type f -name '*.cs3' -print -quit | grep -q .
+          python -m json.tool repo.json >/dev/null
+          python -m json.tool build/plugins.json >/dev/null
+          python - <<'PY'
+          import json
+          from pathlib import Path
 
-      - name: Prepare publish branch
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true) }}
+          index = json.loads(Path("build/plugins.json").read_text(encoding="utf-8"))
+          if not isinstance(index, list) or not index:
+              raise SystemExit("build/plugins.json must be a non-empty JSON array")
+          artifacts = list(Path(".").rglob("*.cs3"))
+          if not artifacts:
+              raise SystemExit("Build did not produce any .cs3 plugin artifacts")
+          print(f"Validation passed: {len(index)} index entries, {len(artifacts)} .cs3 artifact(s)")
+          PY
+
+      - name: Upload validated plugin build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudstream-plugin-build
+          path: |
+            source/repo.json
+            source/build/plugins.json
+            source/**/*.cs3
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish validated build to builds branch
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: cloudstream-publish
+      cancel-in-progress: false
+    steps:
+      - name: Download the exact validated build
+        uses: actions/download-artifact@v4
+        with:
+          name: cloudstream-plugin-build
+          path: publish-input
+
+      - name: Publish to builds branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
@@ -67,19 +113,20 @@ jobs:
           fi
 
           find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp source/repo.json publish/repo.json
-          cp source/build/plugins.json publish/plugins.json
-          find source -type f -name '*.cs3' -exec cp {} publish/ \;
+          cp publish-input/repo.json publish/repo.json
+          cp publish-input/build/plugins.json publish/plugins.json
+          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
 
           count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
           test "${count}" -ge 1
           python - <<'PY'
           import json
           from pathlib import Path
-          plugin_index = json.loads(Path("publish/plugins.json").read_text(encoding="utf-8"))
-          if not isinstance(plugin_index, list) or not plugin_index:
+
+          index = json.loads(Path("publish/plugins.json").read_text(encoding="utf-8"))
+          if not isinstance(index, list) or not index:
               raise SystemExit("plugins.json is empty or has an unexpected format")
-          print(f"Publishing {len(plugin_index)} plugin manifest entries and {len(list(Path('publish').glob('*.cs3')))} .cs3 artifact(s)")
+          print(f"Publishing {len(index)} index entries and {len(list(Path('publish').glob('*.cs3')))} .cs3 artifact(s)")
           PY
 
           git -C publish config user.name "github-actions[bot]"
@@ -91,11 +138,3 @@ jobs:
           fi
           git -C publish commit -m "Publish CloudStream plugin for ${GITHUB_SHA::7}"
           git -C publish push origin builds
-
-      - name: Upload compiled plugin as workflow artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CloudStream-plugins-cs3
-          path: source/**/*.cs3
-          if-no-files-found: error
