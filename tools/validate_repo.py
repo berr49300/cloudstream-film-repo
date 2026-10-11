@@ -117,7 +117,7 @@ def validate_repo(root: Path | str, require_artifacts: bool = False) -> list[str
     if require_artifacts:
         artifacts = [
             path for path in root.rglob("*.cs3")
-            if path.is_file() and not any(part in EXCLUDED_DIRS for part in path.parts)
+            if path.is_file() and not any(part in {".git", ".gradle", "node_modules"} for part in path.parts)
         ]
         if not artifacts:
             errors.append("no .cs3 plugin artifact was produced")
