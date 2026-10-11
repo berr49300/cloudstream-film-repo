@@ -22,4 +22,26 @@ class DDiziParserTest {
     fun cleansEpisodeSuffixFromTitle() {
         assertEquals("Kanıt", DDiziParser.cleanTitle("Kanıt 100. Bölüm Final izle"))
     }
+
+    @Test
+    fun cleansLatestEpisodeLandingTitleToSeriesTitle() {
+        assertEquals("Sevdiğim Sensin", DDiziParser.cleanTitle("Sevdiğim Sensin Son Bölüm izle Full"))
+    }
+
+    @Test
+    fun onlyKeepsEpisodesWhoseLabelMatchesTheSeries() {
+        val seriesTitle = "Sevdiğim Sensin Son Bölüm izle Full"
+        assertTrue(DDiziParser.belongsToSeriesEpisode(seriesTitle, "Sevdiğim Sensin 20.Bölüm"))
+        assertFalse(DDiziParser.belongsToSeriesEpisode(seriesTitle, "Ömür Usta 3.Bölüm izle"))
+        assertFalse(DDiziParser.belongsToSeriesEpisode(seriesTitle, "Mercan Köşk 6.Bölüm izle"))
+    }
+
+    @Test
+    fun resolvesDdiziYoutubeRelayToYoutubeWatchUrl() {
+        assertEquals(
+            "https://www.youtube.com/watch?v=BC30qtjYt3E",
+            DDiziParser.youtubeWatchUrlIfEmbed("https://www.ddizi.re/player/youtube.php?id=BC30qtjYt3E")
+        )
+        assertEquals(null, DDiziParser.youtubeWatchUrlIfEmbed("https://example.com/player/youtube.php?id=BC30qtjYt3E"))
+    }
 }

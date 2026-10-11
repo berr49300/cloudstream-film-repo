@@ -13,8 +13,41 @@ internal object DDiziParser {
             .startsWith("/diziler/", ignoreCase = true)
 
     fun cleanTitle(value: String): String = value
+        .replace(Regex("""(?i)\s+\d+\s*\.?\s*b[oö]l[uü]m.*$"""), "")
+        .replace(Regex("""(?i)\s+(?:son\s+)?b[oö]l[uü]m\s+izle.*$"""), "")
         .replace(Regex("""(?i)\s+izle\s*$"""), "")
-        .replace(Regex("""(?i)\s+(?:full\s*)?\d+\s*\.\s*b[oö]l[uü]m.*$"""), "")
+        .trim()
+
+    fun belongsToSeriesEpisode(seriesTitle: String, episodeTitle: String): Boolean {
+        val normalizedSeries = normalizeTitle(cleanTitle(seriesTitle))
+        val normalizedEpisode = normalizeTitle(episodeTitle)
+        return normalizedSeries.isNotBlank() && normalizedEpisode.contains(normalizedSeries)
+    }
+
+    fun youtubeWatchUrlIfEmbed(url: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        if (host != "ddizi.re" && !host.endsWith(".ddizi.re")) return null
+        if (!uri.path.orEmpty().contains("youtube.php", ignoreCase = true)) return null
+
+        val rawId = uri.rawQuery.orEmpty().split("&")
+            .firstOrNull { it.substringBefore("=") == "id" }
+            ?.substringAfter("=", "")
+            ?.let { runCatching { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrNull() }
+            ?: return null
+        if (!Regex("""^[A-Za-z0-9_-]{6,32}$""").matches(rawId)) return null
+        return "https://www.youtube.com/watch?v=$rawId"
+    }
+
+    private fun normalizeTitle(value: String): String = value
+        .lowercase(Locale.ROOT)
+        .replace('ı', 'i')
+        .replace('ş', 's')
+        .replace('ğ', 'g')
+        .replace('ü', 'u')
+        .replace('ö', 'o')
+        .replace('ç', 'c')
+        .replace(Regex("""[^a-z0-9]+"""), " ")
         .trim()
 
     fun episodeNumber(value: String): Int? =
