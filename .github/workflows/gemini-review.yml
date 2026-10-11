@@ -36,7 +36,6 @@ jobs:
       - name: Prepare limited code diff
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin main
           git diff --no-ext-diff --unified=3 origin/main...HEAD > review.diff
           test -s review.diff
           python - <<'PY'
