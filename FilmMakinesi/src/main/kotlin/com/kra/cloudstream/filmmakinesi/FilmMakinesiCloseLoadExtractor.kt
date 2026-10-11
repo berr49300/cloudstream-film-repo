@@ -31,52 +31,63 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (com.lagradost.cloudstream3.utils.ExtractorLink) -> Unit
     ) {
-        val playerOrigin = runCatching { URI(url).let { "${it.scheme}://${it.host}" } }
-            .getOrDefault(mainUrl)
-        val requestReferer = referer ?: "https://filmmakinesi.to/"
-        // Match the working NeoWatch request shape: referer is passed through
-        // CloudStream's dedicated argument, while fetch metadata stays in headers.
+        // Match Emre Kahveci's working FilmMakinesi CloseLoad request shape:
+        // Chrome 120 User-Agent and Referer sent in the headers map.
         val headers = mapOf(
-            "User-Agent" to userAgent,
-            "Sec-Fetch-Dest" to "iframe",
-            "Sec-Fetch-Mode" to "navigate"
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer" to (referer ?: "https://filmmakinesi.to/")
         )
-        val html = runCatching {
-            app.get(url, referer = requestReferer, headers = headers).text
-        }.getOrNull() ?: return
+        val html = try {
+            app.get(url, headers = headers).text
+        } catch (_: Exception) {
+            return
+        }
 
-        val subtitleTracks = linkedMapOf<String, Pair<String, String>>()
-        FilmMakinesiSubtitleParser.parse(html, url).forEach { track ->
-            subtitleTracks.putIfAbsent(track.url, track.lang to track.url)
-        }
-        if (playerLabel.equals("Rapid", ignoreCase = true)) {
-            FilmMakinesiStreamParser.extractRapidSubtitleTracks(html, url).forEach { track ->
-                subtitleTracks.putIfAbsent(track.second, track)
-            }
-        }
-        subtitleTracks.values.forEach { (lang, subtitleUrl) ->
-            subtitleCallback(newSubtitleFile(lang, subtitleUrl) { this.headers = headers })
+        val doc = Jsoup.parse(html, url)
+        val host = runCatching { URI(url).let { "${it.scheme}://${it.host}" } }
+            .getOrDefault(mainUrl)
+        val videoSrc = doc.selectFirst("video source[src]")?.absUrl("src")
+            ?.takeIf(String::isNotBlank)
+            ?: doc.selectFirst("source[src]")?.absUrl("src")?.takeIf(String::isNotBlank)
+            ?: FilmMakinesiStreamParser.extractReferenceStreamUrl(html, url)
+
+        // First try the same ordered extractor logic used by Emre's plugin.
+        // If it finds nothing, keep our existing parser as a diagnostic fallback.
+        val streams = if (!videoSrc.isNullOrBlank()) {
+            listOf(videoSrc)
+        } else {
+            extractStreamUrls(html, url, playerLabel)
         }
 
         val streamHeaders = mapOf(
-            "User-Agent" to userAgent,
-            // The player origin, rather than the parent film page, is the
-            // referer expected by many media CDNs after the embed is resolved.
-            "Referer" to "$playerOrigin/"
+            "User-Agent" to headers.getValue("User-Agent"),
+            "Referer" to "$host/"
         )
-        for (stream in extractStreamUrls(html, url, playerLabel)) {
+        streams.distinct().forEach { stream ->
             callback(newExtractorLink(
                 source = name,
-                name = "$playerLabel • " + mediaLabelForUrl(stream),
+                name = name,
                 url = stream,
                 type = if (
                     playerLabel.equals("Rapid", ignoreCase = true) &&
                     !FilmMakinesiStreamParser.isMediaUrl(stream)
                 ) ExtractorLinkType.M3U8 else mediaTypeForUrl(stream)
             ) {
-                this.referer = "$playerOrigin/"
+                this.referer = "$host/"
                 this.headers = streamHeaders
             })
+        }
+
+        // Keep Emre's simple VTT subtitle discovery in addition to our parser.
+        val subtitleTracks = linkedMapOf<String, String>()
+        FilmMakinesiSubtitleParser.parse(html, url).forEach { subtitleTracks[it.url] = it.lang }
+        val tracksRegex = Regex("""\{"file":"(https?:[^"]+\.vtt)"[^}]+?"label":"([^"]+)"""")
+        tracksRegex.findAll(html).forEach { match ->
+            val subUrl = match.groupValues[1].replace("""\/""", "/")
+            subtitleTracks.putIfAbsent(subUrl, match.groupValues[2])
+        }
+        subtitleTracks.forEach { (subUrl, label) ->
+            subtitleCallback(newSubtitleFile(label, subUrl) { this.headers = headers })
         }
     }
 
@@ -114,6 +125,53 @@ internal object FilmMakinesiStreamParser {
             """(?is)(?:var|let|const)\s+[\w$]+\s*=\s*["']([^"']+)["']\s*;\s*(?:var|let|const)\s+[\w$]+\s*=\s*["']([^"']+)["']"""
         )
         private val arrayString = Regex(""""([^"]+)"""")
+
+        /**
+         * Ordered CloseLoad extraction ported from Emre Kahveci's core
+         * CloseLoadExtractor. Keep the discovery order and patterns close to
+         * the reference implementation; our broader parser remains fallback.
+         */
+        fun extractReferenceStreamUrl(html: String, baseUrl: String): String? {
+            val directFile = Regex("""file:\\s*["']([^"']+\\.(?:m3u8|mp4|txt)[^"']*)["']""")
+                .find(html)?.groupValues?.getOrNull(1)
+            if (!directFile.isNullOrBlank()) return resolveUrl(directFile, baseUrl)
+
+            val fullContent = if (html.contains("eval(function(p,a,c,k,e,d)")) {
+                html + "\\n" + FilmMakinesiJsPacker.unpackAll(html).joinToString("\\n")
+            } else {
+                html
+            }
+
+            val varMatches = Regex("""sources:\\s*\\[\\{file:\\s*([a-zA-Z0-9_]+)""")
+                .findAll(fullContent)
+            val varName = varMatches.map { it.groupValues[1] }.firstOrNull { it != "atob" }
+            if (!varName.isNullOrBlank()) {
+                val escapedName = Regex.escape(varName)
+                val payloadRegex = Regex(
+                    """var\\s+$escapedName\\s*=\\s*[a-zA-Z0-9_]+\\s*\\(\\s*["']([^"']+)["']\\.split\\(\\s*["']([^"']+)["']\\s*\\)\\s*\\);"""
+                )
+                val payload = payloadRegex.find(fullContent)
+                if (payload != null) {
+                    val decoded = decodeCloseLoadPayload(payload.groupValues[1].split(payload.groupValues[2]))
+                    if (decoded.startsWith("http", ignoreCase = true)) {
+                        resolveUrl(decoded, baseUrl)?.let { return it }
+                    }
+                }
+            }
+
+            val genericRegex = Regex(
+                """var\\s+[a-zA-Z0-9_]+\\s*=\\s*[a-zA-Z0-9_]+\\s*\\(\\s*["']([^"']{100,})["']\\.split\\(\\s*["']([|^*@#~])["']\\s*\\)\\s*\\);"""
+            )
+            for (match in genericRegex.findAll(fullContent)) {
+                val parts = match.groupValues[1].split(match.groupValues[2])
+                if (parts.size < 10) continue
+                val decoded = decodeCloseLoadPayload(parts)
+                if (decoded.startsWith("http", ignoreCase = true)) {
+                    resolveUrl(decoded, baseUrl)?.let { return it }
+                }
+            }
+            return null
+        }
 
         fun extractStreamUrls(html: String, baseUrl: String, player: String = "CloseLoad"): List<String> {
             val normalized = normalize(html)
