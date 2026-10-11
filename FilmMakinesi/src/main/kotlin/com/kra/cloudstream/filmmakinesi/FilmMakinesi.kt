@@ -323,7 +323,8 @@ class FilmMakinesi : MainAPI() {
                     }
                 }
                 if (emittedByCloseLoad) continue
-                if (host.contains("closeload")) continue
+                // If the specialized resolver does not recognize a new player
+                // payload yet, let CloudStream's other registered extractors try.
             }
 
             runCatching {
