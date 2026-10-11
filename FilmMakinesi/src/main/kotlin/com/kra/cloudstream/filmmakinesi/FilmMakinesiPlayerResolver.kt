@@ -83,7 +83,7 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
             val variable = sourceVariable(html)
             val found = linkedSetOf<String>()
             Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["'](https?://[^"']+)["']""")
-                .findAll(html).forEach { found += cleanLink(it.groupValues[1]) }
+                .findAll(html).forEach { match -> cleanLink(match.groupValues[1])?.let(found::add) }
 
             if (!variable.isNullOrBlank()) {
                 val scripts = Jsoup.parse(html).select("script")
