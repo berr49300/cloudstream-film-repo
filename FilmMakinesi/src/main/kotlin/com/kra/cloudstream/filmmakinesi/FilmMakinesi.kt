@@ -364,11 +364,14 @@ class FilmMakinesi : MainAPI() {
 
     internal fun parseSourceCandidates(doc: Document, html: String, pageUrl: String): List<FilmMakinesiSource> {
         val output = linkedMapOf<String, FilmMakinesiSource>()
+        // Include player containers even when the site lazy-loads their URL
+        // under a non-standard data attribute; some templates omit iframe[src].
         val selector =
-            "iframe[src], iframe[data-src], [data-video_url], [data-frame], " +
-                "video[src], video[data-src], video source[src], source[src], embed[src], " +
-                "button[data-url], .partlar a[href], .parts a[href], .server-list a[href], " +
-                ".servers a[href], .video-servers a[href], li[data-frame]"
+            "iframe, [data-video_url], [data-frame], [data-iframe], [data-embed], " +
+                "[data-embed-url], [data-video], [data-player], [data-lazy-src], " +
+                "video, video source[src], source[src], embed, button[data-url], " +
+                ".partlar a[href], .parts a[href], .server-list a[href], " +
+                ".servers a[href], .video-servers a[href], .player a[href], li[data-frame]"
 
         fun add(rawValue: String?, label: String, forcedPlayerElement: Boolean) {
             if (rawValue.isNullOrBlank()) return
@@ -392,18 +395,27 @@ class FilmMakinesi : MainAPI() {
             val raw = sequenceOf(
                 element.attr("data-video_url"),
                 element.attr("data-frame"),
+                element.attr("data-iframe"),
+                element.attr("data-embed-url"),
+                element.attr("data-embed"),
+                element.attr("data-video"),
+                element.attr("data-player"),
+                element.attr("data-lazy-src"),
                 element.attr("data-src"),
                 element.attr("src"),
                 element.attr("data-url"),
                 element.attr("data-link"),
+                element.attr("data-href"),
                 element.attr("href")
             ).firstOrNull { it.isNotBlank() } ?: return@forEach
             val playerList = element.closest(
                 ".partlar, .parts, .server-list, .servers, .video-servers, .video-tabs, .player"
             ) != null
             val forced = element.tagName() in setOf("iframe", "video", "source", "embed") ||
-                element.hasAttr("data-video_url") || element.hasAttr("data-frame") ||
-                element.hasAttr("data-url") || playerList
+                sequenceOf(
+                    "data-video_url", "data-frame", "data-iframe", "data-embed",
+                    "data-embed-url", "data-video", "data-player", "data-url", "data-href"
+                ).any(element::hasAttr) || playerList
             val label = sequenceOf(
                 element.attr("data-title"),
                 element.attr("title"),
