@@ -11,6 +11,9 @@ class DDiziParserTest {
         assertTrue(DDiziParser.isSeriesUrl("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
         assertTrue(DDiziParser.isEpisodeUrl("https://www.ddizi.tel/izle/38955/kanit-100-bolum-final.htm"))
         assertFalse(DDiziParser.isEpisodeUrl("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
+        assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yabanci-dizi-izle"))
+        assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler"))
+        assertFalse(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yeni-eklenenler8"))
     }
 
     @Test
@@ -52,6 +55,11 @@ class DDiziParserTest {
             seriesTitle,
             "3. Ömür Usta 3.Bölüm izle",
             "https://www.ddizi.tel/izle/3/omur-usta-3-bolum-izle.htm"
+        ))
+        assertTrue(DDiziParser.belongsToSeriesEpisode(
+            "Dark izle Türkçe Dublaj Tüm Bölümler HD",
+            "Dark 3.Sezon 8.Bölüm",
+            "https://www.ddizi.tel/izle/72226/dark-3-sezon-8-bolum-izle.htm"
         ))
     }
 
