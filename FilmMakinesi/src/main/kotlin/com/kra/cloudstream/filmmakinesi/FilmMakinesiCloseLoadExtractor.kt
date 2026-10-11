@@ -168,6 +168,12 @@ internal object FilmMakinesiStreamParser {
                     addMedia(result, match.value.trimEnd(')', ']', '}', ',', ';'), baseUrl)
                 }
             }
+
+            // Static decoding cannot resolve every player: some sources are
+            // computed by obfuscated JavaScript at runtime. Use a sandboxed,
+            // time-bounded Rhino fallback, matching the proven NeoWatch approach.
+            FilmMakinesiJsRuntimeResolver.extractStreamUrls(normalized, baseUrl)
+                .forEach { addCloseLoadStream(result, it, baseUrl) }
             return result.toList()
         }
 
