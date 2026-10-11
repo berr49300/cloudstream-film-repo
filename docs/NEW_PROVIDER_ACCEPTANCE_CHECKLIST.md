@@ -18,6 +18,7 @@ A status is only **PASS** when there is evidence from the actual site and CloudS
 
 - [ ] Map the home page, every category route, genre pages, search, detail pages, season/episode pages and player/source routes.
 - [ ] Identify the true data source for each path: server-rendered HTML, embedded JSON, public API, paginated API or JavaScript-generated data.
+- [ ] Run `tools/provider_probe.py` and retain its sanitized JSON summary as a first-pass architecture hint (or record why live access is BLOCKED).
 - [ ] Inspect at least one example of each distinct response shape; do not infer one site's structure from another provider.
 - [ ] List the card wrapper selectors and the relationship between poster, title, URL, type label and metadata.
 - [ ] Identify all source player families and their request chains (iframe -> API -> manifest, direct media, etc.).

@@ -3,6 +3,7 @@
 ## Before changing code
 - Read `README.md`, `docs/SITE_DISCOVERY_PLAYBOOK.md`, `docs/NEW_PROVIDER_ACCEPTANCE_CHECKLIST.md`, the relevant provider, shared helpers, and existing tests.
 - Confirm the real site behavior from public evidence or sanitized fixtures. Do not invent endpoints, selectors, iframe chains, subtitles, or playback behavior.
+- When a public site URL exists, run `python tools/provider_probe.py --url "<URL>" --json` first and read its route/architecture hints before asking the user for material. Treat the probe as static evidence, not as a browser or playback test; if access is blocked, report that distinction.
 - Prefer existing Kotlin utilities and the repository's Gradle conventions. Keep provider changes isolated.
 
 ## Tests and evidence
