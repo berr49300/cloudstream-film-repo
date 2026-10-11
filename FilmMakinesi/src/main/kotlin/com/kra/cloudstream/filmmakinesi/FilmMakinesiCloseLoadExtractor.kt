@@ -33,16 +33,17 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
     ) {
         val playerOrigin = runCatching { URI(url).let { "${it.scheme}://${it.host}" } }
             .getOrDefault(mainUrl)
+        val requestReferer = referer ?: "https://filmmakinesi.to/"
+        // Match the working NeoWatch request shape: referer is passed through
+        // CloudStream's dedicated argument, while fetch metadata stays in headers.
         val headers = mapOf(
             "User-Agent" to userAgent,
-            "Referer" to (referer ?: "https://filmmakinesi.to/"),
-            // The reference extractor requests these URLs as an iframe
-            // navigation; some player hosts return an empty page otherwise.
             "Sec-Fetch-Dest" to "iframe",
-            "Sec-Fetch-Mode" to "navigate",
-            "Sec-Fetch-Site" to "same-site"
+            "Sec-Fetch-Mode" to "navigate"
         )
-        val html = runCatching { app.get(url, headers = headers).text }.getOrNull() ?: return
+        val html = runCatching {
+            app.get(url, referer = requestReferer, headers = headers).text
+        }.getOrNull() ?: return
 
         val subtitleTracks = linkedMapOf<String, Pair<String, String>>()
         FilmMakinesiSubtitleParser.parse(html, url).forEach { track ->
