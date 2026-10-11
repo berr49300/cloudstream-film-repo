@@ -30,4 +30,13 @@ class FilmMakinesiPlayerResolverTest {
         assertNull(FilmMakinesiPlayerResolver.sourceVariable("""jwplayer({sources: [{file: "https://cdn.test/master.m3u8"}]});"""))
         assertNull(FilmMakinesiPlayerResolver.sourceVariable("var unrelated = true;"))
     }
+    @Test
+    fun decodesCurrentDcHelloArrayStreamFixture() {
+        val html = """<script>dc_hello(["==f1zOuNp","aPbkyAql0","fN2lM6ffq","6rF/nd13+","acP9LSu8g","utaac/6E8","e+vmPliVe","CWodoyhm/","yJtXiB/6N","yVcH41h5y","4Ct7u453Q","+2Of5ZUpn","7G+nOjjGN","TN+BGg+Rp","v1Eoi5j7u","43W+jk8+y"]);</script>"""
+        assertEquals(
+            listOf("https://srv9.cdnimages3055.shop/hls/mayday-2026-webdl-trdual-tt28014327mp4-OSxZYB25jjD4.mp4/txt/master.txt"),
+            FilmMakinesiPlayerResolver.resolveSourceLinks(html)
+        )
+    }
+
 }
