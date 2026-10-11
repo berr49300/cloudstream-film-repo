@@ -443,8 +443,8 @@ class FilmMakinesi : MainAPI() {
         val urlPattern = Regex("""(?i)(?:https?:)?//[^"'\s<>]+""")
         urlPattern.findAll(normalizedHtml).forEach { match ->
             val raw = match.value.trimEnd(')', ']', '}', ',', ';')
-            val contextStart = (match.range.first - 300).coerceAtLeast(0)
-            val contextEnd = (match.range.last + 301).coerceAtMost(normalizedHtml.length)
+            val contextStart = (match.range.first - 120).coerceAtLeast(0)
+            val contextEnd = (match.range.last + 81).coerceAtMost(normalizedHtml.length)
             val context = normalizedHtml.substring(contextStart, contextEnd)
             val looksLikePlayerData = Regex(
                 """(?is)(iframe|embed|player|source|stream|video|file|server|data-src|data-frame|data-video|m3u8)"""
