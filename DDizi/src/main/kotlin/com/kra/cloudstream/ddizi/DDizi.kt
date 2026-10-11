@@ -132,12 +132,22 @@ class DDizi : MainAPI() {
                 }
             }
 
-        // A few pages expose the selected part/player as a normal link instead of an iframe.
+        // Some pages expose player parts as ordinary links. Only consider links
+        // inside player/source/server controls or clearly labeled as a part; scanning
+        // every external anchor also captures unrelated advertisements.
         document.select("a[href]").forEach { anchor ->
             val raw = anchor.attr("href").trim()
             val absolute = fixUrlNull(raw) ?: return@forEach
-            if (isAllowedPlayerUrl(absolute) && !DDiziParser.isSeriesUrl(absolute) &&
-                !DDiziParser.isEpisodeUrl(absolute)
+            val label = anchor.text().trim()
+            val context = (listOf(anchor.className(), anchor.id()) +
+                anchor.parents().take(4).map { "${it.className()} ${it.id()}" })
+                .joinToString(" ")
+                .lowercase()
+            val playerControl = Regex("""player|video|source|server|part|bolum|bölüm|kaynak|izle""")
+                .containsMatchIn(context) ||
+                Regex("""(?i)(?:part\\s*)?[1-3]""").matches(label)
+            if (playerControl && isAllowedPlayerUrl(absolute) &&
+                !DDiziParser.isSeriesUrl(absolute) && !DDiziParser.isEpisodeUrl(absolute)
             ) candidates.add(absolute)
         }
 
