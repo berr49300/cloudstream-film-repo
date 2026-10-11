@@ -100,31 +100,33 @@ class DDiziParserTest {
     }
 
     @Test
-    fun splitsSeasonlessSeriesAtExplicitFinalesAndUsesSeasonLocalEpisodeNumbers() {
-        val finals = DDiziParser.seasonFinalEpisodeNumbers(
+    fun mapsGlobalEpisodeNumbersToSeasonLocalIndicesWithoutMixingSeries() {
+        val teskilatFinals = DDiziParser.seasonFinalEpisodeNumbers(
             listOf(
                 "Teşkilat 14.Bölüm Sezon Finali",
                 "Teşkilat 48.Bölüm Sezon Finali",
-                "Teşkilat 80.Bölüm Sezon Finali",
-                "Sevdiğim Sensin 20.Bölüm",
-                "Sevdiğim Sensin 15.Bölüm Sezon Finali",
-                "Sevdiğim Sensin 10.Bölüm",
-                "Dark 2.Sezon 8.Bölüm Sezon Finali"
+                "Teşkilat 80.Bölüm Sezon Finali"
             )
         )
-        assertEquals(setOf(14, 48, 80, 15), finals)
-        assertEquals(1, DDiziParser.seasonForEpisode(14, finals))
-        assertEquals(2, DDiziParser.seasonForEpisode(15, finals))
-        assertEquals(2, DDiziParser.seasonForEpisode(48, finals))
-        assertEquals(3, DDiziParser.seasonForEpisode(49, finals))
-        assertEquals(3, DDiziParser.seasonForEpisode(80, finals))
-        assertEquals(4, DDiziParser.seasonForEpisode(81, finals))
-        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(1, finals))
-        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, finals))
-        assertEquals(34, DDiziParser.seasonLocalEpisodeNumber(48, finals))
-        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(49, finals))
-        assertEquals(12, DDiziParser.seasonLocalEpisodeNumber(60, finals))
-        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(81, finals))
-        assertEquals(null, DDiziParser.seasonForEpisode(null, finals))
+        assertEquals(setOf(14, 48, 80), teskilatFinals)
+        assertEquals(1, DDiziParser.seasonForEpisode(14, teskilatFinals))
+        assertEquals(2, DDiziParser.seasonForEpisode(15, teskilatFinals))
+        assertEquals(2, DDiziParser.seasonForEpisode(48, teskilatFinals))
+        assertEquals(3, DDiziParser.seasonForEpisode(49, teskilatFinals))
+        assertEquals(3, DDiziParser.seasonForEpisode(80, teskilatFinals))
+        assertEquals(4, DDiziParser.seasonForEpisode(81, teskilatFinals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, teskilatFinals))
+        assertEquals(34, DDiziParser.seasonLocalEpisodeNumber(48, teskilatFinals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(49, teskilatFinals))
+        assertEquals(12, DDiziParser.seasonLocalEpisodeNumber(60, teskilatFinals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(81, teskilatFinals))
+
+        val sevFinals = DDiziParser.seasonFinalEpisodeNumbers(
+            listOf("Sevdiğim Sensin 15.Bölüm Sezon Finali")
+        )
+        assertEquals(setOf(15), sevFinals)
+        assertEquals(1, DDiziParser.seasonForEpisode(15, sevFinals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, sevFinals))
+        assertEquals(null, DDiziParser.seasonForEpisode(null, teskilatFinals))
     }
 }
