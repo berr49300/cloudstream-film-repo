@@ -94,11 +94,11 @@ class DDizi : MainAPI() {
                 if (!isSameSite(candidate)) return@filter false
                 val candidatePath = runCatching { URI(candidate).path.orEmpty().trimEnd('/') }.getOrDefault("")
                 candidatePath.startsWith("$seriesPath/") &&
-                    Regex("""/sayfa-\\d+$""").containsMatchIn(candidatePath)
+                    Regex("""/sayfa-\d+$""").containsMatchIn(candidatePath)
             }
             .distinct()
             .sortedBy { candidate ->
-                Regex("""/sayfa-(\\d+)$""")
+                Regex("""/sayfa-(\d+)$""")
                     .find(runCatching { URI(candidate).path.orEmpty() }.getOrDefault(""))
                     ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
             }
