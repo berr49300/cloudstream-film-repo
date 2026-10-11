@@ -171,7 +171,7 @@ class FilmMakinesiJsPackerTest {
         }.joinToString("")
         val base64 = java.util.Base64.getEncoder()
             .encodeToString(rotate13.toByteArray(Charsets.ISO_8859_1))
-        val encodedChunks = base64.reversed().chunked(7).joinToString(",") { "\\"$it\\"" }
+        val encodedChunks = base64.reversed().chunked(7).joinToString(",") { "\"$it\"" }
         val html = "<script>dc_hello([$encodedChunks]);</script>"
 
         assertEquals(
