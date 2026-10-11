@@ -21,7 +21,7 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
-        "fileHash": "sha256-3d47672448fe0b5dbed4bd0e4467154c0d8a511ad3a0e5ca9b6881979f700f38",
+        "fileHash": "sha256-69bb2567c101dfa4e55449975ba6b7c0219a4827c3e17c4ddec1762627aa9dac",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
         "fileSize": 69249,
@@ -34,7 +34,7 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 23,
+        "version": 24,
         "internalName": "FilmMakinesi",
         "description": "FilmMakinesi katalog ve CloseLoad/Rapid ba\u011flant\u0131 \u00e7\u00f6z\u00fcc\u00fcs\u00fc",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FilmMakinesi.cs3",
