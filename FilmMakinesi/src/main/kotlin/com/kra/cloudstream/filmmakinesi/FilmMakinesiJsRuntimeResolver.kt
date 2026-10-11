@@ -96,7 +96,10 @@ internal object FilmMakinesiJsRuntimeResolver {
                 if (!Regex("""(?i)(file|src|source|stream|video|media|link|url|^cm$|^tm$)""")
                         .containsMatchIn(variableName)) return@forEach
                 val value = scope.get(variableName, scope)
-                if (value is String) {
+                if (value is String &&
+                    (value.startsWith("http://", true) || value.startsWith("https://", true) ||
+                        value.startsWith("//"))
+                ) {
                     normalizeCandidate(value, baseUrl)?.let(found::add)
                 }
             }
