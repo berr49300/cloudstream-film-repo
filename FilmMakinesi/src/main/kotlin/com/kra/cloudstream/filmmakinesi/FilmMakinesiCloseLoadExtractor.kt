@@ -128,27 +128,27 @@ internal object FilmMakinesiStreamParser {
 
         /**
          * Ordered CloseLoad extraction ported from Emre Kahveci's core
-         * CloseLoadExtractor. Keep the discovery order and patterns close to
-         * the reference implementation; our broader parser remains fallback.
+         * CloseLoadExtractor. Keep discovery order and patterns close to the
+         * reference implementation; the broader parser remains fallback.
          */
         fun extractReferenceStreamUrl(html: String, baseUrl: String): String? {
-            val directFile = Regex("""file:\\s*["']([^"']+\\.(?:m3u8|mp4|txt)[^"']*)["']""")
+            val directFile = Regex("""file:\s*["']([^"']+\.(?:m3u8|mp4|txt)[^"']*)["']""")
                 .find(html)?.groupValues?.getOrNull(1)
             if (!directFile.isNullOrBlank()) return resolveUrl(directFile, baseUrl)
 
             val fullContent = if (html.contains("eval(function(p,a,c,k,e,d)")) {
-                html + "\\n" + FilmMakinesiJsPacker.unpackAll(html).joinToString("\\n")
+                html + "\n" + FilmMakinesiJsPacker.unpackAll(html).joinToString("\n")
             } else {
                 html
             }
 
-            val varMatches = Regex("""sources:\\s*\\[\\{file:\\s*([a-zA-Z0-9_]+)""")
+            val varMatches = Regex("""sources:\s*\[\{file:\s*([a-zA-Z0-9_]+)""")
                 .findAll(fullContent)
             val varName = varMatches.map { it.groupValues[1] }.firstOrNull { it != "atob" }
             if (!varName.isNullOrBlank()) {
                 val escapedName = Regex.escape(varName)
                 val payloadRegex = Regex(
-                    """var\\s+$escapedName\\s*=\\s*[a-zA-Z0-9_]+\\s*\\(\\s*["']([^"']+)["']\\.split\\(\\s*["']([^"']+)["']\\s*\\)\\s*\\);"""
+                    """var\s+$escapedName\s*=\s*[a-zA-Z0-9_]+\s*\(\s*["']([^"']+)["']\.split\(\s*["']([^"']+)["']\s*\)\s*\);"""
                 )
                 val payload = payloadRegex.find(fullContent)
                 if (payload != null) {
@@ -160,7 +160,7 @@ internal object FilmMakinesiStreamParser {
             }
 
             val genericRegex = Regex(
-                """var\\s+[a-zA-Z0-9_]+\\s*=\\s*[a-zA-Z0-9_]+\\s*\\(\\s*["']([^"']{100,})["']\\.split\\(\\s*["']([|^*@#~])["']\\s*\\)\\s*\\);"""
+                """var\s+[a-zA-Z0-9_]+\s*=\s*[a-zA-Z0-9_]+\s*\(\s*["']([^"']{100,})["']\.split\(\s*["']([|^*@#~])["']\s*\)\s*\);"""
             )
             for (match in genericRegex.findAll(fullContent)) {
                 val parts = match.groupValues[1].split(match.groupValues[2])
