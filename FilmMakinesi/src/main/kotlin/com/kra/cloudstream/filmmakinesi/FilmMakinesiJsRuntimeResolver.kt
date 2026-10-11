@@ -36,7 +36,7 @@ internal object FilmMakinesiJsRuntimeResolver {
                     script.contains("eval(function(p,a,c,k,e,d)") ||
                     script.contains("atob(", ignoreCase = true) ||
                     visibleVariables.any { variable ->
-                        Regex("""\\b${Regex.escape(variable)}\\b""").containsMatchIn(script)
+                        Regex("""\b${Regex.escape(variable)}\b""").containsMatchIn(script)
                     }
             }
         val candidates = linkedSetOf<String>()
