@@ -218,7 +218,7 @@ internal object FilmMakinesiStreamParser {
         }
 
         private val rapidStreamField = Regex(
-            """(?is)["'](?:cm|tm)["']\\s*:\\s*["']((?:\\\\.|[^"'])+)["']"""
+            """(?is)["'](?:cm|tm)["']\s*:\s*["']((?:\\.|[^"'])+)["']"""
         )
 
         private fun addRapidStream(result: MutableSet<String>, raw: String, baseUrl: String) {
