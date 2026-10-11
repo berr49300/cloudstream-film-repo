@@ -52,6 +52,12 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             subtitleCallback(newSubtitleFile(lang, subtitleUrl) { this.headers = headers })
         }
 
+        val streamHeaders = mapOf(
+            "User-Agent" to userAgent,
+            // The player origin, rather than the parent film page, is the
+            // referer expected by many media CDNs after the embed is resolved.
+            "Referer" to "$playerOrigin/"
+        )
         for (stream in extractStreamUrls(html, url, playerLabel)) {
             callback(newExtractorLink(
                 source = name,
@@ -62,8 +68,8 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
                     !FilmMakinesiStreamParser.isMediaUrl(stream)
                 ) ExtractorLinkType.M3U8 else mediaTypeForUrl(stream)
             ) {
-                this.referer = playerOrigin
-                this.headers = headers
+                this.referer = "$playerOrigin/"
+                this.headers = streamHeaders
             })
         }
     }
