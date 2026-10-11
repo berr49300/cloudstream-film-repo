@@ -1,5 +1,6 @@
 package com.kra.cloudstream.ddizi
 
+import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
@@ -76,25 +77,38 @@ class DDizi : MainAPI() {
         val title = DDiziParser.cleanTitle(rawTitle)
         if (title.isBlank()) return null
 
-        val poster = seriesPage.selectFirst("meta[property=og:image]")?.attr("content")?.let { fixUrlNull(it) }
-            ?: seriesPage.selectFirst("img[src], img[data-src]")?.let { imageUrlFrom(it) }
+        // Prefer the series poster over the site's generic Open Graph/logo image.
+        val poster = seriesPage.selectFirst("div.afis img, img.afis, img.img-back, img.img-back-cat")
+            ?.let { imageUrlFrom(it) }
+            ?: seriesPage.selectFirst("meta[property=og:image]")?.attr("content")?.let { fixUrlNull(it) }
         val plot = seriesPage.selectFirst("meta[name=description]")?.attr("content")
             ?: seriesPage.selectFirst(".ozet, .summary, .description, [itemprop=description]")?.text()
 
+        // DDizi puts the series' own episode list before a separate "Bugünkü Bölümler"
+        // list containing episodes from unrelated shows. Filter by the confirmed series
+        // title instead of treating every /izle/ link on the document as a child episode.
         val episodeAnchors = seriesPage.select("a[href]")
             .filter { anchor ->
                 val href = fixUrlNull(anchor.attr("href")) ?: return@filter false
-                DDiziParser.isEpisodeUrl(href) &&
-                    !href.equals(seriesUrl, ignoreCase = true) &&
-                    anchor.text().isNotBlank()
+                if (!DDiziParser.isEpisodeUrl(href) || href.equals(seriesUrl, ignoreCase = true)) {
+                    return@filter false
+                }
+                val label = listOf(
+                    anchor.text(),
+                    anchor.attr("title"),
+                    anchor.selectFirst("img")?.attr("alt").orEmpty()
+                ).firstOrNull { it.isNotBlank() }.orEmpty()
+                DDiziParser.belongsToSeriesEpisode(title, label)
             }
             .distinctBy { fixUrl(it.attr("href")) }
 
         val episodes = episodeAnchors.mapNotNull { anchor ->
             val href = fixUrlNull(anchor.attr("href")) ?: return@mapNotNull null
-            val episodeTitle = anchor.text().trim().ifBlank {
-                anchor.selectFirst("img")?.attr("alt").orEmpty()
-            }.ifBlank { "Bölüm" }
+            val episodeTitle = listOf(
+                anchor.text().trim(),
+                anchor.attr("title").trim(),
+                anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
+            ).firstOrNull { it.isNotBlank() } ?: "Bölüm"
             newEpisode(href) {
                 name = episodeTitle
                 episode = DDiziParser.episodeNumber(episodeTitle)
@@ -117,27 +131,31 @@ class DDizi : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val page = app.get(data, referer = "$mainUrl/")
-        val document = page.document
+        val document = app.get(data, referer = "$mainUrl/").document
         val candidates = linkedSetOf<String>()
+
+        fun addCandidate(raw: String?, baseUrl: String = data) {
+            if (raw.isNullOrBlank()) return
+            val absolute = resolveCandidateUrl(baseUrl, raw.trim()) ?: return
+            if (isAllowedPlayerUrl(absolute)) candidates.add(absolute)
+        }
 
         document.select("iframe[src], iframe[data-src], video[src], video[data-src], source[src], embed[src]")
             .forEach { element ->
                 listOf("src", "data-src", "data-url").forEach { attr ->
-                    val raw = element.attr(attr).trim()
-                    if (raw.isNotBlank()) {
-                        val absolute = fixUrlNull(raw)
-                        if (absolute != null && isAllowedPlayerUrl(absolute)) candidates.add(absolute)
-                    }
+                    addCandidate(element.attr(attr))
                 }
             }
 
-        // Some pages expose player parts as ordinary links. Only consider links
-        // inside player/source/server controls or clearly labeled as a part; scanning
-        // every external anchor also captures unrelated advertisements.
+        // Some DDizi pages expose the same player route through Open Graph metadata.
+        document.select("meta[property=og:video], meta[property=og:video:url], meta[name=twitter:player]")
+            .forEach { addCandidate(it.attr("content")) }
+
+        // Part/server controls can link to a player even when the iframe has not been
+        // emitted in the static markup. Exclude series and episode navigation links.
         document.select("a[href]").forEach { anchor ->
             val raw = anchor.attr("href").trim()
-            val absolute = fixUrlNull(raw) ?: return@forEach
+            val absolute = resolveCandidateUrl(data, raw) ?: return@forEach
             val label = anchor.text().trim()
             val context = (listOf(anchor.className(), anchor.id()) +
                 anchor.parents().take(4).map { "${it.className()} ${it.id()}" })
@@ -145,29 +163,97 @@ class DDizi : MainAPI() {
                 .lowercase()
             val playerControl = Regex("""player|video|source|server|part|bolum|bölüm|kaynak|izle""")
                 .containsMatchIn(context) ||
-                Regex("""(?i)(?:part\\s*)?[1-3]""").matches(label)
+                Regex("""(?i)(?:part\s*)?[1-3](?:\.\s*)?(?:parça|parca)?""").matches(label)
             if (playerControl && isAllowedPlayerUrl(absolute) &&
                 !DDiziParser.isSeriesUrl(absolute) && !DDiziParser.isEpisodeUrl(absolute)
             ) candidates.add(absolute)
         }
 
+        // DDizi commonly uses a same-site /player/oynat/{token} wrapper, which then
+        // embeds the actual player (including ddizi.re/player/youtube.php?id=...).
+        // Resolve this bounded iframe chain; do not assume the wrapper itself is media.
+        val queue = java.util.ArrayDeque<Pair<String, String>>()
+        candidates.forEach { queue.addLast(it to data) }
+        val visited = mutableSetOf<String>()
         var emitted = 0
-        candidates.forEach { candidate ->
-            val path = runCatching { URI(candidate).path.orEmpty().lowercase() }.getOrDefault("")
-            runCatching {
-                if (path.endsWith(".m3u8") || path.endsWith(".mp4") || path.endsWith(".mpd")) {
-                    val type = if (path.endsWith(".m3u8")) ExtractorLinkType.M3U8 else null
-                    callback(newExtractorLink(name, name, candidate, type) {
-                        referer = data
-                        quality = Qualities.Unknown.value
-                    })
-                    emitted++
-                } else {
-                    loadExtractor(candidate, data, subtitleCallback) { link ->
+
+        while (queue.isNotEmpty() && visited.size < 12) {
+            val (candidate, parentReferer) = queue.removeFirst()
+            if (!visited.add(candidate)) continue
+
+            val youtubeUrl = DDiziParser.youtubeWatchUrlIfEmbed(candidate)
+            if (youtubeUrl != null) {
+                runCatching {
+                    loadExtractor(youtubeUrl, candidate, subtitleCallback) { link ->
                         callback(link)
                         emitted++
                     }
                 }
+                continue
+            }
+
+            val path = runCatching { URI(candidate).path.orEmpty().lowercase() }.getOrDefault("")
+            if (path.endsWith(".m3u8") || path.endsWith(".mp4") || path.endsWith(".mpd") || path.endsWith(".mkv")) {
+                val type = if (path.endsWith(".m3u8")) ExtractorLinkType.M3U8 else null
+                callback(newExtractorLink(name, name, candidate, type) {
+                    referer = parentReferer
+                    quality = Qualities.Unknown.value
+                })
+                emitted++
+                continue
+            }
+
+            val playerDocument = runCatching {
+                app.get(candidate, referer = parentReferer).document
+            }.getOrNull()
+
+            if (playerDocument != null) {
+                val nested = linkedSetOf<String>()
+                playerDocument.select("iframe[src], iframe[data-src], video[src], video[data-src], source[src], embed[src]")
+                    .forEach { element ->
+                        listOf("src", "data-src", "data-url").forEach { attr ->
+                            val raw = element.attr(attr).trim()
+                            if (raw.isNotBlank()) {
+                                val absolute = resolveCandidateUrl(candidate, raw)
+                                if (absolute != null && isAllowedPlayerUrl(absolute)) nested.add(absolute)
+                            }
+                        }
+                    }
+                playerDocument.select("meta[property=og:video], meta[property=og:video:url], meta[name=twitter:player]")
+                    .forEach { meta ->
+                        val absolute = resolveCandidateUrl(candidate, meta.attr("content"))
+                        if (absolute != null && isAllowedPlayerUrl(absolute)) nested.add(absolute)
+                    }
+
+                // Support an explicitly declared JWPlayer literal source, but only when
+                // the player page confirms that it is a JWPlayer sources configuration.
+                val scripts = playerDocument.select("script").joinToString("\n") {
+                    it.data().ifBlank { it.html() }
+                }
+                if (scripts.contains("jwplayer", ignoreCase = true) && scripts.contains("sources", ignoreCase = true)) {
+                    val sourceRegex = Regex("""sources\s*:\s*\[\s*\{[^}]*?file\s*:\s*["']([^"']+)["']""", RegexOption.DOT_MATCHES_ALL)
+                    sourceRegex.findAll(scripts).forEach { match ->
+                        val absolute = resolveCandidateUrl(candidate, match.groupValues[1])
+                        if (absolute != null && isAllowedPlayerUrl(absolute)) nested.add(absolute)
+                    }
+                }
+
+                if (nested.isNotEmpty()) {
+                    nested.forEach { queue.addLast(it to candidate) }
+                    continue
+                }
+            }
+
+            // Let CloudStream's registered extractors handle any player family we do
+            // not parse ourselves. The source page remains the fallback referer.
+            runCatching {
+                loadExtractor(candidate, parentReferer, subtitleCallback) { link ->
+                    callback(link)
+                    emitted++
+                }
+            }.onFailure {
+                val host = runCatching { URI(candidate).host.orEmpty() }.getOrDefault("")
+                Log.d("DDizi", "No extractor emitted a link for host=$host")
             }
         }
         return emitted > 0
@@ -204,9 +290,20 @@ class DDizi : MainAPI() {
         return host == "ddizi.tel" || host.endsWith(".ddizi.tel")
     }
 
+    private fun resolveCandidateUrl(baseUrl: String, rawUrl: String): String? =
+        runCatching { URI(baseUrl).resolve(rawUrl).toString() }
+            .getOrNull()
+            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?: fixUrlNull(rawUrl)
+
     private fun isAllowedPlayerUrl(url: String): Boolean {
-        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        return host.isNotBlank() && host != "www.ddizi.tel" && host != "ddizi.tel" &&
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val host = uri.host.orEmpty().lowercase()
+        val path = uri.path.orEmpty().lowercase()
+        val isDdiziOwnPlayer = host in setOf("www.ddizi.tel", "ddizi.tel") &&
+            path.startsWith("/player/oynat/")
+        return host.isNotBlank() &&
+            (isDdiziOwnPlayer || host != "www.ddizi.tel" && host != "ddizi.tel") &&
             !host.endsWith(".google.com") && !host.contains("facebook")
     }
 }
