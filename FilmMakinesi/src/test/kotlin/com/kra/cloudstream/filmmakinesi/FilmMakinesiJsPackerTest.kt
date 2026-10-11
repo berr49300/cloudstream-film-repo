@@ -124,6 +124,29 @@ class FilmMakinesiJsPackerTest {
     }
 
     @Test
+    fun resolvesKnownCloseLoadPayloadFromReferenceFixture() {
+        val html = """
+            <script>
+                function nc0(uvx) {
+                    var anzgu = uvx.join('');
+                    var d25w = "xj1kV8NUjhX1BYHA71jJadM";
+                    var om88 = "bvY";
+                    return "";
+                }
+                var payload = ["==f1zOuNp","aPbkyAql0","fN2lM6ffq","6rF/nd13+","acP9LSu8g","utaac/6E8","e+vmPliVe","CWodoyhm/","yJtXiB/6N","yVcH41h5y","4Ct7u453Q","+2Of5ZUpn","7G+nOjjGN","TN+BGg+Rp","v1Eoi5j7u","43W+jk8+y"];
+            </script>
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://srv9.cdnimages3055.shop/hls/mayday-2026-webdl-trdual-tt28014327mp4-OSxZYB25jjD4.mp4/txt/master.txt"),
+            FilmMakinesiStreamParser.extractStreamUrls(
+                html,
+                "https://closeload.filmmakinesi.to/embed/fixture"
+            )
+        )
+    }
+
+    @Test
     fun ignoresUnrelatedScriptsAndMalformedPackerPayloads() {
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("var player = { file: '/video.m3u8' };"))
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("eval(function(p,a,c,k,e,d){return p;}('0',999,1,'x'.split('|'),0,{}))"))
