@@ -31,6 +31,19 @@ class FilmMakinesiJsPackerTest {
     }
 
     @Test
+    fun keepsOpaqueVideoSourceUrlsWithoutFileExtensions() {
+        val html = """<video><source src="https://cdn.example.test/play/abc123?token=xyz" type="application/vnd.apple.mpegurl"></video>"""
+
+        assertEquals(
+            listOf("https://cdn.example.test/play/abc123?token=xyz"),
+            FilmMakinesiStreamParser.extractStreamUrls(
+                html,
+                "https://closeload.filmmakinesi.to/embed/abc"
+            )
+        )
+    }
+
+    @Test
     fun ignoresUnrelatedScriptsAndMalformedPackerPayloads() {
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("var player = { file: '/video.m3u8' };"))
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("eval(function(p,a,c,k,e,d){return p;}('0',999,1,'x'.split('|'),0,{}))"))
