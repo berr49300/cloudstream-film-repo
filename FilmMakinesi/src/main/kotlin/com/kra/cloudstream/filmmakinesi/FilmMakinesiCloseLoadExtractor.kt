@@ -371,8 +371,8 @@ internal object FilmMakinesiStreamParser {
          * rolling-state arithmetic must match exactly or the output URL is invalid.
          */
         internal fun decodeCloseLoadPayload(parts: List<String>): String {
-            // Keep this transform in sync with the working FilmMakinesi CloseLoad
-            // algorithm: removing either key at the wrong index corrupts the URL.
+            // This follows the public CloseLoad payload algorithm's operation order.
+            // The key indices, PRNG, and rolling XOR must match exactly.
             if (parts.size < 10 || parts.size > 10_000 || parts.any { it.length > 100_000 }) return ""
             val list = parts.toMutableList()
             val offset = list.size - 2
@@ -383,7 +383,6 @@ internal object FilmMakinesiStreamParser {
             val operations = list.removeAt(operationIndex)
             val seedKey = list.removeAt(seedIndex)
             var text = list.joinToString("")
-
             if (seedKey.length > 4096) {
                 text = decodeBase64Latin1(text)
                 if (text.isEmpty()) return ""
@@ -396,22 +395,24 @@ internal object FilmMakinesiStreamParser {
                 seed = (seed * 37 + code) % 241
                 mask = (mask + ((code shl 1) xor index)) and 255
             }
-            val initial = (seed + mask) % 256
-            val stride = (seed % 13) + 3
-            var state = ((seed * 256 + mask) % 65521) + 1
+            val initial = (seed * 3 + mask) % 256
+            val stride = (mask % 11) + 5
+            var state = ((mask * 251 + seed) % 65519) + 1
 
             for (index in operations.indices.reversed()) {
                 text = when (val operation = operations[index]) {
-                    'b' -> decodeBase64Latin1(text)
-                    'v' -> text.reversed()
-                    else -> rotateLetters(text, (26 - ((operation.code - 64) % 26)) % 26)
+                    '7' -> decodeBase64Latin1(text)
+                    '3' -> text.reversed()
+                    else -> rotateLetters(text, (26 - ((operation.code - 96) % 26)) % 26)
                 }
                 if (text.isEmpty()) return ""
             }
+            if (operations.length > 2048) text = text.reversed()
+            if (text.length > 200_000) return ""
 
             val swaps = IntArray(text.length)
             for (index in text.length - 1 downTo 1) {
-                state = (state * 75 + 74) % 65537
+                state = (state * 97 + 41) % 65519
                 swaps[index] = state % (index + 1)
             }
             val chars = text.toCharArray()
@@ -426,7 +427,7 @@ internal object FilmMakinesiStreamParser {
             val decoded = StringBuilder(chars.size)
             for (ch in chars) {
                 val code = ch.code
-                rolling = (rolling + stride) % 256
+                rolling = (rolling * 5 + stride) % 256
                 decoded.append((code xor rolling).toChar())
                 rolling = (rolling + code) % 256
             }
