@@ -21,10 +21,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
-        "fileHash": "sha256-e53f33948c9d3e43bc45d491c202580b211c47424d75cccc879f84c02352d595",
+        "fileHash": "sha256-d098ea70a2524a3f2b2f3e89fd8187b11d693f6a886a418df41862c836e5a665",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 56104,
+        "fileSize": 57130,
         "status": 1,
         "language": "tr",
         "authors": [
@@ -34,7 +34,7 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 13,
+        "version": 14,
         "internalName": "FilmMakinesi",
         "description": "FilmMakinesi film/dizi sa\u011flay\u0131c\u0131s\u0131; HTML, oynat\u0131c\u0131, video ve altyaz\u0131 ayr\u0131\u015ft\u0131rma",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FilmMakinesi.cs3",
