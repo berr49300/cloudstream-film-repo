@@ -24,8 +24,8 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val base = playerBase(url) ?: return
-        val playerName = playerName(url)
+        val base = FilmMakinesiPlayerDecoder.playerBase(url) ?: return
+        val playerName = FilmMakinesiPlayerDecoder.playerName(url)
         // Keep the native CloudStream User-Agent. Only add the same iframe
         // navigation metadata used by the known-working reference implementation.
         val html = runCatching {
@@ -39,11 +39,11 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
             ).text
         }.getOrNull() ?: return
 
-        readSubtitles(html, base).forEach { (language, subtitleUrl) ->
+        FilmMakinesiPlayerDecoder.readSubtitles(html, base).forEach { (language, subtitleUrl) ->
             subtitleCallback(newSubtitleFile(language, subtitleUrl))
         }
 
-        val links = resolveSourceLinks(html)
+        val links = FilmMakinesiPlayerDecoder.resolveSourceLinks(html)
         if (links.isEmpty()) {
             Log.d("FilmMakinesi", "$playerName source could not be decoded: $url")
             return
@@ -58,7 +58,9 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
         }
     }
 
-    companion object {
+}
+
+internal object FilmMakinesiPlayerDecoder {
         internal fun playerBase(url: String): String? = runCatching {
             URI(url).let { uri ->
                 if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) null
@@ -300,4 +302,3 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
             }
         """
     }
-}
