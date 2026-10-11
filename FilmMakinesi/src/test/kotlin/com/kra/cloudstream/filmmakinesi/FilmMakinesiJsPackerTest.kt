@@ -151,4 +151,36 @@ class FilmMakinesiJsPackerTest {
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("var player = { file: '/video.m3u8' };"))
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("eval(function(p,a,c,k,e,d){return p;}('0',999,1,'x'.split('|'),0,{}))"))
     }
+
+    @Test
+    fun decodesCurrentDcArrayPayloadUsingReferenceOperationOrder() {
+        val expected = "https://cdn.example.test/movie/master.m3u8"
+        // Reverse the resolver's final byte-unmix stage to build a deterministic fixture.
+        val preUnmix = buildString(expected.length) {
+            expected.forEachIndexed { index, ch ->
+                val shift = (399756995L % (index + 5)).toInt()
+                append(((ch.code + shift) % 256).toChar())
+            }
+        }
+        val rotate13 = preUnmix.map { ch ->
+            when (ch) {
+                in 'a'..'z' -> ((ch.code - 'a'.code + 13) % 26 + 'a'.code).toChar()
+                in 'A'..'Z' -> ((ch.code - 'A'.code + 13) % 26 + 'A'.code).toChar()
+                else -> ch
+            }
+        }.joinToString("")
+        val base64 = java.util.Base64.getEncoder()
+            .encodeToString(rotate13.toByteArray(Charsets.ISO_8859_1))
+        val encodedChunks = base64.reversed().chunked(7).joinToString(",") { "\\"$it\\"" }
+        val html = "<script>dc_hello([$encodedChunks]);</script>"
+
+        assertEquals(
+            listOf(expected),
+            FilmMakinesiStreamParser.extractStreamUrls(
+                html,
+                "https://closeload.filmmakinesi.to/embed/native-fixture"
+            )
+        )
+    }
+
 }
