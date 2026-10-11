@@ -11,7 +11,6 @@ import argparse
 import json
 import re
 import sys
-from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -20,7 +19,7 @@ from urllib.request import Request, urlopen
 
 
 MEDIA_EXTENSIONS = (".m3u8", ".mp4", ".mpd", ".m4v", ".webm", ".mp3", ".vtt", ".srt")
-URL_RE = re.compile(r"""(?i)(https?:)?//[^\s"'<>\\]+""")
+URL_RE = re.compile(r"""(?i)(?:https?:)?//[^\s\'"<>\\]+""")
 PACKER_RE = re.compile(r"eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d")
 PLAYER_CONFIG_RE = re.compile(r"""(?is)(sources\s*:\s*\[|['"]sources['"]\s*:|file_link\s*=|['"]file['"]\s*:\s*['"]https?://)""")
 API_RE = re.compile(r"(?i)(fetch\s*\(|axios\.|XMLHttpRequest|/api/|\.json(?:\?|['\" ])|graphql)")
