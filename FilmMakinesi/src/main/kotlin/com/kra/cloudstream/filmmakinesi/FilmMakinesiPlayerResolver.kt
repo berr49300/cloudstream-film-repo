@@ -1,5 +1,5 @@
 /*
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * Resolves the CloseLoad/Rapid JWPlayer source variable with bounded JavaScript.
  */
 package com.kra.cloudstream.filmmakinesi
