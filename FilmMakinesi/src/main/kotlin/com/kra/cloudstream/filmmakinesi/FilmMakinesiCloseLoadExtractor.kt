@@ -576,7 +576,7 @@ internal object FilmMakinesiStreamParser {
         }
 
         private fun extractHttpUrl(value: String): String? =
-            Regex("""(?i)https?://[^\\s"'<>\\\\]+""")
+            Regex("""(?i)https?://[^\s"'<>\\]+""")
                 .find(normalize(value))
                 ?.value
                 ?.trimEnd(')', ']', '}', ',', ';')
