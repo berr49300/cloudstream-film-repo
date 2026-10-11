@@ -103,3 +103,12 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - The current FullHDFilmizlesene module compiled and packaged in GitHub Actions, but the user reports the provider homepage only displays “None” and “Random”. Treat catalog as a runtime failure until a real response and selector-level regression test establish the cause.
 - The initial install error's root cause is UNKNOWN. The user screenshots show the plugin later appeared installed, but do not include a diagnostic message/log that identifies the cause.
 - Required change to process: for every new site, separate (1) site protocol evidence, (2) CloudStream API/packaging correctness, and (3) real-device catalog/playback/subtitle verification. Never use a successful build as a proxy for the other two.
+
+## DDizi runtime lesson (2026-10-11)
+
+- The public `/diziler/{id}/{slug}` page mixes the current series' “Dizinin Diğer Bölümleri” with a separate “Bugünkü Bölümler” list. A provider that globally selects every `/izle/` link will silently attach other shows as episodes. Filter by the verified series identity and follow only pagination routes under that exact series path.
+- Current DDizi episode pages visibly link to the correct series and use a same-site `/player/oynat/{token}` wrapper. A provider must not blanket-reject every same-origin URL when the site itself serves its player wrapper on that origin; whitelist only the observed player route, then inspect the next iframe/player hop.
+- One historical page exposed `ddizi.re/player/youtube.php?id=...`; that is evidence for that player family only, not proof that all current DDizi episodes use YouTube. Do not apply FilmMakinesi's CloseLoad/Rapid JavaScript decoder unless the actual player response confirms the same family or encoding.
+- The web inspection environment received 404 on the observed player wrapper link. Treat this as an inspection-context limitation until a real request with the episode referer is captured; do not label it a confirmed site-wide outage.
+- Build success is not runtime success. DDizi's code is now marked experimental while series matching, pagination and the bounded player wrapper resolver are being tested. Record current link emission, playable media type, request referer, video/audio output and subtitles separately.
+
