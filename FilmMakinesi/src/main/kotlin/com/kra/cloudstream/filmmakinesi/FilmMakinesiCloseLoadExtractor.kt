@@ -231,9 +231,9 @@ internal object FilmMakinesiStreamParser {
             if (parts.size < 10 || parts.size > 10_000 || parts.any { it.length > 100_000 }) return ""
             val values = parts.toMutableList()
             val offset = values.size - 2
-            val operationIndex = 8 + (offset % 5)
             val seedIndex = offset % 7
-            if (operationIndex >= values.size || seedIndex >= values.size || operationIndex == seedIndex) return ""
+            val operationIndex = 8 + (offset % 5)
+            if (operationIndex >= values.size || seedIndex >= values.size) return ""
 
             val operations = values.removeAt(operationIndex)
             val seedKey = values.removeAt(seedIndex)
@@ -246,18 +246,17 @@ internal object FilmMakinesiStreamParser {
             for (index in seedKey.indices) {
                 val code = seedKey[index].code
                 seed = (seed * 37 + code) % 241
-                mask = (mask xor (code + index)) and 255
+                mask = (mask + ((code shl 1) xor index)) and 255
             }
-            val initial = (seed + mask) % 256
-            val stride = (seed % 13) + 3
-            var state = ((seed * 256 + mask) % 65521) + 1
+            val initial = (seed * 3 + mask) % 256
+            val stride = (mask % 11) + 5
+            var state = ((mask * 251 + seed) % 65519) + 1
 
             for (index in operations.indices.reversed()) {
-                val operation = operations[index]
-                text = when (operation) {
-                    'b' -> decodeBase64Latin1(text)
-                    'v' -> text.reversed()
-                    else -> rotateLetters(text, (26 - ((operation.code - 64) % 26)) % 26)
+                text = when (val operation = operations[index]) {
+                    '7' -> decodeBase64Latin1(text)
+                    '3' -> text.reversed()
+                    else -> rotateLetters(text, (26 - ((operation.code - 96) % 26)) % 26)
                 }
                 if (text.isEmpty()) return ""
             }
