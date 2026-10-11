@@ -142,10 +142,12 @@ class FilmMakinesi : MainAPI() {
             .getOrNull() ?: return false
 
         // The site's player tabs keep their URLs in data-video_url; some pages use iframes.
+        // Match the known-working NeoWatch player selectors exactly. Avoid
+        // unrelated data-video_url attributes and site-wide iframes (trailers, ads, widgets).
         val candidates = (
-            document.select("div.video-parts a[data-video_url], a[data-video_url]")
+            document.select("div.video-parts a[data-video_url]")
                 .map { it.attr("data-video_url") } +
-            document.select("div.player--area iframe, div.player-div iframe, iframe")
+            document.select("div.player--area iframe, div.player-div iframe")
                 .map { it.attr("data-src").ifBlank { it.attr("src") } }
         )
             .map { if (it.startsWith("//")) "https:$it" else it.trim() }
