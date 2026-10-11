@@ -1,15 +1,15 @@
-version = 27
+version = 28
 cloudstream {
     authors = listOf("berr49300")
     language = "tr"
-    description = "FilmMakinesi katalog ve CloseLoad/Rapid bağlantı çözücüsü"
+    description = "FilmMakinesi ve sadeleştirilmiş CloseLoad/Rapid çözücüsü"
     status = 3
     tvTypes = listOf("Movie", "TvSeries")
     iconUrl = "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to"
 }
 
 dependencies {
-    // CloudStream Android runtime includes Rhino; compile against it for the player resolver.
+    // Rhino is provided by CloudStream; compile/test compile only.
     "compileOnly"("org.mozilla:rhino:1.8.1")
     "testImplementation"("org.mozilla:rhino:1.8.1")
 }
