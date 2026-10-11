@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.net.URI
 
@@ -114,6 +115,16 @@ internal object FilmMakinesiStreamParser {
             }
 
             val result = linkedSetOf<String>()
+            // Match the upstream CloseLoad flow before extension-based URL scanning.
+            extractCloseLoadStreamUrl(normalized, baseUrl)?.let {
+                addCloseLoadStream(result, it, baseUrl)
+            }
+            runCatching {
+                val doc = Jsoup.parse(normalized, baseUrl)
+                val videoSource = doc.selectFirst("video source[src], source[src]")?.absUrl("src")
+                    ?: doc.selectFirst("video[src]")?.absUrl("src")
+                if (videoSource.isNotBlank()) addCloseLoadStream(result, videoSource, baseUrl)
+            }
             // Rapid's current JSON payload exposes cm/tm HLS endpoints, which
             // may not end in .m3u8. Treat those named fields as stream URLs.
             for (payload in rapidPayloads) {
@@ -135,6 +146,65 @@ internal object FilmMakinesiStreamParser {
                 }
             }
             return result.toList()
+        }
+
+        /**
+         * Port of the working CloseLoad extractor's ordered URL discovery:
+         * direct file fields, variable-backed source payload, then generic
+         * delimiter-packed payload. Opaque URLs are kept even without an
+         * .m3u8/.mp4 suffix because providers sometimes use tokenized paths.
+         */
+        private fun extractCloseLoadStreamUrl(html: String, baseUrl: String): String? {
+            val directFile = Regex(
+                """(?is)file\s*:\s*["']([^"']+\.(?:m3u8|mp4|txt)(?:\?[^"']*)?)["']"""
+            ).find(html)?.groupValues?.getOrNull(1)
+            if (!directFile.isNullOrBlank()) return resolveUrl(directFile, baseUrl)
+
+            val unpacked = if (html.contains("eval(function(p,a,c,k,e,d)")) {
+                html + "\n" + FilmMakinesiJsPacker.unpackAll(html).joinToString("\n")
+            } else html
+
+            val varName = Regex(
+                """(?is)sources\s*:\s*\[\s*\{\s*file\s*:\s*([a-zA-Z0-9_$]+)"""
+            ).findAll(unpacked).map { it.groupValues[1] }.firstOrNull { it != "atob" }
+            if (!varName.isNullOrBlank()) {
+                val payloadPattern = Regex(
+                    """(?is)(?:var|let|const)\s+$varName\s*=\s*[a-zA-Z0-9_$]+\s*\(\s*["']([^"']+)["']\s*\.split\(\s*["']([^"']+)["']\s*\)\s*\)"""
+                )
+                val match = payloadPattern.find(unpacked)
+                if (match != null) {
+                    val decoded = decodeCloseLoadPayload(
+                        match.groupValues[1].split(match.groupValues[2])
+                    )
+                    if (decoded.startsWith("http", ignoreCase = true)) {
+                        resolveUrl(decoded, baseUrl)?.let { return it }
+                    }
+                }
+            }
+
+            val genericPayload = Regex(
+                """(?is)(?:var|let|const)\s+[a-zA-Z0-9_$]+\s*=\s*[a-zA-Z0-9_$]+\s*\(\s*["']([^"']{100,})["']\s*\.split\(\s*["']([|^*@#~])["']\s*\)\s*\)"""
+            )
+            for (match in genericPayload.findAll(unpacked)) {
+                val parts = match.groupValues[1].split(match.groupValues[2])
+                if (parts.size < 10) continue
+                val decoded = decodeCloseLoadPayload(parts)
+                if (decoded.startsWith("http", ignoreCase = true)) {
+                    resolveUrl(decoded, baseUrl)?.let { return it }
+                }
+            }
+            return null
+        }
+
+        private fun addCloseLoadStream(result: MutableSet<String>, raw: String, baseUrl: String) {
+            val value = normalize(raw).trim().removeSurrounding("\"").removeSurrounding("'")
+            val absolute = resolveUrl(value, baseUrl) ?: return
+            val uri = runCatching { URI(absolute) }.getOrNull() ?: return
+            val host = uri.host.orEmpty().lowercase()
+            if (uri.scheme !in setOf("http", "https") || host.isBlank()) return
+            if (FilmMakinesiSourceRules.isYouTubeHost(host)) return
+            if (host.contains("google") || host.contains("facebook") || host.contains("doubleclick")) return
+            result.add(absolute)
         }
 
         private fun closeLoadDecodedCandidates(html: String): List<String> {
