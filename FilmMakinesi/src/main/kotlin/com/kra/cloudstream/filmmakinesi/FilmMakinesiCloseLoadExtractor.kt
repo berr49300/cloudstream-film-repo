@@ -245,6 +245,42 @@ internal object FilmMakinesiStreamParser {
 
         private fun closeLoadDecodedCandidates(html: String): List<String> {
             val decoded = mutableListOf<String>()
+
+            // Current CloseLoad builds expose the source through a dc_hello()
+            // base64 wrapper or a dc_<name>([...]) chunk array after P.A.C.K.E.R.
+            // unpacking. The previous resolver only handled the older two-key
+            // shuffle format, so it returned no stream for these player pages.
+            val helloCall = Regex(
+                """(?is)dc_hello\\s*\\(\\s*["']([^"']+)["']\\s*\\)"""
+            )
+            for (match in helloCall.findAll(html)) {
+                val first = decodeBase64Latin1(match.groupValues[1])
+                if (first.isBlank()) continue
+                val second = decodeBase64Latin1(first.reversed())
+                extractHttpUrl(second)?.let(decoded::add)
+            }
+
+            val arrayCall = Regex(
+                """(?is)dc_\\w+\\s*\\(\\s*\\[(.*?)\\]\\s*\\)"""
+            )
+            for (match in arrayCall.findAll(html)) {
+                val parts = arrayString.findAll(match.groupValues[1])
+                    .map { it.groupValues[1] }
+                    .toList()
+                if (parts.size < 2) continue
+                val joined = parts.joinToString("")
+                val bytes = decodeBase64(joined) ?: continue
+                var text = String(bytes, Charsets.ISO_8859_1).reversed()
+                text = rotateLetters(text, 13)
+                text = buildString(text.length) {
+                    text.forEachIndexed { index, ch ->
+                        val shift = (399756995L % (index + 5)).toInt()
+                        append(((ch.code - shift + 256) % 256).toChar())
+                    }
+                }
+                extractHttpUrl(text)?.let(decoded::add)
+            }
+
             val keys = keyPair.find(html)?.groupValues
             if (keys != null && keys.size >= 3) {
                 val keyA = keys[1]
@@ -508,6 +544,13 @@ internal object FilmMakinesiStreamParser {
             val bytes = decodeBase64(value) ?: return ""
             return String(bytes, Charsets.ISO_8859_1)
         }
+
+        private fun extractHttpUrl(value: String): String? =
+            Regex("""(?i)https?://[^\\s"'<>\\\\]+""")
+                .find(normalize(value))
+                ?.value
+                ?.trimEnd(')', ']', '}', ',', ';')
+                ?.takeIf { resolveUrl(it, "https://filmmakinesi.to/") != null }
 
         private fun rotateLetters(value: String, shift: Int): String = buildString(value.length) {
             value.forEach { ch ->
