@@ -178,7 +178,7 @@ class FilmMakinesi : MainAPI() {
                     plot = description
                     this.year = year
                     this.tags = tags
-                    this.rating = rating
+                    this.score = rating
                     addTrailer(trailer)
                 }
             }
@@ -189,7 +189,7 @@ class FilmMakinesi : MainAPI() {
             plot = description
             this.year = year
             this.tags = tags
-            this.rating = rating
+            this.score = rating
             addTrailer(trailer)
         }
     }
