@@ -44,4 +44,17 @@ class DDiziParserTest {
         )
         assertEquals(null, DDiziParser.youtubeWatchUrlIfEmbed("https://example.com/player/youtube.php?id=BC30qtjYt3E"))
     }
+    @Test
+    fun splitsSeasonsAtExplicitSeasonFinales() {
+        val finals = DDiziParser.seasonFinalEpisodeNumbers(
+            listOf("Sevdiğim Sensin 20.Bölüm", "Sevdiğim Sensin 15.Bölüm Sezon Finali", "Sevdiğim Sensin 10.Bölüm")
+        )
+        assertEquals(setOf(15), finals)
+        assertEquals(1, DDiziParser.seasonForEpisode(15, finals))
+        assertEquals(1, DDiziParser.seasonForEpisode(1, finals))
+        assertEquals(2, DDiziParser.seasonForEpisode(16, finals))
+        assertEquals(2, DDiziParser.seasonForEpisode(20, finals))
+        assertEquals(null, DDiziParser.seasonForEpisode(null, finals))
+    }
+
 }
