@@ -15,7 +15,9 @@ import java.nio.charset.StandardCharsets
 
 internal data class FilmMakinesiSource(
     val url: String,
-    val label: String
+    val label: String,
+    val resolvedStream: Boolean = false,
+    val resolvedType: ExtractorLinkType? = null
 )
 
 class FilmMakinesi : MainAPI() {
@@ -275,7 +277,61 @@ class FilmMakinesi : MainAPI() {
         }
         emitSubtitleTracks(html, pageUrl)
 
-        val sources = parseSourceCandidates(doc, html, pageUrl)
+        // Some current FilmMakinesi templates keep the player/source block in
+        // packed inline JavaScript instead of a visible iframe. Discover those
+        // entries on the film page itself, not only after an iframe is found.
+        val sourceMap = linkedMapOf<String, FilmMakinesiSource>()
+        fun addSource(candidate: FilmMakinesiSource) {
+            val previous = sourceMap[candidate.url]
+            if (previous == null || (!previous.resolvedStream && candidate.resolvedStream)) {
+                sourceMap[candidate.url] = candidate
+            }
+        }
+        parseSourceCandidates(doc, html, pageUrl).forEach(::addSource)
+
+        val unpackedPlayerScripts = FilmMakinesiJsPacker.unpackAll(html)
+        for (unpacked in unpackedPlayerScripts) {
+            val unpackedDoc = org.jsoup.Jsoup.parse(unpacked, pageUrl)
+            parseSourceCandidates(unpackedDoc, unpacked, pageUrl).forEach(::addSource)
+            FilmMakinesiSubtitleParser.parse(unpacked, pageUrl).forEach { track ->
+                subtitleCallback(newSubtitleFile(track.lang, track.url) {
+                    this.headers = headersFor(pageUrl)
+                })
+            }
+        }
+
+        fun addDecodedStreams(sourceHtml: String, baseUrl: String) {
+            val closeLoadStreams = FilmMakinesiStreamParser.extractStreamUrls(
+                sourceHtml, baseUrl, "CloseLoad"
+            ).toSet()
+            closeLoadStreams.forEach { stream ->
+                addSource(FilmMakinesiSource(
+                    url = stream,
+                    label = "Çözülen akış",
+                    resolvedStream = true,
+                    resolvedType = FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(stream)
+                ))
+            }
+            val rapidOnlyStreams = FilmMakinesiStreamParser.extractStreamUrls(
+                sourceHtml, baseUrl, "Rapid"
+            ).filterNot(closeLoadStreams::contains)
+            rapidOnlyStreams.forEach { stream ->
+                addSource(FilmMakinesiSource(
+                    url = stream,
+                    label = "Rapid",
+                    resolvedStream = true,
+                    resolvedType = if (FilmMakinesiStreamParser.isMediaUrl(stream)) {
+                        FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(stream)
+                    } else {
+                        ExtractorLinkType.M3U8
+                    }
+                ))
+            }
+        }
+        addDecodedStreams(html, pageUrl)
+        unpackedPlayerScripts.forEach { addDecodedStreams(it, pageUrl) }
+
+        val sources = sourceMap.values.toList()
         val closeLoad = FilmMakinesiCloseLoadExtractor()
 
         for (source in sources) {
@@ -283,17 +339,21 @@ class FilmMakinesi : MainAPI() {
             if (sourceUrl in emittedUrls) continue
             emittedUrls.add(sourceUrl)
 
-            if (isDirectMediaUrl(sourceUrl)) {
+            if (isDirectMediaUrl(sourceUrl) || source.resolvedStream) {
                 val key = mediaDedupeKey(sourceUrl)
                 if (emittedMediaUrls.add(key)) {
+                    val rapidReferer = "https://rapid.filmmakinesi.to/"
+                    val streamReferer = if (source.label.equals("Rapid", true)) rapidReferer else pageUrl
                     callback(newExtractorLink(
-                        source = name,
+                        source = "$name • ${source.label}",
                         name = displaySourceName(source.label, sourceUrl),
                         url = sourceUrl,
-                        type = FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(sourceUrl)
+                        type = source.resolvedType
+                            ?: FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(sourceUrl)
+                            ?: INFER_TYPE
                     ) {
-                        this.referer = pageUrl
-                        this.headers = headersFor(pageUrl)
+                        this.referer = streamReferer
+                        this.headers = headersFor(streamReferer)
                     })
                     found = true
                 }
