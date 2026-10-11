@@ -20,6 +20,12 @@ internal object FilmMakinesiJsRuntimeResolver {
     private val fileLink = Regex("""(?is)file_link\s*=\s*["']([^"']+)["']""")
 
     fun extractStreamUrls(html: String, baseUrl: String): List<String> {
+        // The file variable can be declared in a separate script from the
+        // sources array. Discover it from the full player document first.
+        val visibleVariables = sourceVariable.findAll(html)
+            .mapNotNull { it.groupValues.getOrNull(1) }
+            .distinct()
+            .toList()
         val scriptTexts = Jsoup.parse(html, baseUrl).select("script")
             .map { it.data().ifBlank { it.html() } }
             .filter { script ->
@@ -28,7 +34,10 @@ internal object FilmMakinesiJsRuntimeResolver {
                     script.contains(".join('')") || script.contains(".join(\"\")") ||
                     script.contains("file_link", ignoreCase = true) ||
                     script.contains("eval(function(p,a,c,k,e,d)") ||
-                    script.contains("atob(", ignoreCase = true)
+                    script.contains("atob(", ignoreCase = true) ||
+                    visibleVariables.any { variable ->
+                        Regex("""\\b${Regex.escape(variable)}\\b""").containsMatchIn(script)
+                    }
             }
         val candidates = linkedSetOf<String>()
         scriptTexts.forEach { script ->
@@ -38,9 +47,15 @@ internal object FilmMakinesiJsRuntimeResolver {
         FilmMakinesiJsPacker.unpackAll(html).forEach(candidates::add)
         if (candidates.isEmpty()) return emptyList()
 
-        val wantedVariables = candidates.mapNotNull { sourceVariable.find(it)?.groupValues?.getOrNull(1) }
+        val wantedVariables = (candidates.asSequence() + sequenceOf(html))
+            .mapNotNull { sourceVariable.find(it)?.groupValues?.getOrNull(1) }
             .distinct()
-        if (wantedVariables.isEmpty() && candidates.none { fileLink.containsMatchIn(it) }) return emptyList()
+            .toList()
+        if (wantedVariables.isEmpty() && candidates.none {
+                fileLink.containsMatchIn(it) ||
+                    it.contains("eval(function(p,a,c,k,e,d)") ||
+                    it.contains("sources", ignoreCase = true)
+            }) return emptyList()
 
         val cx = limitedContextFactory.enterContext()
         return try {
@@ -72,6 +87,20 @@ internal object FilmMakinesiJsRuntimeResolver {
                     normalizeCandidate(Context.toString(value), baseUrl)?.let(found::add)
                 }
             }
+
+            // Some player versions use an obfuscated global variable name.
+            // After executing the source/player scripts, inspect URL-valued
+            // globals whose names indicate media/source data.
+            scope.ids.forEach { id ->
+                val variableName = id.toString()
+                if (!Regex("""(?i)(file|src|source|stream|video|media|link|url|^cm$|^tm$)""")
+                        .containsMatchIn(variableName)) return@forEach
+                val value = scope.get(variableName, scope)
+                if (value is String) {
+                    normalizeCandidate(value, baseUrl)?.let(found::add)
+                }
+            }
+
             candidates.forEach { script ->
                 fileLink.findAll(script).forEach { match ->
                     val decoded = runCatching {
