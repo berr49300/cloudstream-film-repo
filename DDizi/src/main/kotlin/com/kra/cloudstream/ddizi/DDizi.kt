@@ -77,7 +77,7 @@ class DDizi : MainAPI() {
         if (title.isBlank()) return null
 
         val poster = seriesPage.selectFirst("meta[property=og:image]")?.attr("content")?.let { fixUrlNull(it) }
-            ?: seriesPage.selectFirst("img[src], img[data-src]")?.let { imageUrl(it) }
+            ?: seriesPage.selectFirst("img[src], img[data-src]")?.let { imageUrlFrom(it) }
         val plot = seriesPage.selectFirst("meta[name=description]")?.attr("content")
             ?: seriesPage.selectFirst(".ozet, .summary, .description, [itemprop=description]")?.text()
 
@@ -173,10 +173,19 @@ class DDizi : MainAPI() {
             .firstOrNull { it.isNotBlank() && !it.equals("iframe", true) }
             ?: return null
 
-        val poster = selectFirst("img[src], img[data-src]")?.let { imageUrl(it) }
+        val poster = selectFirst("img[src], img[data-src]")?.let { imageUrlFrom(it) }
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
             posterUrl = poster
         }
+    }
+
+    private fun imageUrlFrom(element: Element): String? {
+        val raw = listOf("data-src", "data-lazy-src", "data-original", "data-original-src", "src")
+            .asSequence()
+            .map { element.attr(it).trim() }
+            .firstOrNull { it.isNotBlank() && !it.startsWith("data:image", ignoreCase = true) }
+            ?: return null
+        return fixUrlNull(raw)
     }
 
     private fun isSameSite(rawUrl: String): Boolean {
