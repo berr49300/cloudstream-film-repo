@@ -78,7 +78,7 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
         fun extractStreamUrls(html: String, baseUrl: String, player: String = "CloseLoad"): List<String> =
             FilmMakinesiStreamParser.extractStreamUrls(html, baseUrl, player)
 
-        internal fun mediaTypeForUrl(url: String): ExtractorLinkType {
+        internal fun mediaTypeForUrl(url: String): ExtractorLinkType? {
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             return when {
                 path.endsWith(".mpd") -> ExtractorLinkType.DASH
