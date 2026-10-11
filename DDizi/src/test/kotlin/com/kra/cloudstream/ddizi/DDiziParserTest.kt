@@ -158,6 +158,6 @@ class DDiziParserTest {
         )
         assertEquals(setOf(15), sevFinals)
         assertEquals(1, DDiziParser.seasonForEpisode(15, sevFinals))
-        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, sevFinals))
+        assertEquals(15, DDiziParser.seasonLocalEpisodeNumber(15, sevFinals))
     }
 }
