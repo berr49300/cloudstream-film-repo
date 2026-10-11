@@ -286,7 +286,18 @@ class FilmMakinesi : MainAPI() {
         val sourceMap = linkedMapOf<String, FilmMakinesiSource>()
         fun addSource(candidate: FilmMakinesiSource) {
             val previous = sourceMap[candidate.url]
-            if (previous == null || (!previous.resolvedStream && candidate.resolvedStream)) {
+            // Keep provider identity when two decoders discover the same URL.
+            // In particular, a Rapid stream must retain Rapid's referer instead
+            // of being swallowed by the earlier generic CloseLoad scan.
+            val candidateIsSpecific = candidate.label.equals("Rapid", true) ||
+                candidate.label.equals("CloseLoad", true)
+            val previousIsGeneric = previous?.label.isNullOrBlank() ||
+                previous?.label.equals("Kaynak", true) ||
+                previous?.label.equals("Çözülen akış", true) ||
+                previous?.label.equals("Video", true)
+            if (previous == null ||
+                (!previous.resolvedStream && candidate.resolvedStream) ||
+                (candidate.resolvedStream && candidateIsSpecific && previousIsGeneric)) {
                 sourceMap[candidate.url] = candidate
             }
         }
@@ -315,10 +326,14 @@ class FilmMakinesi : MainAPI() {
                     resolvedType = FilmMakinesiCloseLoadExtractor.mediaTypeForUrl(stream)
                 ))
             }
-            val rapidOnlyStreams = FilmMakinesiStreamParser.extractStreamUrls(
+            // Do not filter URLs already found by the generic/CloseLoad pass:
+            // the same URL may have been decoded from a Rapid payload first as
+            // an unlabelled stream. Re-add it with its source identity so
+            // addSource() can preserve the correct Rapid referer.
+            val rapidStreams = FilmMakinesiStreamParser.extractStreamUrls(
                 sourceHtml, baseUrl, "Rapid"
-            ).filterNot(closeLoadStreams::contains)
-            rapidOnlyStreams.forEach { stream ->
+            )
+            rapidStreams.forEach { stream ->
                 addSource(FilmMakinesiSource(
                     url = stream,
                     label = "Rapid",
