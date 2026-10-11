@@ -60,8 +60,8 @@ class FilmMakinesiJsPackerTest {
     fun resolvesSourceVariableComputedByPlayerJavascript() {
         val html = """
             <script>
-                var parts = ["https://cdn.example.test/stream/master.m3u8"];
-                var resolvedFile = parts.join("");
+                var encodedFile = "aHR0cHM6Ly9jZG4uZXhhbXBsZS50ZXN0L3N0cmVhbS9tYXN0ZXIubTN1OA==";
+                var resolvedFile = atob(encodedFile);
                 var player = { sources: [{ file: resolvedFile }] };
             </script>
         """.trimIndent()
