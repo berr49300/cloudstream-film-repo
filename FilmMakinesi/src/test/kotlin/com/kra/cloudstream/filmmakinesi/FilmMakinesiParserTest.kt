@@ -3,11 +3,32 @@
  */
 package com.kra.cloudstream.filmmakinesi
 
+import org.jsoup.Jsoup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FilmMakinesiParserTest {
+    @Test
+    fun discoversUnknownPlayerHostWhenUrlIsInsidePlayerScript() {
+        val provider = FilmMakinesi()
+        val html = """
+            <html><body>
+              <script>const player = { source: "https://media-cdn.example.test/play/abc?token=1" };</script>
+              <div>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
+              <a href="https://unrelated.example.test/page">External article</a>
+            </body></html>
+        """.trimIndent()
+        val sources = provider.parseSourceCandidates(
+            Jsoup.parse(html, "https://filmmakinesi.to/film/example/"),
+            html,
+            "https://filmmakinesi.to/film/example/"
+        )
+
+        assertTrue(sources.any { it.url == "https://media-cdn.example.test/play/abc?token=1" })
+        assertTrue(sources.none { it.url == "https://unrelated.example.test/page" })
+    }
+
     @Test
     fun subtitleTracksAreSeparateNormalizedAndOrdered() {
         val html = """
