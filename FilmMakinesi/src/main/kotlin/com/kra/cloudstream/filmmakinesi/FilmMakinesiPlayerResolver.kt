@@ -240,7 +240,7 @@ internal object FilmMakinesiPlayerDecoder {
             return value.takeIf { uri.host?.isNotBlank() == true }
         }
 
-        private fun readSubtitles(html: String, base: String): List<Pair<String, String>> {
+        internal fun readSubtitles(html: String, base: String): List<Pair<String, String>> {
             val tracks = linkedMapOf<String, Pair<String, String>>()
             Regex(
                 """\{[^{}]*?"file"\s*:\s*"([^"]+?\.(?:vtt|srt)[^"]*)"[^{}]*?"label"\s*:\s*"([^"]*)"[^{}]*?\}"""
