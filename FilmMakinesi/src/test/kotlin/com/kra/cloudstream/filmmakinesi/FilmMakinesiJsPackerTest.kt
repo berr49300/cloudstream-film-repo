@@ -57,6 +57,25 @@ class FilmMakinesiJsPackerTest {
     }
 
     @Test
+    fun resolvesSourceVariableComputedByPlayerJavascript() {
+        val html = """
+            <script>
+                var parts = ["https://cdn.example.test/stream/master.m3u8"];
+                var resolvedFile = parts.join("");
+                var player = { sources: [{ file: resolvedFile }] };
+            </script>
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://cdn.example.test/stream/master.m3u8"),
+            FilmMakinesiStreamParser.extractStreamUrls(
+                html,
+                "https://closeload.filmmakinesi.to/embed/abc"
+            )
+        )
+    }
+
+    @Test
     fun ignoresUnrelatedScriptsAndMalformedPackerPayloads() {
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("var player = { file: '/video.m3u8' };"))
         assertEquals(emptyList<String>(), FilmMakinesiJsPacker.unpackAll("eval(function(p,a,c,k,e,d){return p;}('0',999,1,'x'.split('|'),0,{}))"))
