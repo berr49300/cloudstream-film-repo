@@ -54,6 +54,21 @@ internal object DDiziParser {
         Regex("""(?i)(\d+)\s*\.\s*b[oö]l[uü]m""")
             .find(value)?.groupValues?.get(1)?.toIntOrNull()
 
+    /**
+     * DDizi does not expose a separate season field on episode links. Its list does,
+     * however, mark season finales explicitly. Use those verified boundaries rather
+     * than assigning every episode to season 1 or guessing from release dates.
+     */
+    fun seasonForEpisode(episode: Int?, seasonFinalEpisodes: Collection<Int>): Int? {
+        if (episode == null) return null
+        return 1 + seasonFinalEpisodes.count { it < episode }
+    }
+
+    fun seasonFinalEpisodeNumbers(titles: Collection<String>): Set<Int> =
+        titles.mapNotNull { title ->
+            if (!title.contains("sezon final", ignoreCase = true)) null else episodeNumber(title)
+        }.toSet()
+
     fun absolutePath(url: String): String =
         runCatching { URI(url).path.orEmpty().lowercase(Locale.ROOT) }.getOrDefault(url.lowercase(Locale.ROOT))
 }
