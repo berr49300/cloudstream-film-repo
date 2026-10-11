@@ -23,10 +23,12 @@ internal object FilmMakinesiJsRuntimeResolver {
         val scriptTexts = Jsoup.parse(html, baseUrl).select("script")
             .map { it.data().ifBlank { it.html() } }
             .filter { script ->
-                script.contains("sources", ignoreCase = true) ||
+                sourceVariable.containsMatchIn(script) ||
+                    script.contains("sources", ignoreCase = true) ||
                     script.contains(".join('')") || script.contains(".join(\"\")") ||
                     script.contains("file_link", ignoreCase = true) ||
-                    script.contains("eval(function(p,a,c,k,e,d)")
+                    script.contains("eval(function(p,a,c,k,e,d)") ||
+                    script.contains("atob(", ignoreCase = true)
             }
         val candidates = linkedSetOf<String>()
         scriptTexts.forEach { script ->
@@ -50,11 +52,14 @@ internal object FilmMakinesiJsRuntimeResolver {
 
             candidates.forEachIndexed { index, script ->
                 if (script.length > MAX_SCRIPT_LENGTH) return@forEachIndexed
-                if (script.contains("eval(function(p,a,c,k,e,d)")) return@forEachIndexed
+                // Match the working NeoWatch strategy: execute the player
+                // wrapper in bounded Rhino instead of discarding P.A.C.K.E.R. code.
                 val relevant = script.contains("sources", ignoreCase = true) ||
                     script.contains(".join('')") || script.contains(".join(\"\")") ||
                     script.contains("file_link", ignoreCase = true) ||
-                    wantedVariables.any { Regex("""\\b${Regex.escape(it)}\\b""").containsMatchIn(script) }
+                    script.contains("eval(function(p,a,c,k,e,d)") ||
+                    script.contains("atob(", ignoreCase = true) ||
+                    wantedVariables.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(script) }
                 if (relevant) {
                     runCatching { cx.evaluateString(scope, script, "player-script-$index", 1, null) }
                 }
