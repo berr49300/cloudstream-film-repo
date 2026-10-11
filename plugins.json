@@ -15,30 +15,9 @@
         ],
         "version": 4,
         "internalName": "Dizilla",
-        "description": "Dizilla sa\u011flay\u0131c\u0131s\u0131 \u2014 test s\u00fcr\u00fcm\u00fc; katalog ve altyaz\u0131 do\u011frulamas\u0131 s\u00fcr\u00fcyor",
+        "description": "Dizilla sağlayıcısı — test sürümü; katalog ve altyazı doğrulaması sürüyor",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/Dizilla.cs3",
         "name": "Dizilla"
-    },
-    {
-        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
-        "fileHash": "sha256-4605af92137813606b1ce1ab9e4cbc815bee63c5637c83f634a7c465adcb539e",
-        "apiVersion": 1,
-        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 69345,
-        "status": 1,
-        "language": "tr",
-        "authors": [
-            "berr49300"
-        ],
-        "tvTypes": [
-            "Movie",
-            "TvSeries"
-        ],
-        "version": 22,
-        "internalName": "FilmMakinesi",
-        "description": "FilmMakinesi film/dizi sa\u011flay\u0131c\u0131s\u0131; HTML, oynat\u0131c\u0131, video ve altyaz\u0131 ayr\u0131\u015ft\u0131rma",
-        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FilmMakinesi.cs3",
-        "name": "FilmMakinesi"
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=fullhdfilmizlesene.now",
@@ -56,7 +35,7 @@
         ],
         "version": 7,
         "internalName": "FullHDFilmizlesene",
-        "description": "FullHDFilmizlesene ba\u011f\u0131ms\u0131z Kotlin sa\u011flay\u0131c\u0131s\u0131",
+        "description": "FullHDFilmizlesene bağımsız Kotlin sağlayıcısı",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FullHDFilmizlesene.cs3",
         "name": "FullHDFilmizlesene"
     }
