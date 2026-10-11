@@ -31,6 +31,19 @@ class FilmMakinesiJsPackerTest {
     }
 
     @Test
+    fun extractsMediaUrlThatAppearsOnlyAfterPackerUnpacking() {
+        val packed = """eval(function(p,a,c,k,e,d){return p;}('0',62,1,'file:"/media/master.m3u8"'.split('|'),0,{}))"""
+
+        assertEquals(
+            listOf("https://closeload.filmmakinesi.to/media/master.m3u8"),
+            FilmMakinesiStreamParser.extractStreamUrls(
+                packed,
+                "https://closeload.filmmakinesi.to/embed/abc"
+            )
+        )
+    }
+
+    @Test
     fun keepsOpaqueVideoSourceUrlsWithoutFileExtensions() {
         val html = """<video><source src="https://cdn.example.test/play/abc123?token=xyz" type="application/vnd.apple.mpegurl"></video>"""
 
