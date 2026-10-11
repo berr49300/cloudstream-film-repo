@@ -28,7 +28,8 @@ class DDiziParserTest {
         assertEquals("Dark", DDiziParser.cleanTitle("Dark 3.Sezon 8.Bölüm izle"))
         assertEquals("Dark", DDiziParser.cleanTitle("Dark izle Türkçe Dublaj Tüm Bölümler HD"))
         assertEquals("Sevdiğim Sensin", DDiziParser.cleanTitle("Sevdiğim Sensin Son Bölüm izle Full"))
-        assertEquals("Teşkilat", DDiziParser.cleanTitle("Teşkilat 189 Son Bölüm izle"))
+        assertEquals("Teşkilat", DDiziParser.cleanTitle("Teşkilat 189.Bölüm izle"))
+        assertEquals("Daha 17", DDiziParser.cleanTitle("Daha 17 Son Bölüm izle"))
         assertEquals("Daha 17", DDiziParser.cleanTitle("Daha 17 20.Bölüm izle Full"))
     }
 
@@ -60,6 +61,11 @@ class DDiziParserTest {
             "Dark izle Türkçe Dublaj Tüm Bölümler HD",
             "Dark 3.Sezon 8.Bölüm",
             "https://www.ddizi.tel/izle/72226/dark-3-sezon-8-bolum-izle.htm"
+        ))
+        assertTrue(DDiziParser.belongsToSeriesEpisode(
+            "Daha 17 Son Bölüm izle",
+            "Daha 17 20.Bölüm",
+            "https://www.ddizi.tel/izle/91910/daha-17-20-bolum-izle-hd2.htm"
         ))
     }
 
