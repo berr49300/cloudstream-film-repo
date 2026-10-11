@@ -138,7 +138,7 @@ class DDizi : MainAPI() {
                 anchor.text().trim(),
                 anchor.attr("title").trim(),
                 anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
-            ).firstOrNull { it.isNotBlank() } ?: "Bölüm"
+            ).filter { it.isNotBlank() }.joinToString(" ")
         }
         val seasonFinals = DDiziParser.seasonFinalEpisodeNumbers(episodeLabels)
 
