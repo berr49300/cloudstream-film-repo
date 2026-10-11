@@ -2,6 +2,8 @@
 
 Follow `AGENTS.md` first. Before reviewing or proposing changes, read the relevant provider, shared utilities, tests, `docs/SITE_DISCOVERY_PLAYBOOK.md`, and `docs/NEW_PROVIDER_ACCEPTANCE_CHECKLIST.md`.
 
+Before requesting evidence from the user, run the read-only `tools/provider_probe.py` against a public site URL when available; interpret status/challenge results separately from parsing failures. Its output is heuristic and must be checked against page/script/API evidence.
+
 Review priorities:
 1. Kotlin compile/test regressions and broken module wiring.
 2. Incorrect relative URL resolution, pagination, episode mapping, source selection, or subtitle extraction.
