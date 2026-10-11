@@ -20,13 +20,14 @@ class DDizi : MainAPI() {
     override var name = "DDizi"
     override var lang = "tr"
     override val hasMainPage = true
-    override val hasQuickSearch = false
+    override val hasQuickSearch = true
     override val supportedTypes = setOf(TvType.TvSeries)
     override var sequentialMainPage = false
 
     override val mainPage = mainPageOf(
         "$mainUrl/" to "Son Bölümler",
-        "$mainUrl/yeni-eklenenler8" to "Yeni Eklenenler"
+        "$mainUrl/yeni-eklenenler8" to "Yeni Eklenenler",
+        "$mainUrl/yabanci-dizi-izle" to "Yabancı Diziler"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -50,27 +51,70 @@ class DDizi : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // The visible search form is present, but its submission route/field name
-        // has not been verified from a live form submission. Do not guess an API.
-        return emptyList()
+        val normalizedQuery = DDiziParser.normalizeTitle(query)
+        if (normalizedQuery.isBlank()) return emptyList()
+
+        val results = linkedMapOf<String, SearchResponse>()
+
+        fun appendMatchingSeries(document: org.jsoup.nodes.Document) {
+            document.select("a[href*=/diziler/]").forEach { anchor ->
+                val href = fixUrlNull(anchor.attr("href")) ?: return@forEach
+                if (!isSameSite(href) || !DDiziParser.isSeriesUrl(href)) return@forEach
+                val item = anchor.toSeriesSearchResult(href) ?: return@forEach
+                val normalizedTitle = DDiziParser.normalizeTitle(item.name)
+                val queryWords = normalizedQuery.split(' ').filter { it.isNotBlank() }
+                val matches = normalizedTitle.contains(normalizedQuery) ||
+                    queryWords.all { normalizedTitle.contains(it) }
+                if (matches && !results.containsKey(item.url)) results[item.url] = item
+            }
+        }
+
+        // Confirmed legacy site form: POST /arama/ with the "arama" field.
+        runCatching {
+            app.post(
+                "$mainUrl/arama/",
+                data = mapOf("arama" to query),
+                headers = mapOf("Referer" to "$mainUrl/")
+            ).document
+        }.getOrNull()?.let { appendMatchingSeries(it) }
+
+        // If the search handler changes, find matching series from the real site catalogs.
+        if (results.isEmpty()) {
+            for (pageUrl in listOf("$mainUrl/", "$mainUrl/yabanci-dizi-izle")) {
+                val document = runCatching {
+                    app.get(pageUrl, referer = "$mainUrl/").document
+                }.getOrNull() ?: continue
+                appendMatchingSeries(document)
+            }
+        }
+
+        return results.values
+            .sortedWith(compareBy<SearchResponse> { DDiziParser.normalizeTitle(it.name) != normalizedQuery }
+                .thenBy { it.name.lowercase() })
+            .take(30)
     }
 
     override suspend fun load(url: String): LoadResponse? {
         val page = app.get(url, referer = "$mainUrl/").document
 
         val seriesUrl = if (DDiziParser.isEpisodeUrl(url)) {
+            val episodeTitleHint = page.selectFirst("h1")?.text()?.trim()
+                ?: page.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
+                ?: page.title()
             page.select("a[href]").firstNotNullOfOrNull { anchor ->
                 val href = fixUrlNull(anchor.attr("href")) ?: return@firstNotNullOfOrNull null
                 val text = anchor.text().trim()
                 if (DDiziParser.isSeriesUrl(href) &&
                     (text.contains("dizi sayfas", true) || text.contains("diziye git", true) ||
-                        anchor.parents().any { it.className().contains("breadcrumb", true) })
+                        DDiziParser.seriesUrlMatchesTitle(episodeTitleHint, href) ||
+                        (anchor.parents().any { it.className().contains("breadcrumb", true) } &&
+                            DDiziParser.seriesUrlMatchesTitle(episodeTitleHint, href)))
                 ) href else null
-            } ?: page.select("a[href]").mapNotNull { fixUrlNull(it.attr("href")) }
-                .firstOrNull { DDiziParser.isSeriesUrl(it) }
+            }
         } else {
             url
-        } ?: return null
+        }
+        if (seriesUrl.isNullOrBlank()) return null
 
         val seriesPage = if (seriesUrl == url) page else
             app.get(seriesUrl, referer = "$mainUrl/").document
@@ -125,37 +169,51 @@ class DDizi : MainAPI() {
                     return@filter false
                 }
                 val label = listOf(
-                    anchor.text(),
-                    anchor.attr("title"),
-                    anchor.selectFirst("img")?.attr("alt").orEmpty()
-                ).firstOrNull { it.isNotBlank() }.orEmpty()
-                DDiziParser.belongsToSeriesEpisode(title, label)
+                    anchor.text().trim(),
+                    anchor.attr("title").trim(),
+                    anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
+                ).filter { it.isNotBlank() }.joinToString(" ")
+                DDiziParser.belongsToSeriesEpisode(title, label, href)
             }
             .distinctBy { fixUrl(it.attr("href")) }
 
         val episodeLabels = episodeAnchors.map { anchor ->
-            listOf(
+            val href = fixUrlNull(anchor.attr("href")).orEmpty()
+            val label = listOf(
                 anchor.text().trim(),
                 anchor.attr("title").trim(),
                 anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
             ).filter { it.isNotBlank() }.joinToString(" ")
+            "$label ${href.substringAfterLast('/').replace('-', ' ')}"
         }
         val seasonFinals = DDiziParser.seasonFinalEpisodeNumbers(episodeLabels)
 
         val episodes = episodeAnchors.mapNotNull { anchor ->
             val href = fixUrlNull(anchor.attr("href")) ?: return@mapNotNull null
-            val episodeTitle = listOf(
+            val label = listOf(
                 anchor.text().trim(),
                 anchor.attr("title").trim(),
                 anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
-            ).firstOrNull { it.isNotBlank() } ?: "Bölüm"
-            val episodeNumber = DDiziParser.episodeNumber(episodeTitle)
+            ).firstOrNull { it.isNotBlank() }.orEmpty()
+            val slugText = href.substringAfterLast('/').replace('-', ' ')
+            val episodeMetadata = "$label $slugText"
+            val episodeNumber = DDiziParser.episodeNumber(label)
+                ?: DDiziParser.episodeNumber(slugText)
+                ?: DDiziParser.episodeNumber(episodeMetadata)
+            val episodeSeason = DDiziParser.seasonNumber(label)
+                ?: DDiziParser.seasonNumber(slugText)
+            val displayTitle = label.ifBlank {
+                episodeNumber?.let { "$it. Bölüm" } ?: "Bölüm"
+            }
             newEpisode(href) {
-                name = episodeTitle
+                name = displayTitle
                 episode = episodeNumber
-                season = DDiziParser.seasonForEpisode(episodeNumber, seasonFinals)
+                season = episodeSeason ?: DDiziParser.seasonForEpisode(episodeNumber, seasonFinals)
             }
         }.distinctBy { it.data }
+            .sortedWith(compareBy<Episode> { it.season ?: 1 }
+                .thenBy { it.episode ?: Int.MAX_VALUE }
+                .thenBy { it.name.orEmpty() })
 
         if (episodes.isEmpty()) return null
 
@@ -182,12 +240,15 @@ class DDizi : MainAPI() {
             if (isAllowedPlayerUrl(absolute)) candidates.add(absolute)
         }
 
-        document.select("iframe[src], iframe[data-src], video[src], video[data-src], source[src], embed[src]")
-            .forEach { element ->
-                listOf("src", "data-src", "data-url").forEach { attr ->
-                    addCandidate(element.attr(attr))
-                }
+        document.select(
+            "iframe[src], iframe[data-src], iframe[data-url], iframe[data-embed], " +
+                "video[src], video[data-src], video[data-url], source[src], source[data-url], " +
+                "embed[src], embed[data-src], embed[data-url]"
+        ).forEach { element ->
+            listOf("src", "data-src", "data-url", "data-embed", "data-player").forEach { attr ->
+                addCandidate(element.attr(attr))
             }
+        }
 
         // Some DDizi pages expose the same player route through Open Graph metadata.
         document.select("meta[property=og:video], meta[property=og:video:url], meta[name=twitter:player]")
@@ -203,9 +264,9 @@ class DDizi : MainAPI() {
                 anchor.parents().take(4).map { "${it.className()} ${it.id()}" })
                 .joinToString(" ")
                 .lowercase()
-            val playerControl = Regex("""player|video|source|server|part|bolum|bölüm|kaynak|izle""")
+            val playerControl = Regex("""player|video|source|server|part|bolum|bölüm|kaynak|izle|embed""")
                 .containsMatchIn(context) ||
-                Regex("""(?i)^(?:video|oynat|player|kaynak|server|source)$""").matches(label) ||
+                Regex("""(?i)^(?:video|oynat|player|kaynak|server|source|tek\s*par[cç]a|watch)$""").matches(label) ||
                 Regex("""(?i)(?:part\s*)?[1-3](?:\.\s*)?(?:parça|parca)?""").matches(label)
             if (playerControl && isAllowedPlayerUrl(absolute) &&
                 !DDiziParser.isSeriesUrl(absolute) && !DDiziParser.isEpisodeUrl(absolute)
@@ -252,16 +313,19 @@ class DDizi : MainAPI() {
 
             if (playerDocument != null) {
                 val nested = linkedSetOf<String>()
-                playerDocument.select("iframe[src], iframe[data-src], video[src], video[data-src], source[src], embed[src]")
-                    .forEach { element ->
-                        listOf("src", "data-src", "data-url").forEach { attr ->
-                            val raw = element.attr(attr).trim()
-                            if (raw.isNotBlank()) {
-                                val absolute = resolveCandidateUrl(candidate, raw)
-                                if (absolute != null && isAllowedPlayerUrl(absolute)) nested.add(absolute)
-                            }
+                playerDocument.select(
+                    "iframe[src], iframe[data-src], iframe[data-url], iframe[data-embed], " +
+                        "video[src], video[data-src], video[data-url], source[src], source[data-url], " +
+                        "embed[src], embed[data-src], embed[data-url]"
+                ).forEach { element ->
+                    listOf("src", "data-src", "data-url", "data-embed", "data-player").forEach { attr ->
+                        val raw = element.attr(attr).trim()
+                        if (raw.isNotBlank()) {
+                            val absolute = resolveCandidateUrl(candidate, raw)
+                            if (absolute != null && isAllowedPlayerUrl(absolute)) nested.add(absolute)
                         }
                     }
+                }
                 playerDocument.select("meta[property=og:video], meta[property=og:video:url], meta[name=twitter:player]")
                     .forEach { meta ->
                         val absolute = resolveCandidateUrl(candidate, meta.attr("content"))
@@ -300,6 +364,21 @@ class DDizi : MainAPI() {
             }
         }
         return emitted > 0
+    }
+
+    private fun Element.toSeriesSearchResult(href: String): SearchResponse? {
+        val image = selectFirst("img")
+        val title = listOf(
+            selectFirst("h2, h3, h4, [class*=title], [class*=baslik]")?.text(),
+            image?.attr("alt")?.ifBlank { image.attr("title") },
+            attr("title"),
+            text()
+        ).map { DDiziParser.cleanTitle(it.orEmpty().trim()) }
+            .firstOrNull { it.isNotBlank() && !it.equals("iframe", true) }
+            ?: return null
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+            posterUrl = image?.let { imageUrlFrom(it) }
+        }
     }
 
     private fun Element.toEpisodeSearchResult(href: String): SearchResponse? {
@@ -344,7 +423,7 @@ class DDizi : MainAPI() {
         val host = uri.host.orEmpty().lowercase()
         val path = uri.path.orEmpty().lowercase()
         val isDdiziOwnPlayer = host in setOf("www.ddizi.tel", "ddizi.tel") &&
-            path.startsWith("/player/oynat/")
+            (path.startsWith("/player/oynat/") || path.endsWith("/player/telif/index.php"))
         return host.isNotBlank() &&
             (isDdiziOwnPlayer || host != "www.ddizi.tel" && host != "ddizi.tel") &&
             !host.endsWith(".google.com") && !host.contains("facebook")
