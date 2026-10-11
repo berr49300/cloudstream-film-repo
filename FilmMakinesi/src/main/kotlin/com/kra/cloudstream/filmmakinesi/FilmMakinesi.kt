@@ -368,8 +368,10 @@ class FilmMakinesi : MainAPI() {
         // Include player containers even when the site lazy-loads their URL
         // under a non-standard data attribute; some templates omit iframe[src].
         val selector =
-            "iframe, [data-video_url], [data-frame], [data-iframe], [data-embed], " +
-                "[data-embed-url], [data-video], [data-player], [data-lazy-src], " +
+            "iframe, [data-video_url], [data-video-url], [data-frame], [data-iframe], " +
+                "[data-iframe-src], [data-embed], [data-embed-url], [data-embed_url], " +
+                "[data-video], [data-player], [data-player-url], [data-remote], [data-server], " +
+                "[data-lazy-src], [data-original], [data-hls], [data-mp4], " +
                 "video, video source[src], source[src], embed, button[data-url], " +
                 ".partlar a[href], .parts a[href], .server-list a[href], " +
                 ".servers a[href], .video-servers a[href], .player a[href], li[data-frame]"
@@ -395,13 +397,22 @@ class FilmMakinesi : MainAPI() {
         doc.select(selector).forEach { element ->
             val raw = sequenceOf(
                 element.attr("data-video_url"),
+                element.attr("data-video-url"),
                 element.attr("data-frame"),
                 element.attr("data-iframe"),
+                element.attr("data-iframe-src"),
                 element.attr("data-embed-url"),
+                element.attr("data-embed_url"),
                 element.attr("data-embed"),
                 element.attr("data-video"),
                 element.attr("data-player"),
+                element.attr("data-player-url"),
+                element.attr("data-remote"),
+                element.attr("data-server"),
+                element.attr("data-hls"),
+                element.attr("data-mp4"),
                 element.attr("data-lazy-src"),
+                element.attr("data-original"),
                 element.attr("data-src"),
                 element.attr("src"),
                 element.attr("data-url"),
@@ -414,8 +425,10 @@ class FilmMakinesi : MainAPI() {
             ) != null
             val forced = element.tagName() in setOf("iframe", "video", "source", "embed") ||
                 sequenceOf(
-                    "data-video_url", "data-frame", "data-iframe", "data-embed",
-                    "data-embed-url", "data-video", "data-player", "data-url", "data-href"
+                    "data-video_url", "data-video-url", "data-frame", "data-iframe",
+                    "data-iframe-src", "data-embed", "data-embed-url", "data-embed_url",
+                    "data-video", "data-player", "data-player-url", "data-remote",
+                    "data-server", "data-hls", "data-mp4", "data-url", "data-href"
                 ).any(element::hasAttr) || playerList
             val label = sequenceOf(
                 element.attr("data-title"),
@@ -430,7 +443,13 @@ class FilmMakinesi : MainAPI() {
         val urlPattern = Regex("""(?i)(?:https?:)?//[^"'\s<>]+""")
         urlPattern.findAll(normalizedHtml).forEach { match ->
             val raw = match.value.trimEnd(')', ']', '}', ',', ';')
-            add(raw, "Kaynak", forcedPlayerElement = false)
+            val contextStart = (match.range.first - 300).coerceAtLeast(0)
+            val contextEnd = (match.range.last + 301).coerceAtMost(normalizedHtml.length)
+            val context = normalizedHtml.substring(contextStart, contextEnd)
+            val looksLikePlayerData = Regex(
+                """(?is)(iframe|embed|player|source|stream|video|file|server|data-src|data-frame|data-video|m3u8)"""
+            ).containsMatchIn(context)
+            add(raw, "Kaynak", forcedPlayerElement = looksLikePlayerData)
         }
         return output.values.toList()
     }
