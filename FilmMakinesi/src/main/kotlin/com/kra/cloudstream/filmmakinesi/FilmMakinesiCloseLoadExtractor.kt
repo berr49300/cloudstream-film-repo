@@ -155,52 +155,52 @@ internal object FilmMakinesiStreamParser {
          * bounded text transform only; decoded JavaScript is never evaluated.
          */
         private fun decodeCloseLoad(input: String, keyA: String, keyB: String): String {
-            if (input.isEmpty() || keyA.isEmpty() || keyB.isEmpty()) return ""
+            if (input.isEmpty() || keyA.isEmpty() || keyB.isEmpty() || input.length > 200_000) return ""
             var text = input
-            var seedA = 0
-            var seedB = 0
-            for (i in keyA.indices) {
-                val ch = keyA[i].code
-                seedA = (seedA * 31 + ch) % 251
-                seedB = (seedB xor (ch + i)) and 255
+            var seed = 0
+            var mask = 0
+            for (index in keyA.indices) {
+                val code = keyA[index].code
+                seed = (seed * 31 + code) % 251
+                mask = (mask xor (code + index)) and 255
             }
-            val initial = (seedA + seedB) % 256
-            val stride = (seedA % 13) + 3
-            var state = ((seedA * 256 + seedB) % 65521) + 1
+            val initial = (seed + mask) % 256
+            val stride = (seed % 13) + 3
+            var state = ((seed * 256 + mask) % 65521) + 1
 
-            for (i in keyB.indices.reversed()) {
-                val op = keyB[i]
-                text = when (op) {
+            for (index in keyB.indices.reversed()) {
+                val operation = keyB[index]
+                text = when (operation) {
                     'b' -> decodeBase64Latin1(text)
                     'v' -> text.reversed()
-                    else -> rotateLetters(text, (26 - ((op.code - 64) % 26)) % 26)
+                    else -> rotateLetters(text, (26 - ((operation.code - 64) % 26)) % 26)
                 }
                 if (text.isEmpty()) return ""
             }
-
             if (text.length > 200_000) return ""
+
             val swaps = IntArray(text.length)
-            for (i in text.length - 1 downTo 1) {
+            for (index in text.length - 1 downTo 1) {
                 state = (state * 75 + 74) % 65537
-                swaps[i] = state % (i + 1)
+                swaps[index] = state % (index + 1)
             }
             val chars = text.toCharArray()
-            for (i in 1 until chars.size) {
-                val j = swaps[i]
-                val tmp = chars[i]
-                chars[i] = chars[j]
-                chars[j] = tmp
+            for (index in 1 until chars.size) {
+                val other = swaps[index]
+                val temp = chars[index]
+                chars[index] = chars[other]
+                chars[other] = temp
             }
 
             var rolling = initial
-            val output = StringBuilder(chars.size)
+            val decoded = StringBuilder(chars.size)
             for (ch in chars) {
                 val code = ch.code
                 rolling = (rolling + stride) % 256
-                output.append((code xor rolling).toChar())
+                decoded.append((code xor rolling).toChar())
                 rolling = (rolling + code) % 256
             }
-            return output.toString()
+            return decoded.toString()
         }
 
         private val rapidCaptionObject = Regex(
@@ -231,65 +231,61 @@ internal object FilmMakinesiStreamParser {
             if (parts.size < 10 || parts.size > 10_000 || parts.any { it.length > 100_000 }) return ""
             val values = parts.toMutableList()
             val offset = values.size - 2
-            val keyIndex = offset % 7
             val operationIndex = 8 + (offset % 5)
-            if (operationIndex >= values.size || keyIndex >= values.size) return ""
+            val seedIndex = offset % 7
+            if (operationIndex >= values.size || seedIndex >= values.size || operationIndex == seedIndex) return ""
 
-            val operationKey = values.removeAt(operationIndex)
-            val seedKey = values.removeAt(keyIndex)
+            val operations = values.removeAt(operationIndex)
+            val seedKey = values.removeAt(seedIndex)
             var text = values.joinToString("")
-            if (seedKey.length > 4096) {
-                text = decodeBase64Latin1(text)
-                if (text.isEmpty()) return ""
-            }
+            if (seedKey.length > 4096) text = decodeBase64Latin1(text)
+            if (text.isEmpty() || text.length > 200_000) return ""
 
             var seed = 0
-            var mixed = 0
-            for (i in seedKey.indices) {
-                val code = seedKey[i].code
+            var mask = 0
+            for (index in seedKey.indices) {
+                val code = seedKey[index].code
                 seed = (seed * 37 + code) % 241
-                mixed = (mixed + ((code shl 1) xor i)) and 255
+                mask = (mask xor (code + index)) and 255
             }
-            val initial = (seed * 3 + mixed) % 256
-            val stride = (mixed % 11) + 5
-            var state = ((mixed * 251 + seed) % 65519) + 1
+            val initial = (seed + mask) % 256
+            val stride = (seed % 13) + 3
+            var state = ((seed * 256 + mask) % 65521) + 1
 
-            for (i in operationKey.indices.reversed()) {
-                text = when (val operation = operationKey[i]) {
-                    '7' -> decodeBase64Latin1(text)
-                    '3' -> text.reversed()
-                    else -> rotateLetters(
-                        text,
-                        (26 - ((operation.code - 96) % 26)) % 26
-                    )
+            for (index in operations.indices.reversed()) {
+                val operation = operations[index]
+                text = when (operation) {
+                    'b' -> decodeBase64Latin1(text)
+                    'v' -> text.reversed()
+                    else -> rotateLetters(text, (26 - ((operation.code - 64) % 26)) % 26)
                 }
                 if (text.isEmpty()) return ""
             }
-            if (operationKey.length > 2048) text = text.reversed()
+            if (operations.length > 2048) text = text.reversed()
             if (text.length > 200_000) return ""
 
             val swaps = IntArray(text.length)
-            for (i in text.length - 1 downTo 1) {
+            for (index in text.length - 1 downTo 1) {
                 state = (state * 97 + 41) % 65519
-                swaps[i] = state % (i + 1)
+                swaps[index] = state % (index + 1)
             }
             val chars = text.toCharArray()
-            for (i in 1 until chars.size) {
-                val j = swaps[i]
-                val temp = chars[i]
-                chars[i] = chars[j]
-                chars[j] = temp
+            for (index in 1 until chars.size) {
+                val other = swaps[index]
+                val temp = chars[index]
+                chars[index] = chars[other]
+                chars[other] = temp
             }
 
             var rolling = initial
-            val output = StringBuilder(chars.size)
+            val decoded = StringBuilder(chars.size)
             for (ch in chars) {
                 val code = ch.code
                 rolling = (rolling * 5 + stride) % 256
-                output.append((code xor rolling).toChar())
+                decoded.append((code xor rolling).toChar())
                 rolling = (rolling + code) % 256
             }
-            return output.toString()
+            return decoded.toString()
         }
 
         private fun rapidDecodedCandidates(html: String): List<String> {
