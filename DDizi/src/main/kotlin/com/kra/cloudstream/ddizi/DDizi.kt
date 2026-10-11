@@ -84,10 +84,37 @@ class DDizi : MainAPI() {
         val plot = seriesPage.selectFirst("meta[name=description]")?.attr("content")
             ?: seriesPage.selectFirst(".ozet, .summary, .description, [itemprop=description]")?.text()
 
+        // Some series have multiple episode pages (base route + /sayfa-N). Fetch only
+        // pagination routes underneath this exact series path, not other site sections.
+        val seriesDocuments = mutableListOf(seriesPage)
+        val seriesPath = runCatching { URI(seriesUrl).path.orEmpty().trimEnd('/') }.getOrDefault("")
+        val additionalPageUrls = seriesPage.select("a[href]")
+            .mapNotNull { fixUrlNull(it.attr("href")) }
+            .filter { candidate ->
+                if (!isSameSite(candidate)) return@filter false
+                val candidatePath = runCatching { URI(candidate).path.orEmpty().trimEnd('/') }.getOrDefault("")
+                candidatePath.startsWith("$seriesPath/") &&
+                    Regex("""/sayfa-\\d+$""").containsMatchIn(candidatePath)
+            }
+            .distinct()
+            .sortedBy { candidate ->
+                Regex("""/sayfa-(\\d+)$""")
+                    .find(runCatching { URI(candidate).path.orEmpty() }.getOrDefault(""))
+                    ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            }
+            .take(20)
+
+        additionalPageUrls.forEach { pageUrl ->
+            if (pageUrl.equals(seriesUrl, ignoreCase = true)) return@forEach
+            runCatching { app.get(pageUrl, referer = seriesUrl).document }
+                .getOrNull()
+                ?.let { seriesDocuments.add(it) }
+        }
+
         // DDizi puts the series' own episode list before a separate "Bugünkü Bölümler"
         // list containing episodes from unrelated shows. Filter by the confirmed series
         // title instead of treating every /izle/ link on the document as a child episode.
-        val episodeAnchors = seriesPage.select("a[href]")
+        val episodeAnchors = seriesDocuments.flatMap { it.select("a[href]") }
             .filter { anchor ->
                 val href = fixUrlNull(anchor.attr("href")) ?: return@filter false
                 if (!DDiziParser.isEpisodeUrl(href) || href.equals(seriesUrl, ignoreCase = true)) {
