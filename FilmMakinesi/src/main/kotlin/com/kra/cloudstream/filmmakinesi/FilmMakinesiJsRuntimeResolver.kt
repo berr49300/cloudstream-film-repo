@@ -88,7 +88,7 @@ internal object FilmMakinesiJsRuntimeResolver {
 
     private fun normalizeCandidate(value: String, baseUrl: String): String? {
         val cleaned = value.trim().removeSurrounding("\"").removeSurrounding("'")
-            .replace("\\\\/", "/")
+            .replace("\\/", "/")
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("\\u003a", ":", ignoreCase = true)
         if (cleaned.isBlank() || cleaned == "undefined" || cleaned == "null") return null
