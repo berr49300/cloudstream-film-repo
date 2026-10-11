@@ -78,6 +78,25 @@ class FilmMakinesiParserTest {
 
 
     @Test
+    fun findsPlayerTabWhenUrlIsStoredOnlyInDataUrl() {
+        val html = """
+            <div class="partlar">
+              <a data-url="https://closeload.filmmakinesi.to/embed/abc123" data-title="CloseLoad">1</a>
+            </div>
+        """.trimIndent()
+        val provider = FilmMakinesi()
+        val candidates = provider.parseSourceCandidates(
+            org.jsoup.Jsoup.parse(html),
+            html,
+            "https://filmmakinesi.to/film/test/"
+        )
+
+        assertTrue(candidates.any {
+            it.url == "https://closeload.filmmakinesi.to/embed/abc123"
+        })
+    }
+
+    @Test
     fun excludesYoutubeHostsButKeepsSitePlayers() {
         assertTrue(FilmMakinesiSourceRules.isYouTubeHost("youtube.com"))
         assertTrue(FilmMakinesiSourceRules.isYouTubeHost("www.youtube.com"))
