@@ -10,6 +10,7 @@ package com.kra.cloudstream.filmmakinesi
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
@@ -76,7 +77,9 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             return when {
                 path.endsWith(".mpd") -> ExtractorLinkType.DASH
                 path.endsWith(".m3u8") || path.endsWith("/txt/master.txt") || path.endsWith("/master.txt") -> ExtractorLinkType.M3U8
-                else -> ExtractorLinkType.VIDEO
+                path.endsWith(".mp4") || path.endsWith(".mkv") || path.endsWith(".webm") ||
+                    path.endsWith(".m4v") || path.endsWith(".mov") || path.endsWith(".avi") -> ExtractorLinkType.VIDEO
+                else -> INFER_TYPE
             }
         }
 
@@ -106,14 +109,15 @@ internal object FilmMakinesiStreamParser {
             candidates += FilmMakinesiJsPacker.unpackAll(normalized)
             val result = linkedSetOf<String>()
 
-            // The site's Rapid endpoint has also served the CloseLoad-style
-            // payload; run the shared path first, then Rapid-specific formats.
-            closeLoadDecodedCandidates(normalized).forEach { decoded ->
-                candidates.add(decoded)
-                // The reference resolver accepts decoded HTTP URLs even when
-                // their path is opaque and has no recognizable media suffix.
-                if (decoded.trimStart().startsWith("http", ignoreCase = true)) {
-                    addCloseLoadStream(result, decoded.trim(), baseUrl)
+            // Run the reference CloseLoad decoder against both the original
+            // player HTML and every P.A.C.K.E.R.-unpacked variant. Some players
+            // place the source-variable declaration only in the unpacked script.
+            for (candidate in candidates.toList()) {
+                closeLoadDecodedCandidates(candidate).forEach { decoded ->
+                    candidates.add(decoded)
+                    if (decoded.trimStart().startsWith("http", ignoreCase = true)) {
+                        addCloseLoadStream(result, decoded.trim(), baseUrl)
+                    }
                 }
             }
             val rapidPayloads = if (player.equals("Rapid", ignoreCase = true)) {
@@ -122,15 +126,18 @@ internal object FilmMakinesiStreamParser {
                 emptyList()
             }
 
-            // Match the upstream CloseLoad flow before extension-based URL scanning.
-            extractCloseLoadStreamUrl(normalized, baseUrl)?.let {
-                addCloseLoadStream(result, it, baseUrl)
-            }
-            runCatching {
-                val doc = Jsoup.parse(normalized, baseUrl)
-                val videoSource = doc.selectFirst("video source[src], source[src]")?.absUrl("src")
-                    ?: doc.selectFirst("video[src]")?.absUrl("src")
-                if (!videoSource.isNullOrBlank()) addCloseLoadStream(result, videoSource, baseUrl)
+            // Preserve the reference resolver's ordered discovery, then apply it
+            // to unpacked variants as well instead of scanning only raw HTML.
+            for (candidate in candidates.toList()) {
+                extractCloseLoadStreamUrl(candidate, baseUrl)?.let {
+                    addCloseLoadStream(result, it, baseUrl)
+                }
+                runCatching {
+                    val doc = Jsoup.parse(candidate, baseUrl)
+                    val videoSource = doc.selectFirst("video source[src], source[src]")?.absUrl("src")
+                        ?: doc.selectFirst("video[src]")?.absUrl("src")
+                    if (!videoSource.isNullOrBlank()) addCloseLoadStream(result, videoSource, baseUrl)
+                }
             }
             // Rapid's current JSON payload exposes cm/tm HLS endpoints, which
             // may not end in .m3u8. Treat those named fields as stream URLs.
