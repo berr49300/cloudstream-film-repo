@@ -21,10 +21,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
-        "fileHash": "sha256-9962c0b59a7aecde816c30b8241e41f877787d7a71e32e52f3b25fd4da442192",
+        "fileHash": "sha256-ae20d74a7178a5c0f30a07d436c60b0d6c2a126f955af30fd669707c3c0442c3",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 20447,
+        "fileSize": 21676,
         "status": 3,
         "language": "tr",
         "authors": [
