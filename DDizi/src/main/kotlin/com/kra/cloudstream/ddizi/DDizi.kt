@@ -394,7 +394,7 @@ class DDizi : MainAPI() {
         val emittedUrls = linkedSetOf<String>()
         var emitted = 0
 
-        fun emitMedia(url: String, referer: String, hls: Boolean) {
+        suspend fun emitMedia(url: String, referer: String, hls: Boolean) {
             if (!emittedUrls.add(url)) return
             val headers = mapOf("Referer" to referer)
             callback(newExtractorLink(name, if (hls) "$name HLS" else name, url, if (hls) ExtractorLinkType.M3U8 else null) {
