@@ -107,7 +107,14 @@ internal object FilmMakinesiStreamParser {
 
             // The site's Rapid endpoint has also served the CloseLoad-style
             // payload; run the shared path first, then Rapid-specific formats.
-            closeLoadDecodedCandidates(normalized).forEach(candidates::add)
+            closeLoadDecodedCandidates(normalized).forEach { decoded ->
+                candidates.add(decoded)
+                // The reference resolver accepts decoded HTTP URLs even when
+                // their path is opaque and has no recognizable media suffix.
+                if (decoded.trimStart().startsWith("http", ignoreCase = true)) {
+                    addCloseLoadStream(result, decoded.trim(), baseUrl)
+                }
+            }
             val rapidPayloads = if (player.equals("Rapid", ignoreCase = true)) {
                 rapidDecodedCandidates(normalized).also(candidates::addAll)
             } else {
