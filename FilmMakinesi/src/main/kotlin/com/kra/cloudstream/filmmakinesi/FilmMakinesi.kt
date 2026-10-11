@@ -1,6 +1,7 @@
 package com.kra.cloudstream.filmmakinesi
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 
@@ -111,7 +112,7 @@ class FilmMakinesi : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         if (query.isBlank()) return emptyList()
-        val encoded = query.urlEncoded()
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
         val urls = listOf(
             "$mainUrl/?s=$encoded",
             "$mainUrl/kesfet/?q=$encoded",
