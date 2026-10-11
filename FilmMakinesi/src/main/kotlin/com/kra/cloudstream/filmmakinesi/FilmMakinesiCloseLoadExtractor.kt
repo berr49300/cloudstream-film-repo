@@ -130,7 +130,7 @@ internal object FilmMakinesiStreamParser {
                 val doc = Jsoup.parse(normalized, baseUrl)
                 val videoSource = doc.selectFirst("video source[src], source[src]")?.absUrl("src")
                     ?: doc.selectFirst("video[src]")?.absUrl("src")
-                if (videoSource.isNotBlank()) addCloseLoadStream(result, videoSource, baseUrl)
+                if (!videoSource.isNullOrBlank()) addCloseLoadStream(result, videoSource, baseUrl)
             }
             // Rapid's current JSON payload exposes cm/tm HLS endpoints, which
             // may not end in .m3u8. Treat those named fields as stream URLs.
