@@ -21,10 +21,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
-        "fileHash": "sha256-1599f9bbc27dacb390960ff88194c49265bd330f56c4bab716785e5314910ab1",
+        "fileHash": "sha256-705add1a1e217f847d7aa6dfbaafae3c23a4440deb1fa1324d89b5b4e357c42f",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 32140,
+        "fileSize": 33155,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -34,7 +34,7 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 28,
+        "version": 29,
         "internalName": "FilmMakinesi",
         "description": "FilmMakinesi ve sadele\u015ftirilmi\u015f CloseLoad/Rapid \u00e7\u00f6z\u00fcc\u00fcs\u00fc",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FilmMakinesi.cs3",
