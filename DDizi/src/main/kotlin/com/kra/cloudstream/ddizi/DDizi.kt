@@ -22,7 +22,7 @@ class DDizi : MainAPI() {
     override val hasMainPage = true
     override val hasQuickSearch = false
     override val supportedTypes = setOf(TvType.TvSeries)
-    override var sequentialMainPage = true
+    override var sequentialMainPage = false
 
     override val mainPage = mainPageOf(
         "$mainUrl/" to "Son Bölümler",
@@ -33,14 +33,18 @@ class DDizi : MainAPI() {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), hasNext = false)
 
         val document = app.get(request.data, referer = "$mainUrl/").document
-        val items = document.select("a[href]")
-            .filter { isSameSite(it.attr("href")) && DDiziParser.isEpisodeUrl(fixUrl(it.attr("href"))) }
+        // Restrict parsing to episode links; scanning every navigation/ad/footer anchor
+        // on each catalog page made the homepage slow and admitted irrelevant entries.
+        val items = document.select("a[href*=/izle/]")
+            .asSequence()
+            .filter { isSameSite(it.attr("href")) }
             .mapNotNull { anchor ->
                 val href = fixUrlNull(anchor.attr("href")) ?: return@mapNotNull null
                 anchor.toEpisodeSearchResult(href)
             }
             .distinctBy { it.url }
             .take(30)
+            .toList()
 
         return newHomePageResponse(request.name, items, hasNext = false)
     }
@@ -129,6 +133,15 @@ class DDizi : MainAPI() {
             }
             .distinctBy { fixUrl(it.attr("href")) }
 
+        val episodeLabels = episodeAnchors.map { anchor ->
+            listOf(
+                anchor.text().trim(),
+                anchor.attr("title").trim(),
+                anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
+            ).firstOrNull { it.isNotBlank() } ?: "Bölüm"
+        }
+        val seasonFinals = DDiziParser.seasonFinalEpisodeNumbers(episodeLabels)
+
         val episodes = episodeAnchors.mapNotNull { anchor ->
             val href = fixUrlNull(anchor.attr("href")) ?: return@mapNotNull null
             val episodeTitle = listOf(
@@ -136,9 +149,11 @@ class DDizi : MainAPI() {
                 anchor.attr("title").trim(),
                 anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
             ).firstOrNull { it.isNotBlank() } ?: "Bölüm"
+            val episodeNumber = DDiziParser.episodeNumber(episodeTitle)
             newEpisode(href) {
                 name = episodeTitle
-                episode = DDiziParser.episodeNumber(episodeTitle)
+                episode = episodeNumber
+                season = DDiziParser.seasonForEpisode(episodeNumber, seasonFinals)
             }
         }.distinctBy { it.data }
 
