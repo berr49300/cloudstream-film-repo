@@ -55,7 +55,10 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
                 source = name,
                 name = "$playerLabel • " + mediaLabelForUrl(stream),
                 url = stream,
-                type = mediaTypeForUrl(stream)
+                type = if (
+                    playerLabel.equals("Rapid", ignoreCase = true) &&
+                    !FilmMakinesiStreamParser.isMediaUrl(stream)
+                ) ExtractorLinkType.M3U8 else mediaTypeForUrl(stream)
             ) {
                 this.referer = playerOrigin
                 this.headers = headers
