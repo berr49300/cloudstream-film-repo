@@ -16,9 +16,9 @@ import java.util.Base64
 
 internal object FilmMakinesiJsRuntimeResolver {
     private val sourceVariable = Regex(
-        """(?is)sources\\s*:\\s*\\[\\s*\\{\\s*file\\s*:\\s*([A-Za-z_$][\\w$]*)"""
+        """(?is)sources\s*:\s*\[\s*\{\s*file\s*:\s*([A-Za-z_$][\w$]*)"""
     )
-    private val fileLink = Regex("""(?is)file_link\\s*=\\s*["']([^"']+)["']""")
+    private val fileLink = Regex("""(?is)file_link\s*=\s*["']([^"']+)["']""")
 
     fun extractStreamUrls(html: String, baseUrl: String): List<String> {
         val scriptTexts = Jsoup.parse(html, baseUrl).select("script")
@@ -124,7 +124,7 @@ internal object FilmMakinesiJsRuntimeResolver {
         var navigator = { userAgent: "" };
         var _b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
         function atob(input) {
-            var str = String(input).replace(/[=]+$/, "").replace(/[^A-Za-z0-9+\\/]/g, "");
+            var str = String(input).replace(/[=]+$/, "").replace(/[^A-Za-z0-9+\/]/g, "");
             var output = "";
             for (var bc = 0, bs = 0, buffer, idx = 0; (buffer = str.charAt(idx++)); ) {
                 buffer = _b64.indexOf(buffer);
