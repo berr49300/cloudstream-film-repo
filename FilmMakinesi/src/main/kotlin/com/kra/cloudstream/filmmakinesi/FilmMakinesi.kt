@@ -331,7 +331,19 @@ class FilmMakinesi : MainAPI() {
         addDecodedStreams(html, pageUrl)
         unpackedPlayerScripts.forEach { addDecodedStreams(it, pageUrl) }
 
-        val sources = sourceMap.values.toList()
+        // Resolve the site's actual player endpoints before speculative URLs
+        // found in packed scripts. This mirrors CloudStreamHub's progressive
+        // candidate strategy and avoids wasting the resolution window on noise.
+        val sources = sourceMap.values.sortedBy { source ->
+            val host = runCatching { URI(source.url).host.orEmpty().lowercase() }.getOrDefault("")
+            when {
+                host.contains("closeload") || host.contains("rapid") -> 0
+                isDirectMediaUrl(source.url) -> 1
+                source.resolvedStream -> 2
+                isKnownPlayerHost(host) -> 3
+                else -> 4
+            }
+        }
         val closeLoad = FilmMakinesiCloseLoadExtractor()
 
         for (source in sources) {
