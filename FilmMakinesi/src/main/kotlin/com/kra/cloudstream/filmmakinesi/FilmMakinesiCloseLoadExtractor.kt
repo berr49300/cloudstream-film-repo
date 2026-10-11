@@ -258,7 +258,7 @@ internal object FilmMakinesiStreamParser {
             // unpacking. The previous resolver only handled the older two-key
             // shuffle format, so it returned no stream for these player pages.
             val helloCall = Regex(
-                """(?is)dc_hello\\s*\\(\\s*["']([^"']+)["']\\s*\\)"""
+                """(?is)dc_hello\s*\(\s*["']([^"']+)["']\s*\)"""
             )
             for (match in helloCall.findAll(html)) {
                 val first = decodeBase64Latin1(match.groupValues[1])
@@ -268,17 +268,18 @@ internal object FilmMakinesiStreamParser {
             }
 
             val arrayCall = Regex(
-                """(?is)dc_\\w+\\s*\\(\\s*\\[(.*?)\\]\\s*\\)"""
+                """(?is)dc_\w+\s*\(\s*\[(.*?)\]\s*\)"""
             )
             for (match in arrayCall.findAll(html)) {
                 val parts = arrayString.findAll(match.groupValues[1])
                     .map { it.groupValues[1] }
                     .toList()
                 if (parts.size < 2) continue
-                val joined = parts.joinToString("")
+                // The reference player applies reverse -> base64 -> ROT13 -> byte unmix.
+                // Keep this order: decoding Base64 before reversing yields no valid media URL.
+                val joined = parts.joinToString("").reversed()
                 val bytes = decodeBase64(joined) ?: continue
-                var text = String(bytes, Charsets.ISO_8859_1).reversed()
-                text = rotateLetters(text, 13)
+                var text = rotateLetters(String(bytes, Charsets.ISO_8859_1), 13)
                 text = buildString(text.length) {
                     text.forEachIndexed { index, ch ->
                         val shift = (399756995L % (index + 5)).toInt()
