@@ -12,7 +12,6 @@ import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.Scriptable
 import java.net.URI
-import java.util.Base64
 
 internal object FilmMakinesiJsRuntimeResolver {
     private val sourceVariable = Regex(
@@ -41,7 +40,7 @@ internal object FilmMakinesiJsRuntimeResolver {
             .distinct()
         if (wantedVariables.isEmpty() && candidates.none { fileLink.containsMatchIn(it) }) return emptyList()
 
-        val cx = LimitedContextFactory.enterContext()
+        val cx = limitedContextFactory.enterContext()
         return try {
             cx.optimizationLevel = -1
             cx.instructionObserverThreshold = 10_000
@@ -73,7 +72,7 @@ internal object FilmMakinesiJsRuntimeResolver {
                     val decoded = runCatching {
                         val token = match.groupValues[1]
                         val padded = token + "=".repeat((4 - token.length % 4) % 4)
-                        String(Base64.getDecoder().decode(padded), Charsets.UTF_8)
+                        String(decodeBase64(padded) ?: return@runCatching null, Charsets.UTF_8)
                     }.getOrNull()
                     decoded?.let { normalizeCandidate(it, baseUrl) }?.let(found::add)
                 }
@@ -99,6 +98,30 @@ internal object FilmMakinesiJsRuntimeResolver {
         if (FilmMakinesiSourceRules.isYouTubeHost(host)) return null
         if (host.contains("google") || host.contains("facebook") || host.contains("doubleclick")) return null
         return absolute
+    }
+
+    private val limitedContextFactory = LimitedContextFactory()
+
+    private fun decodeBase64(value: String): ByteArray? {
+        val input = value.filterNot(Char::isWhitespace).trimEnd('=').replace('-', '+').replace('_', '/')
+        if (input.isEmpty()) return byteArrayOf()
+        if (input.length % 4 == 1) return null
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        val output = java.io.ByteArrayOutputStream(input.length * 3 / 4)
+        var buffer = 0
+        var bits = 0
+        for (ch in input) {
+            val digit = alphabet.indexOf(ch)
+            if (digit < 0) return null
+            buffer = (buffer shl 6) or digit
+            bits += 6
+            if (bits >= 8) {
+                bits -= 8
+                output.write((buffer shr bits) and 0xff)
+                buffer = buffer and ((1 shl bits) - 1)
+            }
+        }
+        return output.toByteArray()
     }
 
     private class LimitedContextFactory : ContextFactory() {
