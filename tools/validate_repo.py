@@ -43,9 +43,10 @@ def _scan_source_for_secrets(root: Path, modules: list[Path], errors: list[str])
     candidates = []
     for module in modules:
         candidates.extend(module.rglob("*"))
-    workflow_dir = root / ".github" / "workflows"
-    if workflow_dir.exists():
-        candidates.extend(workflow_dir.rglob("*"))
+    workflow_dirs = [root / ".github" / "workflows", root.parent / ".github" / "workflows"]
+    for workflow_dir in workflow_dirs:
+        if workflow_dir.exists():
+            candidates.extend(workflow_dir.rglob("*"))
 
     seen = set()
     for path in candidates:
@@ -62,7 +63,11 @@ def _scan_source_for_secrets(root: Path, modules: list[Path], errors: list[str])
             continue
         for pattern in SECRET_PATTERNS:
             if pattern.search(content):
-                errors.append(f"possible secret pattern found in {path.relative_to(root).as_posix()}")
+                try:
+                    display_path = path.relative_to(root).as_posix()
+                except ValueError:
+                    display_path = "../" + path.relative_to(root.parent).as_posix()
+                errors.append(f"possible secret pattern found in {display_path}")
                 break
 
 
