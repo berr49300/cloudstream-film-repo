@@ -438,8 +438,9 @@ class DDizi : MainAPI() {
                         if (!visited.contains(nested)) queue.addLast(nested to candidate)
                     }
                 }
-                // A true .m3u8 URL is still offered as a fallback if the probe is blocked by the host.
-                if (candidatePath.endsWith(".m3u8") && playlistResponse == null) emitMedia(candidate, parentReferer, true)
+                // Preserve a direct HLS candidate when a probe is blocked, returns a transient
+                // error, or requires playback-specific headers not available to the probe request.
+                if (candidatePath.endsWith(".m3u8")) emitMedia(candidate, parentReferer, true)
                 continue
             }
 
