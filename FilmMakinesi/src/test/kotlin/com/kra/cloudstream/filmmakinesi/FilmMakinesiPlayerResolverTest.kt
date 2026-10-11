@@ -30,9 +30,12 @@ class FilmMakinesiPlayerResolverTest {
         assertNull(FilmMakinesiPlayerDecoder.sourceVariable("""jwplayer({sources: [{file: "https://cdn.test/master.m3u8"}]});"""))
         assertNull(FilmMakinesiPlayerDecoder.sourceVariable("var unrelated = true;"))
     }
+
     @Test
     fun decodesCurrentDcHelloArrayStreamFixture() {
-        val expected = "https://srv9.cdnimages3055.shop/hls/mayday-2026-webdl-trdual-tt28014327mp4-OSxZYB25jjD4.mp4/txt/master.txt"
+        // Reserved example.test domain: keep the fixture deterministic and avoid
+        // embedding a live third-party media URL in the public test suite.
+        val expected = "https://media.example.test/hls/sample-video.mp4/txt/master.txt"
         val preUnmix = buildString(expected.length) {
             expected.forEachIndexed { index, char ->
                 val shift = (399756995L % (index + 5)).toInt()
