@@ -4,7 +4,7 @@
 - Provider module: FilmMakinesi
 - Content scope: films and series
 - Implementation: compact provider + one CloseLoad/Rapid JavaScript resolver
-- Investigation status: BUILD_PENDING; DEVICE_TEST_PENDING
+- Investigation status: CI BUILD/UNIT TESTS PASSED for commit c194e6a298f2f9285468a073a03e1e4a07b9b483 (workflow run 38158823038); DEVICE_TEST_PENDING
 - Live site fetch from this automation environment: BLOCKED (HTTP 451; this does not establish that the user's device or CloudStream is blocked)
 - Real-device CloudStream status: NOT TESTED
 
@@ -32,8 +32,8 @@
 
 - [x] Provider reduced to the main provider plus one focused resolver.
 - [x] Tests cover player-type detection, source-variable matching, and a known CloseLoad array-payload fixture.
-- [ ] Current CI build and unit tests pass.
-- [ ] Published plugin index reflects the new file size and version.
+- [x] CI build and unit tests passed for commit `c194e6a298f2f9285468a073a03e1e4a07b9b483` (workflow run `38158823038`).
+- [ ] Published plugin index reflects the new file size and version; not verified in this review.
 - [ ] User verifies source discovery and video playback in CloudStream on a real device.
 
 Build success is not evidence that the currently live stream endpoint plays on every device. The site may change its payload or require further request details.
