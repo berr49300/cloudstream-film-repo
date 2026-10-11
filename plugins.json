@@ -1,5 +1,25 @@
 [
     {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=ddizi.tel",
+        "fileHash": "sha256-84d4421a79b739122197723ae3193bf07fac62cb674ab441091f9086f6c88288",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 21494,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "DDizi",
+        "description": "DDizi dizi katalo\u011fu ve b\u00f6l\u00fcm sayfalar\u0131 \u2014 ilk do\u011frulama s\u00fcr\u00fcm\u00fc",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DDizi.cs3",
+        "name": "DDizi"
+    },
+    {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=dizilla.now",
         "fileHash": "sha256-d1cdf3446cc2e72f1de843c2ec7a246ace47f3675a8ab05dfe3f857a99f98b78",
         "apiVersion": 1,
