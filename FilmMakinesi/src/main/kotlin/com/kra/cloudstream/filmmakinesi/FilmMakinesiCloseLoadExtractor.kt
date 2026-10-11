@@ -35,7 +35,12 @@ open class FilmMakinesiCloseLoadExtractor : ExtractorApi() {
             .getOrDefault(mainUrl)
         val headers = mapOf(
             "User-Agent" to userAgent,
-            "Referer" to (referer ?: "https://filmmakinesi.to/")
+            "Referer" to (referer ?: "https://filmmakinesi.to/"),
+            // The reference extractor requests these URLs as an iframe
+            // navigation; some player hosts return an empty page otherwise.
+            "Sec-Fetch-Dest" to "iframe",
+            "Sec-Fetch-Mode" to "navigate",
+            "Sec-Fetch-Site" to "same-site"
         )
         val html = runCatching { app.get(url, headers = headers).text }.getOrNull() ?: return
 
