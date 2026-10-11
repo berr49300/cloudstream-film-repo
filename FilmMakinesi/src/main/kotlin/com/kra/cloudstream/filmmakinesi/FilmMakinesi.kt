@@ -22,10 +22,12 @@ class FilmMakinesi : MainAPI() {
     override var sequentialMainPage = true
 
     override val mainPage = mainPageOf(
-        "$mainUrl/" to "Öne Çıkanlar",
-        "$mainUrl/tur/aksiyon-fm1/film/" to "Aksiyon Filmleri",
-        "$mainUrl/tur/dram-fm1/film/" to "Dram Filmleri",
-        "$mainUrl/kesfet/" to "Keşfet"
+        "$mainUrl/filmler-1/sayfa/" to "Son Filmler",
+        "$mainUrl/tur/aksiyon-fm1/film/sayfa/" to "Aksiyon Filmleri",
+        "$mainUrl/tur/bilim-kurgu-fm3/film/sayfa/" to "Bilim Kurgu",
+        "$mainUrl/tur/komedi-fm1/film/sayfa/" to "Komedi",
+        "$mainUrl/yabanci-dizi-izle-1/sayfa/" to "Son Diziler",
+        "$mainUrl/tur/aksiyon-fm1/dizi/sayfa/" to "Aksiyon Dizileri"
     )
 
     private fun absolute(value: String?): String? {
@@ -72,10 +74,11 @@ class FilmMakinesi : MainAPI() {
     }
 
     private fun Element.toResult(): SearchResponse? {
-        val a = selectFirst("a[href]") ?: return null
+        val a = selectFirst("a.item[href]") ?: selectFirst("a[href]") ?: return null
         val href = absolute(a.attr("href")) ?: return null
         if (!isDetailUrl(href) || href == "$mainUrl/") return null
-        val title = cardTitle()?.takeIf { it.length > 1 } ?: return null
+        val title = a.attr("data-title").ifBlank { cardTitle().orEmpty() }
+            .trim().takeIf { it.length > 1 } ?: return null
         val type = inferType(href, this)
         return if (type == TvType.TvSeries) newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
             posterUrl = this@toResult.poster()
@@ -101,8 +104,8 @@ class FilmMakinesi : MainAPI() {
 
     private fun parseCards(document: org.jsoup.nodes.Document): List<SearchResponse> {
         val preferred = document.select(
-            "article, .film-card, .movie-card, .series-card, .poster-item, " +
-            ".film-item, .movie-item, .item, .post, .result-item, .movie"
+            "div.film-list div.item-relative, article, .film-card, .movie-card, " +
+            ".series-card, .poster-item, .film-item, .movie-item, .item, .post, .result-item, .movie"
         )
         val candidates = if (preferred.isNotEmpty()) preferred else
             document.select("main a[href], #content a[href], .content a[href]")
@@ -114,6 +117,7 @@ class FilmMakinesi : MainAPI() {
         if (query.isBlank()) return emptyList()
         val encoded = java.net.URLEncoder.encode(query, "UTF-8")
         val urls = listOf(
+            "$mainUrl/arama/?s=$encoded",
             "$mainUrl/?s=$encoded",
             "$mainUrl/kesfet/?q=$encoded",
             "$mainUrl/?search=$encoded"
@@ -129,8 +133,9 @@ class FilmMakinesi : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         val document = app.get(url, referer = "$mainUrl/").document
-        val title = document.selectFirst("h1")?.text()?.trim()
-            ?.takeIf { it.isNotBlank() } ?: return null
+        val heading = document.selectFirst("h1.title") ?: document.selectFirst("h1")
+        val title = (heading?.ownText()?.trim()?.removeSuffix("izle")?.trim()
+            ?: heading?.text()?.trim())?.takeIf { it.isNotBlank() } ?: return null
         val poster = absolute(
             document.selectFirst("meta[property=og:image]")?.attr("content")
                 ?: document.selectFirst("meta[name=twitter:image]")?.attr("content")
@@ -202,17 +207,24 @@ class FilmMakinesi : MainAPI() {
     ): Boolean {
         val document = app.get(data, referer = "$mainUrl/").document
         val frames = document.select(
-            ".player iframe, .player-div iframe, .video-player iframe, " +
-            "iframe[src], iframe[data-src], iframe[data-lazy-src]"
+            "div.after-player iframe, .player iframe, .player-div iframe, .video-player iframe, " +
+            "iframe[src], iframe[data-src], iframe[data-lazy-src], a[data-video_url]"
         )
-        val frame = frames.asSequence().mapNotNull {
-            absolute(it.attr("src").ifBlank { it.attr("data-src").ifBlank { it.attr("data-lazy-src") } })
-        }.firstOrNull { candidate ->
+        val frameUrls = frames.mapNotNull { element ->
+            absolute(element.attr("data-video_url").ifBlank {
+                element.attr("data-src").ifBlank {
+                    element.attr("data-lazy-src").ifBlank { element.attr("src") }
+                }
+            })
+        }.filter { candidate ->
             candidate != "$mainUrl/" && !candidate.contains("youtube.com/embed") &&
-                !candidate.contains("google.com/recaptcha")
-        } ?: return false
+                !candidate.contains("google.com/recaptcha") && !candidate.contains("javascript:")
+        }.distinct()
 
-        loadExtractor(frame, "$mainUrl/", subtitleCallback, callback)
+        if (frameUrls.isEmpty()) return false
+        frameUrls.forEach { frame ->
+            runCatching { loadExtractor(frame, "$mainUrl/", subtitleCallback, callback) }
+        }
         return true
     }
 }
