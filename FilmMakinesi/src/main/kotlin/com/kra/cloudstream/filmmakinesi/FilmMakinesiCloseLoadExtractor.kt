@@ -104,11 +104,25 @@ internal object FilmMakinesiStreamParser {
             // The site's Rapid endpoint has also served the CloseLoad-style
             // payload; run the shared path first, then Rapid-specific formats.
             closeLoadDecodedCandidates(normalized).forEach(candidates::add)
-            if (player.equals("Rapid", ignoreCase = true)) {
-                rapidDecodedCandidates(normalized).forEach(candidates::add)
+            val rapidPayloads = if (player.equals("Rapid", ignoreCase = true)) {
+                rapidDecodedCandidates(normalized).also(candidates::addAll)
+            } else {
+                emptyList()
             }
 
             val result = linkedSetOf<String>()
+            // Rapid's current JSON payload exposes cm/tm HLS endpoints, which
+            // may not end in .m3u8. Treat those named fields as stream URLs.
+            for (payload in rapidPayloads) {
+                val decodedPayload = normalize(payload)
+                if (decodedPayload.trimStart().startsWith("https://", true) ||
+                    decodedPayload.trimStart().startsWith("http://", true)) {
+                    addRapidStream(result, decodedPayload.trim(), baseUrl)
+                }
+                rapidStreamField.findAll(decodedPayload).forEach { match ->
+                    addRapidStream(result, match.groupValues[1], baseUrl)
+                }
+            }
             for (candidate in candidates) {
                 fileField.findAll(candidate).forEach { match ->
                     addMedia(result, match.groupValues.getOrNull(1), baseUrl)
@@ -201,6 +215,24 @@ internal object FilmMakinesiStreamParser {
                 rolling = (rolling + code) % 256
             }
             return decoded.toString()
+        }
+
+        private val rapidStreamField = Regex(
+            """(?is)["'](?:cm|tm)["']\\s*:\\s*["']((?:\\\\.|[^"'])+)["']"""
+        )
+
+        private fun addRapidStream(result: MutableSet<String>, raw: String, baseUrl: String) {
+            val normalized = normalize(raw)
+                .replace("\\\\/", "/")
+                .replace("\\u0026", "&", ignoreCase = true)
+                .replace("\\u003a", ":", ignoreCase = true)
+                .trim()
+            val absolute = resolveUrl(normalized, baseUrl) ?: return
+            val uri = runCatching { URI(absolute) }.getOrNull() ?: return
+            val host = uri.host.orEmpty().lowercase()
+            if (host.isBlank() || FilmMakinesiSourceRules.isYouTubeHost(host)) return
+            if (host.contains("google") || host.contains("facebook") || host.contains("doubleclick")) return
+            result.add(absolute)
         }
 
         private val rapidCaptionObject = Regex(
