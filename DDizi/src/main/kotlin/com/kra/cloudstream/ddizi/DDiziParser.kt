@@ -102,6 +102,15 @@ internal object DDiziParser {
         val path = uri.path.orEmpty().lowercase(Locale.ROOT)
         val idValue = queryParameter(uri.rawQuery, "id") ?: queryParameter(uri.rawQuery, "url")
 
+        // Normalize regular YouTube links and iframe URLs to the watch route before invoking
+        // CloudStream's registered extractor; iframe URLs can otherwise expose unusable link sets.
+        if (host == "youtu.be" || host == "www.youtu.be" ||
+            host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+        ) {
+            return youtubeWatchUrlFrom(url)
+        }
+
         // Historical DDizi relay.
         if ((host == "ddizi.re" || host.endsWith(".ddizi.re")) &&
             path.contains("youtube.php", ignoreCase = true)
