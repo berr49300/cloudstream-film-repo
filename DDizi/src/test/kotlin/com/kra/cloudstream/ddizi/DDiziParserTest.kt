@@ -20,10 +20,13 @@ class DDiziParserTest {
     }
 
     @Test
-    fun cleansEpisodeAndSeasonSuffixesFromTitle() {
+    fun cleansEpisodeSeasonAndSeoSuffixesFromTitle() {
         assertEquals("Kanıt", DDiziParser.cleanTitle("Kanıt 100. Bölüm Final izle"))
         assertEquals("Dark", DDiziParser.cleanTitle("Dark 3.Sezon 8.Bölüm izle"))
+        assertEquals("Dark", DDiziParser.cleanTitle("Dark izle Türkçe Dublaj Tüm Bölümler HD"))
         assertEquals("Sevdiğim Sensin", DDiziParser.cleanTitle("Sevdiğim Sensin Son Bölüm izle Full"))
+        assertEquals("Teşkilat", DDiziParser.cleanTitle("Teşkilat 189 Son Bölüm izle"))
+        assertEquals("Daha 17", DDiziParser.cleanTitle("Daha 17 20.Bölüm izle Full"))
     }
 
     @Test
@@ -97,20 +100,31 @@ class DDiziParserTest {
     }
 
     @Test
-    fun splitsSeasonlessSeriesAtExplicitFinaleOnly() {
+    fun splitsSeasonlessSeriesAtExplicitFinalesAndUsesSeasonLocalEpisodeNumbers() {
         val finals = DDiziParser.seasonFinalEpisodeNumbers(
             listOf(
+                "Teşkilat 14.Bölüm Sezon Finali",
+                "Teşkilat 48.Bölüm Sezon Finali",
+                "Teşkilat 80.Bölüm Sezon Finali",
                 "Sevdiğim Sensin 20.Bölüm",
                 "Sevdiğim Sensin 15.Bölüm Sezon Finali",
                 "Sevdiğim Sensin 10.Bölüm",
                 "Dark 2.Sezon 8.Bölüm Sezon Finali"
             )
         )
-        assertEquals(setOf(15), finals)
-        assertEquals(1, DDiziParser.seasonForEpisode(15, finals))
-        assertEquals(1, DDiziParser.seasonForEpisode(1, finals))
-        assertEquals(2, DDiziParser.seasonForEpisode(16, finals))
-        assertEquals(2, DDiziParser.seasonForEpisode(20, finals))
+        assertEquals(setOf(14, 48, 80, 15), finals)
+        assertEquals(1, DDiziParser.seasonForEpisode(14, finals))
+        assertEquals(2, DDiziParser.seasonForEpisode(15, finals))
+        assertEquals(2, DDiziParser.seasonForEpisode(48, finals))
+        assertEquals(3, DDiziParser.seasonForEpisode(49, finals))
+        assertEquals(3, DDiziParser.seasonForEpisode(80, finals))
+        assertEquals(4, DDiziParser.seasonForEpisode(81, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(1, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, finals))
+        assertEquals(34, DDiziParser.seasonLocalEpisodeNumber(48, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(49, finals))
+        assertEquals(12, DDiziParser.seasonLocalEpisodeNumber(60, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(81, finals))
         assertEquals(null, DDiziParser.seasonForEpisode(null, finals))
     }
 }
