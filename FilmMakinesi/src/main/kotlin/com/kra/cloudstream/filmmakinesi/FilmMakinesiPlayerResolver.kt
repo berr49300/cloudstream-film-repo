@@ -146,7 +146,7 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
 
             // Legacy player variant: file_link contains a Base64 URL after unpacking.
             val encoded = Regex("""file_link\s*=\s*["']([^"']+)["']""")
-                .find(unpacked)?.groupValues?.getOrNull(1)
+                .find(unpackedHtml)?.groupValues?.getOrNull(1)
             val legacy = encoded?.let { runCatching { base64Decode(it) }.getOrNull() }
             cleanLink(legacy)?.let(found::add)
             return found.toList()
