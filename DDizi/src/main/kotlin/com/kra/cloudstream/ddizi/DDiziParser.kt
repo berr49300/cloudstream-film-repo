@@ -129,7 +129,17 @@ internal object DDiziParser {
         rawQuery.orEmpty().split('&')
             .firstOrNull { it.substringBefore("=") == name }
             ?.substringAfter("=", "")
-            ?.let { runCatching { URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrNull() }
+            ?.let { raw ->
+                var decoded = raw
+                // DDizi sometimes URL-encodes the Youtube URL once inside an already encoded query.
+                repeat(3) {
+                    val next = runCatching {
+                        URLDecoder.decode(decoded, Charsets.UTF_8.name())
+                    }.getOrNull()
+                    if (next != null && next != decoded) decoded = next
+                }
+                decoded
+            }
 
     private fun youtubeWatchUrlFrom(raw: String): String? {
         val candidate = raw.trim()
