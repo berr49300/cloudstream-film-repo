@@ -175,8 +175,9 @@ internal object FilmMakinesiStreamParser {
                 """(?is)sources\s*:\s*\[\s*\{\s*file\s*:\s*([a-zA-Z0-9_$]+)"""
             ).findAll(unpacked).map { it.groupValues[1] }.firstOrNull { it != "atob" }
             if (!varName.isNullOrBlank()) {
+                val escapedVarName = Regex.escape(varName)
                 val payloadPattern = Regex(
-                    """(?is)(?:var|let|const)\s+$varName\s*=\s*[a-zA-Z0-9_$]+\s*\(\s*["']([^"']+)["']\s*\.split\(\s*["']([^"']+)["']\s*\)\s*\)"""
+                    """(?is)(?:var|let|const)\s+$escapedVarName\s*=\s*[a-zA-Z0-9_$]+\s*\(\s*["']([^"']+)["']\s*\.split\(\s*["']([^"']+)["']\s*\)\s*\)"""
                 )
                 val match = payloadPattern.find(unpacked)
                 if (match != null) {
@@ -339,17 +340,21 @@ internal object FilmMakinesiStreamParser {
          * carries two transform keys, while the remaining parts form the
          * encoded body. This is a bounded text decoder and never evaluates JS.
          */
-        private fun decodeCloseLoadPayload(parts: List<String>): String {
+        /**
+         * Port of the public CloseLoad payload transform. Operation order and
+         * rolling-state arithmetic must match exactly or the output URL is invalid.
+         */
+        internal fun decodeCloseLoadPayload(parts: List<String>): String {
             if (parts.size < 10 || parts.size > 10_000 || parts.any { it.length > 100_000 }) return ""
-            val values = parts.toMutableList()
-            val offset = values.size - 2
+            val list = parts.toMutableList()
+            val offset = list.size - 2
             val seedIndex = offset % 7
             val operationIndex = 8 + (offset % 5)
-            if (operationIndex >= values.size || seedIndex >= values.size) return ""
+            if (operationIndex >= list.size || seedIndex >= list.size) return ""
 
-            val operations = values.removeAt(operationIndex)
-            val seedKey = values.removeAt(seedIndex)
-            var text = values.joinToString("")
+            val operations = list.removeAt(operationIndex)
+            val seedKey = list.removeAt(seedIndex)
+            var text = list.joinToString("")
             if (seedKey.length > 4096) text = decodeBase64Latin1(text)
             if (text.isEmpty() || text.length > 200_000) return ""
 
