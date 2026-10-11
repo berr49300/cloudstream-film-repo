@@ -190,6 +190,7 @@ class DDizi : MainAPI() {
                 .lowercase()
             val playerControl = Regex("""player|video|source|server|part|bolum|bölüm|kaynak|izle""")
                 .containsMatchIn(context) ||
+                Regex("""(?i)^(?:video|oynat|player|kaynak|server|source)$""").matches(label) ||
                 Regex("""(?i)(?:part\s*)?[1-3](?:\.\s*)?(?:parça|parca)?""").matches(label)
             if (playerControl && isAllowedPlayerUrl(absolute) &&
                 !DDiziParser.isSeriesUrl(absolute) && !DDiziParser.isEpisodeUrl(absolute)
