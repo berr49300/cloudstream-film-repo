@@ -51,8 +51,8 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
         links.forEach { link ->
             callback(
                 newExtractorLink(playerName, playerName, link, ExtractorLinkType.M3U8) {
-                    referer = "$base/"
-                    quality = Qualities.Unknown.value
+                    this.referer = "$base/"
+                    this.quality = Qualities.Unknown.value
                 }
             )
         }
