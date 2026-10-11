@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 0
 
       - name: Validate repository before sharing diff
-        run: python tools/validate_repo.py --root source
+        run: python tools/validate_repo.py --root .
 
       - name: Prepare limited code diff
         run: |
