@@ -1,5 +1,5 @@
 /*
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  * Minimal FilmMakinesi provider. Player resolution follows the small,
  * proven CloseLoad/Rapid JavaScript-resolution path.
  */
