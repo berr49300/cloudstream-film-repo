@@ -13,17 +13,27 @@ internal object DDiziParser {
         runCatching { URI(url).path.orEmpty() }.getOrDefault(url)
             .startsWith("/diziler/", ignoreCase = true)
 
+    fun isSeriesCatalogUrl(url: String): Boolean {
+        val path = runCatching { URI(url).path.orEmpty().trimEnd('/') }.getOrDefault(url)
+        return path.endsWith("/yabanci-dizi-izle", true) ||
+            path.endsWith("/eski.diziler", true)
+    }
+
     /**
-     * Remove episode/season decorations used by DDizi in both visible titles and URL slugs.
-     * This intentionally keeps the show's own title (including digits such as "Daha 17").
+     * Strip DDizi's episode suffixes and SEO decorations.
+     * Keep digits that belong to a series name, e.g. "Daha 17".
      */
     fun cleanTitle(value: String): String = value
         .replace('-', ' ')
-        .replace(Regex("""(?i)\s+\d+\s*\.?\s*sezon\b.*$"""), "")
-        .replace(Regex("""(?i)\s+\d+\s*\.?\s*b[oö]l[uü]m\b.*$"""), "")
+        .replace(Regex("""(?i)\s+\d+\s*\.?\s*(?:sezon|season)\b.*$"""), "")
+        .replace(Regex("""(?i)\s+\d+\s*\.?\s*(?:b[oö]l[uü]m|episode|ep)\b.*$"""), "")
         .replace(Regex("""(?i)\s+(?:son\s+)?b[oö]l[uü]m\s+izle.*$"""), "")
-        .replace(Regex("""(?i)\s+izle\s*$"""), "")
-        .trim()
+        // Series headers such as "Dark izle Türkçe Dublaj Tüm Bölümler HD"
+        .replace(Regex("""(?i)\s+izle\b.*$"""), "")
+        .replace(Regex("""(?i)\s+(?:t[uü]m\s+)?b[oö]l[uü]mler?(?:\s+hd)?\b.*$"""), "")
+        .replace(Regex("""(?i)\s+(?:t[uü]rk[cç]e|dublaj|altyaz[iı]l[iı]|full|hd)\b.*$"""), "")
+        .replace(Regex("""\s+"""), " ")
+        .trim(' ', '-', '|', ':', '·')
 
     fun normalizeTitle(value: String): String = value
         .lowercase(Locale.ROOT)
@@ -48,9 +58,8 @@ internal object DDiziParser {
             (candidate == expected || candidate.startsWith("$expected "))
 
     /**
-     * The episode URL slug is more trustworthy than a surrounding card's text: DDizi
-     * places unrelated "Bugünkü Bölümler" links on series pages, and malformed markup
-     * can make Jsoup text include neighbouring content.
+     * Prefer the episode slug as it names the actual series and avoids adjacent "today's
+     * episodes" links. HTML labels remain a fallback for older URLs without a useful slug.
      */
     fun belongsToSeriesEpisode(seriesTitle: String, episodeTitle: String, episodeUrl: String? = null): Boolean {
         val expected = titleIdentity(seriesTitle)
@@ -80,7 +89,7 @@ internal object DDiziParser {
 
     fun seasonNumber(value: String): Int? {
         val match = Regex(
-            """(?i)(?:\bsezon\s*(\d+)\b|(\d+)\s*\.?\s*sezon\b)"""
+            """(?i)(?:\b(?:sezon|season)\s*(\d+)\b|(\d+)\s*\.?\s*(?:sezon|season)\b)"""
         ).find(value) ?: return null
         return (match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
             ?: match.groupValues.getOrNull(2))?.toIntOrNull()
@@ -90,23 +99,36 @@ internal object DDiziParser {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
         val host = uri.host.orEmpty().lowercase(Locale.ROOT)
         val path = uri.path.orEmpty().lowercase(Locale.ROOT)
-        val idValue = queryParameter(uri.rawQuery, "id")
+        val idValue = queryParameter(uri.rawQuery, "id") ?: queryParameter(uri.rawQuery, "url")
 
-        // Historical relay still used by some episodes.
+        // Normalize regular YouTube links and iframe URLs to the watch route before invoking
+        // CloudStream's registered extractor; iframe URLs can otherwise expose unusable link sets.
+        if (host == "youtu.be" || host == "www.youtu.be" ||
+            host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+        ) {
+            return youtubeWatchUrlFrom(url)
+        }
+
+        // Historical DDizi relay.
         if ((host == "ddizi.re" || host.endsWith(".ddizi.re")) &&
             path.contains("youtube.php", ignoreCase = true)
         ) {
-            val decodedId = idValue ?: return null
-            return youtubeWatchUrlFrom(decodedId)
-                ?: decodedId.takeIf { isValidYoutubeId(it) }
+            val candidate = idValue ?: return null
+            return youtubeWatchUrlFrom(candidate)
+                ?: candidate.takeIf { isValidYoutubeId(it) }
                     ?.let { "https://www.youtube.com/watch?v=$it" }
         }
 
-        // Current DDizi /player/telif/ relay stores a complete YouTube URL in its id parameter.
+        // DDizi's same-site relay may wrap a full URL or just a video ID.
         if ((host == "ddizi.tel" || host.endsWith(".ddizi.tel")) &&
-            path.endsWith("/player/telif/index.php")
+            (path.endsWith("/player/telif/index.php") || path.endsWith("/player/youtube.php") ||
+                path.endsWith("/youtube.php"))
         ) {
-            return youtubeWatchUrlFrom(idValue ?: return null)
+            val candidate = idValue ?: return null
+            return youtubeWatchUrlFrom(candidate)
+                ?: candidate.takeIf { isValidYoutubeId(it) }
+                    ?.let { "https://www.youtube.com/watch?v=$it" }
         }
         return null
     }
@@ -115,7 +137,17 @@ internal object DDiziParser {
         rawQuery.orEmpty().split('&')
             .firstOrNull { it.substringBefore("=") == name }
             ?.substringAfter("=", "")
-            ?.let { runCatching { URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrNull() }
+            ?.let { raw ->
+                var decoded = raw
+                // DDizi sometimes URL-encodes the Youtube URL once inside an already encoded query.
+                repeat(3) {
+                    val next = runCatching {
+                        URLDecoder.decode(decoded, Charsets.UTF_8.name())
+                    }.getOrNull()
+                    if (next != null && next != decoded) decoded = next
+                }
+                decoded
+            }
 
     private fun youtubeWatchUrlFrom(raw: String): String? {
         val candidate = raw.trim()
@@ -132,9 +164,10 @@ internal object DDiziParser {
                             queryParameter(uri.rawQuery, "v")?.takeIf { isValidYoutubeId(it) }
                         else -> {
                             val parts = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
-                            val marker = parts.indexOfFirst { it.equals("embed", true) ||
-                                it.equals("shorts", true) || it.equals("live", true) }
-                            parts.getOrNull(marker + 1)?.takeIf { marker >= 0 && isValidYoutubeId(it) }
+                            val marker = parts.indexOfFirst {
+                                it.equals("embed", true) || it.equals("shorts", true) || it.equals("live", true)
+                            }
+                            if (marker >= 0) parts.getOrNull(marker + 1)?.takeIf { isValidYoutubeId(it) } else null
                         }
                     }
                 }
@@ -155,13 +188,19 @@ internal object DDiziParser {
             ?: Regex("""(?i)\bS\d+\s*E(\d+)\b""").find(value)?.groupValues?.get(1)?.toIntOrNull()
             ?: Regex("""(?i)\b\d+\s*[x×]\s*(\d+)\b""").find(value)?.groupValues?.get(1)?.toIntOrNull()
 
-    /**
-     * When DDizi does not state the season number, split only at a finale explicitly
-     * labelled as such. Explicit "N. Sezon" markers take priority in the provider.
-     */
     fun seasonForEpisode(episode: Int?, seasonFinalEpisodes: Collection<Int>): Int? {
         if (episode == null) return null
         return 1 + seasonFinalEpisodes.count { it < episode }
+    }
+
+    /**
+     * Site-wide episode numbering (e.g. 49.Bölüm) must be mapped to a season-local
+     * episode number for CloudStream (S3:E1). User-facing labels keep the original name.
+     */
+    fun seasonLocalEpisodeNumber(episode: Int?, seasonFinalEpisodes: Collection<Int>): Int? {
+        if (episode == null) return null
+        val previousSeasonFinal = seasonFinalEpisodes.filter { it < episode }.maxOrNull() ?: return episode
+        return episode - previousSeasonFinal
     }
 
     fun seasonFinalEpisodeNumbers(titles: Collection<String>): Set<Int> =
