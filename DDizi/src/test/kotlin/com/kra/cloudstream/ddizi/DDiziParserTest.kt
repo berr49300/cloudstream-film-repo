@@ -129,25 +129,29 @@ class DDiziParserTest {
 
     @Test
     fun mapsGlobalEpisodeNumbersToSeasonLocalIndicesWithoutMixingSeries() {
+        // Observed Teşkilat season boundaries: 14, 48, and 79 are season finales.
         val teskilatFinals = DDiziParser.seasonFinalEpisodeNumbers(
             listOf(
                 "Teşkilat 14.Bölüm Sezon Finali",
                 "Teşkilat 48.Bölüm Sezon Finali",
-                "Teşkilat 80.Bölüm Sezon Finali"
+                "Teşkilat 79.Bölüm Sezon Finali"
             )
         )
-        assertEquals(setOf(14, 48, 80), teskilatFinals)
+        assertEquals(setOf(14, 48, 79), teskilatFinals)
         assertEquals(1, DDiziParser.seasonForEpisode(14, teskilatFinals))
         assertEquals(2, DDiziParser.seasonForEpisode(15, teskilatFinals))
         assertEquals(2, DDiziParser.seasonForEpisode(48, teskilatFinals))
         assertEquals(3, DDiziParser.seasonForEpisode(49, teskilatFinals))
-        assertEquals(3, DDiziParser.seasonForEpisode(80, teskilatFinals))
+        assertEquals(3, DDiziParser.seasonForEpisode(79, teskilatFinals))
+        assertEquals(4, DDiziParser.seasonForEpisode(80, teskilatFinals))
         assertEquals(4, DDiziParser.seasonForEpisode(81, teskilatFinals))
         assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, teskilatFinals))
         assertEquals(34, DDiziParser.seasonLocalEpisodeNumber(48, teskilatFinals))
         assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(49, teskilatFinals))
         assertEquals(12, DDiziParser.seasonLocalEpisodeNumber(60, teskilatFinals))
-        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(81, teskilatFinals))
+        assertEquals(31, DDiziParser.seasonLocalEpisodeNumber(79, teskilatFinals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(80, teskilatFinals))
+        assertEquals(null, DDiziParser.seasonForEpisode(null, teskilatFinals))
 
         val sevFinals = DDiziParser.seasonFinalEpisodeNumbers(
             listOf("Sevdiğim Sensin 15.Bölüm Sezon Finali")
@@ -155,6 +159,5 @@ class DDiziParserTest {
         assertEquals(setOf(15), sevFinals)
         assertEquals(1, DDiziParser.seasonForEpisode(15, sevFinals))
         assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(15, sevFinals))
-        assertEquals(null, DDiziParser.seasonForEpisode(null, teskilatFinals))
     }
 }
