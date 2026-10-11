@@ -166,6 +166,13 @@ internal object FilmMakinesiStreamParser {
                     addRapidStream(result, match.groupValues[1], baseUrl)
                 }
             }
+            // Rapid JSON-LD stores the actual stream in contentUrl on some pages.
+            for (candidate in candidates) {
+                rapidContentUrlField.findAll(candidate).forEach { match ->
+                    resolveRapidContentUrl(match.groupValues[1], baseUrl)?.let(result::add)
+                }
+            }
+
             for (candidate in candidates) {
                 fileField.findAll(candidate).forEach { match ->
                     addMedia(result, match.groupValues.getOrNull(1), baseUrl)
@@ -365,6 +372,28 @@ internal object FilmMakinesiStreamParser {
         private val rapidStreamField = Regex(
             """(?is)["'](?:cm|tm)["']\s*:\s*["']((?:\\.|[^"'])+)["']"""
         )
+
+        // Some Rapid payloads put the playable URL in JSON-LD contentUrl
+        // rather than the legacy file/cm/tm fields. These URLs may be .txt
+        // manifests whose response is an HLS playlist, not a text video file.
+        private val rapidContentUrlField = Regex(
+            """(?is)["']contentUrl["']\s*:\s*["']((?:\\.|[^"'])+)["']"""
+        )
+
+        private fun resolveRapidContentUrl(raw: String, baseUrl: String): String? {
+            val candidate = normalize(raw)
+                .replace("\\\\/", "/")
+                .replace("\\u0026", "&", ignoreCase = true)
+                .replace("\\u003a", ":", ignoreCase = true)
+                .trim()
+            val absolute = resolveUrl(candidate, baseUrl) ?: return null
+            val path = runCatching { URI(absolute).path.orEmpty().lowercase() }.getOrDefault("")
+            return absolute.takeIf {
+                path.endsWith(".m3u8") || path.endsWith("/txt/master.txt") ||
+                    path.endsWith("/master.txt") || path.endsWith(".mp4") ||
+                    path.endsWith(".mpd") || path.endsWith(".m3u")
+            }
+        }
 
         private fun addRapidStream(result: MutableSet<String>, raw: String, baseUrl: String) {
             val normalized = normalize(raw)
