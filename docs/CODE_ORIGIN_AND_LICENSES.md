@@ -10,6 +10,17 @@ This file is a provenance record, not a legal opinion. It separates verified sta
 - **Module license:** `FilmMakinesi/LICENSE` contains GPL-3.0 text and the Kotlin sources use `SPDX-License-Identifier: GPL-3.0-or-later`. Preserve applicable copyright/license notices and comply with the license when redistributing this module or covered derivative works.
 - **Test fixture:** Resolver tests should use reserved synthetic domains such as `example.test`, not live media URLs.
 
+## Repository-specific differences visible in the current resolver snapshots
+
+Compared with the current public NeoWatch resolver file linked above, the resolver in this repository has additional or differently organized logic visible in the checked-in snapshot:
+
+- a dedicated `FilmMakinesiPlayerDecoder` helper with `playerBase`, `playerName`, `sourceVariable`, `resolveSourceLinks`, and `readSubtitles` functions;
+- explicit parsing for the `dc_hello` and `dc_<name>([...])` stream format;
+- URI-based validation/normalization of player base URLs and media links;
+- a bounded JavaScript execution path with a named runtime limit.
+
+These are **observable differences**, not a declaration that every line is independently original or that a particular person authored them. To establish authorship, use the repository's commit history and development records. Re-check this comparison whenever either upstream file changes.
+
 ## What we cannot currently claim
 
 - We have not established the first author or complete origin history of NeoWatch's FilmMakinesi provider/resolver. Do not state that NeoWatch is wholly original or that it copied a specific other repository without revision/history evidence.
