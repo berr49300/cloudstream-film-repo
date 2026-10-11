@@ -25,7 +25,6 @@ internal object DDiziParser {
      */
     fun cleanTitle(value: String): String = value
         .replace('-', ' ')
-        .replace(Regex("""(?i)\s+\d+\s+(?:son\s+)?b[oö]l[uü]m\b.*$"""), "")
         .replace(Regex("""(?i)\s+\d+\s*\.?\s*(?:sezon|season)\b.*$"""), "")
         .replace(Regex("""(?i)\s+\d+\s*\.?\s*(?:b[oö]l[uü]m|episode|ep)\b.*$"""), "")
         .replace(Regex("""(?i)\s+(?:son\s+)?b[oö]l[uü]m\s+izle.*$"""), "")
