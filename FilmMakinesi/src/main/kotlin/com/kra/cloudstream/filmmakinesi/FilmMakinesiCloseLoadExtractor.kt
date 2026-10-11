@@ -104,6 +104,7 @@ internal object FilmMakinesiStreamParser {
             val normalized = normalize(html)
             val candidates = mutableListOf(normalized)
             candidates += FilmMakinesiJsPacker.unpackAll(normalized)
+            val result = linkedSetOf<String>()
 
             // The site's Rapid endpoint has also served the CloseLoad-style
             // payload; run the shared path first, then Rapid-specific formats.
@@ -121,7 +122,6 @@ internal object FilmMakinesiStreamParser {
                 emptyList()
             }
 
-            val result = linkedSetOf<String>()
             // Match the upstream CloseLoad flow before extension-based URL scanning.
             extractCloseLoadStreamUrl(normalized, baseUrl)?.let {
                 addCloseLoadStream(result, it, baseUrl)
