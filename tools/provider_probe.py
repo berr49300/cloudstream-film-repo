@@ -26,6 +26,9 @@ API_RE = re.compile(r"(?i)(fetch\s*\(|axios\.|XMLHttpRequest|/api/|\.json(?:\?|[
 OBFUSCATION_RE = re.compile(r"(?i)(atob\s*\(|btoa\s*\(|fromCharCode|\bdecrypt\b|crypto-js|\bbase64\b|dc_hello|dc_\w+\s*\()")
 DRM_RE = re.compile(r"(?i)(widevine|pssh|licenseUrl|license_url|drm\s*:|com\.widevine|application/dash\+xml)")
 JS_RUNTIME_RE = re.compile(r"(?i)(document\.write|createElement\(['\"]script|eval\s*\(|new Function)")
+HYDRATION_RE = re.compile(r"(?i)(__NEXT_DATA__|__NUXT__|__INITIAL_STATE__|__APOLLO_STATE__|__REACT_QUERY_STATE__|application/ld\\+json|window\\.__INITIAL_STATE__)")
+CHALLENGE_RE = re.compile(r"(?i)(cf-chl-|challenge-platform|cloudflare ray id|checking your browser|verify you are human|captcha|access denied|just a moment\\.\\.\\.)")
+ACCESS_LIMIT_RE = re.compile(r"(?i)(too many requests|rate limit exceeded|sign in to continue|log in to continue|temporarily blocked)")
 
 
 class PageSignals(HTMLParser):
@@ -81,7 +84,10 @@ def fetch_html(url: str, timeout: int) -> tuple[str, int, str]:
             charset = response.headers.get_content_charset() or "utf-8"
             return response.read(4_000_000).decode(charset, errors="replace"), response.status, response.geturl()
     except HTTPError as exc:
-        raise RuntimeError(f"HTTP {exc.code} for {url}; this probe does not bypass access controls.") from exc
+        # Keep the status/body as evidence so a challenge is not mistaken for a selector bug.
+        charset = exc.headers.get_content_charset() or "utf-8"
+        body = exc.read(4_000_000).decode(charset, errors="replace")
+        return body, exc.code, exc.geturl()
     except URLError as exc:
         raise RuntimeError(f"Could not fetch {url}: {exc.reason}") from exc
 
@@ -125,7 +131,14 @@ def analyze(html: str, base_url: str) -> dict:
             unique.append(item)
 
     media = [x for x in unique if x["kind"] in {"media-source", "video-config", "file-config", "media-pattern"}]
-    if any(urlparse(x["url"]).path.lower().endswith(".m3u8") for x in media):
+    challenge_detected = bool(CHALLENGE_RE.search(combined))
+    access_limit_detected = bool(ACCESS_LIMIT_RE.search(combined))
+    hydration_detected = bool(HYDRATION_RE.search(combined))
+
+    if challenge_detected or access_limit_detected:
+        route = "ACCESS_RESTRICTED_OR_CHALLENGE"
+        advice = "Challenge/access-limit clues found. Record status and response evidence; do not treat this as an ordinary selector failure or attempt to bypass access controls."
+    elif any(urlparse(x["url"]).path.lower().endswith(".m3u8") for x in media):
         route = "DIRECT_HLS"
         advice = "Manifest URL found. Check request headers/referer, response status and whether the manifest itself parses."
     elif any(urlparse(x["url"]).path.lower().endswith(".mp4") for x in media):
@@ -140,7 +153,7 @@ def analyze(html: str, base_url: str) -> dict:
     else:
         route = "NO_OBVIOUS_PLAYER_SIGNAL"
         advice = "No reliable player signal in this static response. Check whether the page is a challenge, needs a normal session, or loads the player after interaction."
-
+ 
     signals = {
         "packed_js": bool(PACKER_RE.search(combined)),
         "player_config": bool(PLAYER_CONFIG_RE.search(combined)),
@@ -148,8 +161,31 @@ def analyze(html: str, base_url: str) -> dict:
         "obfuscation_clues": bool(OBFUSCATION_RE.search(combined)),
         "dynamic_js_clues": bool(JS_RUNTIME_RE.search(combined)),
         "drm_clues": bool(DRM_RE.search(combined)),
+        "hydration_or_json_ld": hydration_detected,
+        "access_challenge_clues": challenge_detected,
+        "rate_limit_or_login_clues": access_limit_detected,
+        "external_scripts": any(x["kind"] == "script" for x in unique),
     }
+    if challenge_detected or access_limit_detected:
+        architecture = "ACCESS_RESTRICTED_OR_CHALLENGE"
+    elif hydration_detected:
+        architecture = "EMBEDDED_STATE_OR_HYDRATED_APP"
+    elif any(x["kind"] == "iframe" for x in unique):
+        architecture = "IFRAME_PLAYER_CHAIN"
+    elif signals["api_or_xhr_clues"] and parser.script_count:
+        architecture = "HTML_PLUS_SCRIPTED_API_HINTS"
+    elif media:
+        architecture = "HTML_WITH_DIRECT_MEDIA_HINTS"
+    elif parser.script_count:
+        architecture = "SCRIPT_DRIVEN_OR_UNKNOWN"
+    else:
+        architecture = "SERVER_HTML_OR_UNKNOWN"
+
     next_steps = []
+    if challenge_detected or access_limit_detected:
+        next_steps.append("Classify the HTTP status and restriction type first. Continue only with public/permitted responses; this probe does not bypass CAPTCHA, login, rate limits or other access controls.")
+    if hydration_detected:
+        next_steps.append("Inspect the embedded-state/JSON-LD schema and map actual fields to models before adding selectors or inventing an API.")
     if signals["drm_clues"]:
         next_steps.append("DRM-related tokens detected: confirm the service is intended to be playable in CloudStream before writing an extractor.")
     if signals["packed_js"] or signals["obfuscation_clues"]:
@@ -163,11 +199,13 @@ def analyze(html: str, base_url: str) -> dict:
     return {
         "page": base_url,
         "route_guess": route,
+        "architecture_hint": architecture,
         "confidence": "heuristic; verify each step",
         "script_count": parser.script_count,
         "signals": signals,
         "candidate_count": len(unique),
-        "candidates": unique[:100],
+        # Strip query parameters/fragments from reports to avoid leaking signed URLs.
+        "candidates": [{**item, "url": urlparse(item["url"])._replace(query="", fragment="").geturl()} for item in unique[:100]],
         "recommended_next_steps": next_steps,
         "summary": advice,
     }
@@ -188,6 +226,11 @@ def main() -> int:
             html, status, final_url = fetch_html(args.url, args.timeout)
             report = analyze(html, final_url)
             report["http_status"] = status
+            if status in {401, 403, 429, 503}:
+                report["http_access_status"] = "ACCESS_DENIED_RATE_LIMITED_OR_CHALLENGE"
+                report["route_guess"] = "ACCESS_RESTRICTED_OR_CHALLENGE"
+                report["summary"] = f"HTTP {status} returned. Treat this as an access/server response until proven otherwise, not as a parsing failure."
+                report["recommended_next_steps"].insert(0, "Inspect the returned status/body and compare with a permitted browser response. Do not attempt to bypass login, CAPTCHA or access controls.")
         else:
             html = args.html_file.read_text(encoding="utf-8", errors="replace")
             base = args.base_url or "https://example.invalid/"
@@ -205,6 +248,7 @@ def main() -> int:
     if "http_status" in report:
         print(f"HTTP status: {report['http_status']}")
     print(f"Likely route: {report['route_guess']} ({report['confidence']})")
+    print(f"Architecture hint: {report['architecture_hint']}")
     print(f"Inline/external script count: {report['script_count']}")
     print(f"Candidates: {report['candidate_count']}")
     print("Signals:")
