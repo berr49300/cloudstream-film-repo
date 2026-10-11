@@ -189,7 +189,7 @@ class FilmMakinesi : MainAPI() {
             plot = description
             this.year = year
             this.tags = tags
-            this.score = rating
+            this.score = rating?.let { Score.from10(it.toString()) }
             addTrailer(trailer)
         }
     }
