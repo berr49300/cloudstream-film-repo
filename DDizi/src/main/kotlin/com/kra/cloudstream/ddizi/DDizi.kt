@@ -535,10 +535,18 @@ class DDizi : MainAPI() {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val host = uri.host.orEmpty().lowercase()
         val path = uri.path.orEmpty().lowercase()
-        val isDdiziOwnPlayer = host in setOf("www.ddizi.tel", "ddizi.tel") &&
-            (path.startsWith("/player/oynat/") || path.endsWith("/player/telif/index.php"))
-        return host.isNotBlank() &&
-            (isDdiziOwnPlayer || host != "www.ddizi.tel" && host != "ddizi.tel") &&
-            !host.endsWith(".google.com") && !host.contains("facebook")
+        if (host.isBlank() || host.contains("facebook") || host.endsWith(".google.com") ||
+            host.contains("doubleclick") || host.contains("googletagmanager") ||
+            host.contains("google-analytics")
+        ) return false
+
+        val isDdiziHost = host == "www.ddizi.tel" || host == "ddizi.tel" || host.endsWith(".ddizi.tel")
+        if (!isDdiziHost) return true
+
+        // Same-site sources can be served through PHP/JS/player endpoints, not only /player/oynat.
+        return path.startsWith("/player/") || path.startsWith("/embed/") ||
+            path.startsWith("/video/") || path == "/ajax.php" || path == "/geox.php" ||
+            path.endsWith(".php") || path.endsWith(".js") || isDirectMediaUrl(url) ||
+            isPlaylistEndpoint(url)
     }
 }
