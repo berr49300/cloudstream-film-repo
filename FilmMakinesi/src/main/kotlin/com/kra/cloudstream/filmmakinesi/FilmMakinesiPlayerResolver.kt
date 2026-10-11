@@ -169,8 +169,12 @@ internal object FilmMakinesiPlayerDecoder {
             arrayPattern.findAll(html).forEach { match ->
                 val chunks = quoted.findAll(match.groupValues[1]).map { it.groupValues[1] }.toList()
                 if (chunks.size < 2) return@forEach
-                val bytes = decodeBase64(chunks.joinToString("")) ?: return@forEach
-                var decoded = String(bytes, Charsets.ISO_8859_1).reversed()
+                // The site chunks a reversed Base64 string. Rejoin and reverse
+                // the encoded text before Base64 decoding; reversing decoded bytes
+                // afterward is not equivalent and corrupts the stream URL.
+                val reversedBase64 = chunks.joinToString("").reversed()
+                val bytes = decodeBase64(reversedBase64) ?: return@forEach
+                var decoded = String(bytes, Charsets.ISO_8859_1)
                 decoded = rotateLetters(decoded, 13)
                 decoded = buildString(decoded.length) {
                     decoded.forEachIndexed { index, char ->
