@@ -26,8 +26,8 @@ API_RE = re.compile(r"(?i)(fetch\s*\(|axios\.|XMLHttpRequest|/api/|\.json(?:\?|[
 OBFUSCATION_RE = re.compile(r"(?i)(atob\s*\(|btoa\s*\(|fromCharCode|\bdecrypt\b|crypto-js|\bbase64\b|dc_hello|dc_\w+\s*\()")
 DRM_RE = re.compile(r"(?i)(widevine|pssh|licenseUrl|license_url|drm\s*:|com\.widevine|application/dash\+xml)")
 JS_RUNTIME_RE = re.compile(r"(?i)(document\.write|createElement\(['\"]script|eval\s*\(|new Function)")
-HYDRATION_RE = re.compile(r"(?i)(__NEXT_DATA__|__NUXT__|__INITIAL_STATE__|__APOLLO_STATE__|__REACT_QUERY_STATE__|application/ld\\+json|window\\.__INITIAL_STATE__)")
-CHALLENGE_RE = re.compile(r"(?i)(cf-chl-|challenge-platform|cloudflare ray id|checking your browser|verify you are human|captcha|access denied|just a moment\\.\\.\\.)")
+HYDRATION_RE = re.compile(r"(?i)(__NEXT_DATA__|__NUXT__|__INITIAL_STATE__|__APOLLO_STATE__|__REACT_QUERY_STATE__|application/ld\+json|window\.__INITIAL_STATE__)")
+CHALLENGE_RE = re.compile(r"(?i)(cf-chl-|challenge-platform|cloudflare ray id|checking your browser|verify you are human|captcha|access denied|just a moment\.\.\.)")
 ACCESS_LIMIT_RE = re.compile(r"(?i)(too many requests|rate limit exceeded|sign in to continue|log in to continue|temporarily blocked)")
 
 
