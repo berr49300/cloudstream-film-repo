@@ -80,19 +80,30 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
         ).find(html)?.groupValues?.getOrNull(1)
 
         internal fun resolveSourceLinks(html: String): List<String> {
-            val variable = sourceVariable(html)
+            val unpackedHtml = runCatching { getAndUnpack(html) }.getOrNull().orEmpty()
+            val variants = linkedSetOf(html).apply {
+                if (unpackedHtml.isNotBlank() && unpackedHtml != html) add(unpackedHtml)
+            }
+            val variable = variants.firstNotNullOfOrNull { sourceVariable(it) }
             val found = linkedSetOf<String>()
-            Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["'](https?://[^"']+)["']""")
-                .findAll(html).forEach { match -> cleanLink(match.groupValues[1])?.let(found::add) }
+
+            // Keep the current dc_hello / dc_<name>([...]) player format as a
+            // small fallback; the variable-based Rhino path remains primary.
+            variants.forEach { variant ->
+                extractDcStreams(variant).forEach(found::add)
+                Regex("""sources\s*:\s*\[\s*\{\s*file\s*:\s*["'](https?://[^"']+)["']""")
+                    .findAll(variant).forEach { match -> cleanLink(match.groupValues[1])?.let(found::add) }
+            }
 
             if (!variable.isNullOrBlank()) {
-                val scripts = Jsoup.parse(html).select("script")
+                val scripts = variants.flatMap { Jsoup.parse(it).select("script") }
                     .map { it.data().ifBlank { it.html() } }
+                    .distinct()
                     .filter {
                         it.contains("eval(function(p,a,c,k,e,d)") ||
                         it.contains(".join('')") ||
                         it.contains(".join(\"\")") ||
-                        Regex("""\b${Regex.escape(variable)}\b""").containsMatchIn(it)
+                        Regex("\\b" + Regex.escape(variable) + "\\b").containsMatchIn(it)
                     }
                 if (scripts.isNotEmpty()) {
                     val cx = TimedContextFactory.enterContext()
@@ -134,13 +145,88 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
             }
 
             // Legacy player variant: file_link contains a Base64 URL after unpacking.
-            val unpacked = runCatching { getAndUnpack(html) }.getOrNull().orEmpty()
             val encoded = Regex("""file_link\s*=\s*["']([^"']+)["']""")
                 .find(unpacked)?.groupValues?.getOrNull(1)
             val legacy = encoded?.let { runCatching { base64Decode(it) }.getOrNull() }
             cleanLink(legacy)?.let(found::add)
             return found.toList()
         }
+
+        internal fun extractDcStreams(html: String): List<String> {
+            val result = linkedSetOf<String>()
+            val helloPattern = Regex("""(?is)dc_hello\s*\(\s*["']([^"']+)["']\s*\)""")
+            helloPattern.findAll(html).forEach { match ->
+                val first = decodeBase64Latin1(match.groupValues[1])
+                if (first.isNotBlank()) {
+                    extractHttpUrl(decodeBase64Latin1(first.reversed()))?.let(result::add)
+                }
+            }
+
+            val arrayPattern = Regex("""(?is)dc_\w+\s*\(\s*\[(.*?)\]\s*\)""")
+            val quoted = Regex(""""([^"]+)"""")
+            arrayPattern.findAll(html).forEach { match ->
+                val chunks = quoted.findAll(match.groupValues[1]).map { it.groupValues[1] }.toList()
+                if (chunks.size < 2) return@forEach
+                val bytes = decodeBase64(chunks.joinToString("")) ?: return@forEach
+                var decoded = String(bytes, Charsets.ISO_8859_1).reversed()
+                decoded = rotateLetters(decoded, 13)
+                decoded = buildString(decoded.length) {
+                    decoded.forEachIndexed { index, char ->
+                        val shift = (399756995L % (index + 5)).toInt()
+                        append(((char.code - shift + 256) % 256).toChar())
+                    }
+                }
+                extractHttpUrl(decoded)?.let(result::add)
+            }
+            return result.toList()
+        }
+
+        private fun decodeBase64(value: String): ByteArray? {
+            val input = value.filterNot(Char::isWhitespace).trimEnd('=')
+            if (input.isEmpty()) return byteArrayOf()
+            if (input.length % 4 == 1) return null
+            val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            val output = java.io.ByteArrayOutputStream(input.length * 3 / 4)
+            var buffer = 0
+            var bits = 0
+            for (char in input) {
+                val normalized = when (char) {
+                    '-' -> '+'
+                    '_' -> '/'
+                    else -> char
+                }
+                val digit = alphabet.indexOf(normalized)
+                if (digit < 0) return null
+                buffer = (buffer shl 6) or digit
+                bits += 6
+                if (bits >= 8) {
+                    bits -= 8
+                    output.write((buffer shr bits) and 0xff)
+                    buffer = buffer and ((1 shl bits) - 1)
+                }
+            }
+            return output.toByteArray()
+        }
+
+        private fun decodeBase64Latin1(value: String): String =
+            decodeBase64(value)?.let { String(it, Charsets.ISO_8859_1) }.orEmpty()
+
+        private fun rotateLetters(value: String, shift: Int): String = buildString(value.length) {
+            value.forEach { char ->
+                when (char) {
+                    in 'A'..'Z' -> append(((char.code - 65 + shift + 26) % 26 + 65).toChar())
+                    in 'a'..'z' -> append(((char.code - 97 + shift + 26) % 26 + 97).toChar())
+                    else -> append(char)
+                }
+            }
+        }
+
+        private fun extractHttpUrl(value: String): String? =
+            Regex("""(?i)https?://[^\s"'<>\\]+""")
+                .find(value)
+                ?.value
+                ?.trimEnd(')', ']', '}', ',', ';')
+                ?.let(::cleanLink)
 
         private fun cleanLink(raw: String?): String? {
             val value = raw?.trim().orEmpty()
