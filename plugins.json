@@ -1,10 +1,10 @@
 [
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=ddizi.tel",
-        "fileHash": "sha256-7ec5b9d885bc9390a659c42b497456af6ea6c436d663b8995c879f0466a9a37d",
+        "fileHash": "sha256-657c82c815b5ea14cd8a2430db5640177525b563e6053fef56e6c6d69a389b45",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 30757,
+        "fileSize": 38498,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -13,9 +13,9 @@
         "tvTypes": [
             "TvSeries"
         ],
-        "version": 2,
+        "version": 3,
         "internalName": "DDizi",
-        "description": "DDizi dizi katalo\u011fu ve oynat\u0131c\u0131 \u00e7\u00f6z\u00fcmlemesi \u2014 deneysel d\u00fczeltme s\u00fcr\u00fcm\u00fc",
+        "description": "DDizi dizi katalo\u011fu, arama, sezon/b\u00f6l\u00fcm ayr\u0131m\u0131 ve oynat\u0131c\u0131 \u00e7\u00f6z\u00fcmlemesi",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DDizi.cs3",
         "name": "DDizi"
     },
