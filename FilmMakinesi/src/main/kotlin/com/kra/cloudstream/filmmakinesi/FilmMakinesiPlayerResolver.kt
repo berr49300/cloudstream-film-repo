@@ -92,7 +92,7 @@ class FilmMakinesiPlayerResolver : ExtractorApi() {
                         it.contains("eval(function(p,a,c,k,e,d)") ||
                         it.contains(".join('')") ||
                         it.contains(".join(\"\")") ||
-                        Regex("""\\b${Regex.escape(variable)}\\b""").containsMatchIn(it)
+                        Regex("""\b${Regex.escape(variable)}\b""").containsMatchIn(it)
                     }
                 if (scripts.isNotEmpty()) {
                     val cx = TimedContextFactory.enterContext()
