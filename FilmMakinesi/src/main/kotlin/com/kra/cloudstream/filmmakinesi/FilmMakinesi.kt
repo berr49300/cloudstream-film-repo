@@ -433,8 +433,10 @@ class FilmMakinesi : MainAPI() {
                 "[data-video], [data-player], [data-player-url], [data-remote], [data-server], " +
                 "[data-lazy-src], [data-original], [data-hls], [data-mp4], " +
                 "video, video source[src], source[src], embed, button[data-url], " +
-                ".partlar a[href], .parts a[href], .server-list a[href], " +
-                ".servers a[href], .video-servers a[href], .player a[href], li[data-frame]"
+                // Player tabs often keep their URL in data-frame/data-url and omit href.
+                ".partlar a, .parts a, .server-list a, .servers a, " +
+                ".video-servers a, .video-tabs a, .player a, li[data-frame], " +
+                "a[data-url], a[data-href], [data-url], [data-href]"
 
         fun add(rawValue: String?, label: String, forcedPlayerElement: Boolean) {
             if (rawValue.isNullOrBlank()) return
