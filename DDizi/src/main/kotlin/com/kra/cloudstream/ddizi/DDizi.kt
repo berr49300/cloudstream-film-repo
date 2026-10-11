@@ -1,6 +1,7 @@
 package com.kra.cloudstream.ddizi
 
 import android.util.Log
+import android.util.Base64
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
@@ -34,18 +35,48 @@ class DDizi : MainAPI() {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), hasNext = false)
 
         val document = app.get(request.data, referer = "$mainUrl/").document
-        // Restrict parsing to episode links; scanning every navigation/ad/footer anchor
-        // on each catalog page made the homepage slow and admitted irrelevant entries.
-        val items = document.select("a[href*=/izle/]")
-            .asSequence()
-            .filter { isSameSite(it.attr("href")) }
-            .mapNotNull { anchor ->
-                val href = fixUrlNull(anchor.attr("href")) ?: return@mapNotNull null
-                anchor.toEpisodeSearchResult(href)
+        val items = if (DDiziParser.isSeriesCatalogUrl(request.data)) {
+            // The foreign-series page also contains a "today's episodes" feed. Never
+            // use its /izle/ links as category items; only /diziler/ series cards belong here.
+            val found = linkedMapOf<String, SearchResponse>()
+            val cardSelector = "div.dizi-boxpost-cat, div.dizi-boxpost, article"
+            val cards = document.select(cardSelector)
+            cards.forEach { card ->
+                val anchor = card.selectFirst("a[href*='/diziler/']")
+                    ?: card.selectFirst("a[href]")?.takeIf {
+                        DDiziParser.isSeriesUrl(fixUrlNull(it.attr("href")).orEmpty())
+                    }
+                    ?: return@forEach
+                val href = fixUrlNull(anchor.attr("href")) ?: return@forEach
+                if (!isSameSite(href) || !DDiziParser.isSeriesUrl(href)) return@forEach
+                val item = card.toSeriesSearchResult(href) ?: anchor.toSeriesSearchResult(href)
+                    ?: return@forEach
+                if (!isMenuOrFooterLink(anchor)) found.putIfAbsent(item.url, item)
             }
-            .distinctBy { it.url }
-            .take(30)
-            .toList()
+            if (found.isEmpty()) {
+                document.select("a[href*='/diziler/']").forEach { anchor ->
+                    val href = fixUrlNull(anchor.attr("href")) ?: return@forEach
+                    if (!isSameSite(href) || !DDiziParser.isSeriesUrl(href) ||
+                        isMenuOrFooterLink(anchor)
+                    ) return@forEach
+                    val item = anchor.toSeriesSearchResult(href) ?: return@forEach
+                    found.putIfAbsent(item.url, item)
+                }
+            }
+            found.values.take(30)
+        } else {
+            // Latest/new episodes pages intentionally list episode URLs.
+            document.select("a[href*=/izle/]")
+                .asSequence()
+                .filter { isSameSite(it.attr("href")) }
+                .mapNotNull { anchor ->
+                    val href = fixUrlNull(anchor.attr("href")) ?: return@mapNotNull null
+                    anchor.toEpisodeSearchResult(href)
+                }
+                .distinctBy { it.url }
+                .take(30)
+                .toList()
+        }
 
         return newHomePageResponse(request.name, items, hasNext = false)
     }
@@ -207,8 +238,9 @@ class DDizi : MainAPI() {
             }
             newEpisode(href) {
                 name = displayTitle
-                episode = episodeNumber
                 season = episodeSeason ?: DDiziParser.seasonForEpisode(episodeNumber, seasonFinals)
+                episode = if (episodeSeason != null) episodeNumber
+                    else DDiziParser.seasonLocalEpisodeNumber(episodeNumber, seasonFinals)
             }
         }.distinctBy { it.data }
             .sortedWith(compareBy<Episode> { it.season ?: 1 }
@@ -398,13 +430,28 @@ class DDizi : MainAPI() {
     }
 
     private fun imageUrlFrom(element: Element): String? {
-        val raw = listOf("data-src", "data-lazy-src", "data-original", "data-original-src", "src")
-            .asSequence()
+        val raw = listOf(
+            "data-src", "data-lazy-src", "data-original", "data-original-src",
+            "data-lazy", "data-image", "data-poster", "data-srcset", "srcset", "src"
+        ).asSequence()
             .map { element.attr(it).trim() }
-            .firstOrNull { it.isNotBlank() && !it.startsWith("data:image", ignoreCase = true) }
+            .filter { it.isNotBlank() && !it.startsWith("data:image", ignoreCase = true) }
+            .map { value ->
+                if (value.contains(",")) value.substringBefore(",").trim().substringBefore(" ").trim()
+                else if (value.contains(" ")) value.substringBefore(" ").trim()
+                else value
+            }
+            .firstOrNull()
             ?: return null
         return fixUrlNull(raw)
     }
+
+    private fun isMenuOrFooterLink(element: Element): Boolean =
+        element.parents().take(9).any { parent ->
+            parent.tagName().lowercase() in setOf("nav", "header", "footer", "aside") ||
+                Regex("""(?i)(menu|sidebar|side-bar|widget|navbar|navigation|footer|header|leftbar)""")
+                    .containsMatchIn(parent.id() + " " + parent.className())
+        }
 
     private fun isSameSite(rawUrl: String): Boolean {
         val absolute = fixUrlNull(rawUrl) ?: return false
