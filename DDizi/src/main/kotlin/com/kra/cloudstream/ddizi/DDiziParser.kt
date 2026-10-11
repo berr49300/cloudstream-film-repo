@@ -24,8 +24,8 @@ internal object DDiziParser {
         return normalizedSeries.isNotBlank() && normalizedEpisode.contains(normalizedSeries)
     }
 
-    fun youtubeWatchUrlIfEmbed(url: String): String? = runCatching {
-        val uri = URI(url)
+    fun youtubeWatchUrlIfEmbed(url: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
         val host = uri.host.orEmpty().lowercase(Locale.ROOT)
         if (host != "ddizi.re" && !host.endsWith(".ddizi.re")) return null
         if (!uri.path.orEmpty().contains("youtube.php", ignoreCase = true)) return null
@@ -33,11 +33,11 @@ internal object DDiziParser {
         val rawId = uri.rawQuery.orEmpty().split("&")
             .firstOrNull { it.substringBefore("=") == "id" }
             ?.substringAfter("=", "")
-            ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
+            ?.let { runCatching { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrNull() }
             ?: return null
         if (!Regex("""^[A-Za-z0-9_-]{6,32}$""").matches(rawId)) return null
-        "https://www.youtube.com/watch?v=$rawId"
-    }.getOrNull()
+        return "https://www.youtube.com/watch?v=$rawId"
+    }
 
     private fun normalizeTitle(value: String): String = value
         .lowercase(Locale.ROOT)
