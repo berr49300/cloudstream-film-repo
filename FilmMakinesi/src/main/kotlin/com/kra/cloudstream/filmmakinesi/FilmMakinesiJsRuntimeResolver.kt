@@ -7,6 +7,9 @@
  */
 package com.kra.cloudstream.filmmakinesi
 
+import com.lagradost.cloudstream3.utils.JsUnpacker
+import com.lagradost.cloudstream3.utils.getAndUnpack
+import com.lagradost.cloudstream3.utils.getPacked
 import org.jsoup.Jsoup
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ContextFactory
@@ -42,9 +45,22 @@ internal object FilmMakinesiJsRuntimeResolver {
         val candidates = linkedSetOf<String>()
         scriptTexts.forEach { script ->
             candidates += script
+            // Keep the local decoder as a fast path, but also use CloudStream's
+            // own P.A.C.K.E.R. implementation. The site changes wrapper details
+            // often enough that a narrow regex alone can miss the source script.
             FilmMakinesiJsPacker.unpackAll(script).forEach(candidates::add)
+            val packed = runCatching { getPacked(script) }.getOrNull()
+            if (!packed.isNullOrBlank()) {
+                val unpacked = runCatching { JsUnpacker(packed).unpack() }.getOrNull()
+                if (!unpacked.isNullOrBlank()) candidates.add(unpacked)
+            }
         }
         FilmMakinesiJsPacker.unpackAll(html).forEach(candidates::add)
+        val cloudStreamUnpacked = runCatching { getAndUnpack(html) }.getOrNull()
+        if (!cloudStreamUnpacked.isNullOrBlank() && cloudStreamUnpacked != html) {
+            candidates.add(cloudStreamUnpacked)
+            FilmMakinesiJsPacker.unpackAll(cloudStreamUnpacked).forEach(candidates::add)
+        }
         if (candidates.isEmpty()) return emptyList()
 
         val wantedVariables = (candidates.asSequence() + sequenceOf(html))
@@ -76,7 +92,27 @@ internal object FilmMakinesiJsRuntimeResolver {
                     script.contains("atob(", ignoreCase = true) ||
                     wantedVariables.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(script) }
                 if (relevant) {
-                    runCatching { cx.evaluateString(scope, script, "player-script-$index", 1, null) }
+                    val packed = if (script.contains("eval(function(p,a,c,k,e,d)")) {
+                        runCatching { getPacked(script) }.getOrNull()
+                    } else null
+                    if (!packed.isNullOrBlank()) {
+                        // The reference resolver evaluates the unpacked payload
+                        // in the same Rhino scope so variables shared by player
+                        // scripts remain visible.
+                        val decoded = runCatching {
+                            Context.toString(
+                                cx.evaluateString(scope, packed.removePrefix("eval"), "player-packed-$index", 1, null)
+                            )
+                        }.getOrNull()?.takeIf { it.isNotBlank() && it != "undefined" }
+                            ?: runCatching { JsUnpacker(packed).unpack() }.getOrNull()
+                        if (!decoded.isNullOrBlank()) {
+                            runCatching { cx.evaluateString(scope, decoded, "player-unpacked-$index", 1, null) }
+                        } else {
+                            runCatching { cx.evaluateString(scope, script, "player-script-$index", 1, null) }
+                        }
+                    } else {
+                        runCatching { cx.evaluateString(scope, script, "player-script-$index", 1, null) }
+                    }
                 }
             }
 
