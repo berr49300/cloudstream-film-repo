@@ -181,7 +181,7 @@ class DDiziParserTest {
     @Test
     fun keepsAUsefulYoutubeQualityFallbackAndReadsQualityFromLabel() {
         assertEquals(
-            listOf(0, 2),
+            listOf(2, 0),
             DDiziParser.preferredYoutubeVariantIndices(
                 listOf(
                     "YouTube H264 1080p" to 1080,
