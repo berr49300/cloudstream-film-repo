@@ -549,7 +549,23 @@ class DDizi : MainAPI() {
             "stage=source-discovery route=${safeRoute(data)} http=${response.code} " +
                 "candidateCount=${candidates.size} partCount=${partPages.size}"
         )
-        // Defer multipart fetches until a future fallback path needs them; normal episodes
+        // Only request multipart pages when the main episode page yielded no player candidate.
+        // This preserves multipart fallback without adding latency to ordinary episodes.
+        if (candidates.isEmpty()) {
+            for (partUrl in partPages.take(2)) {
+                val partStartedAt = System.currentTimeMillis()
+                val partResponse = runCatching { app.get(partUrl, referer = data) }.getOrNull()
+                candidateRequests++
+                Log.d(
+                    "DDiziTrace",
+                    "stage=episode-part route=${safeRoute(partUrl)} http=${partResponse?.code ?: 0} " +
+                        "elapsedMs=${System.currentTimeMillis() - partStartedAt}"
+                )
+                if (partResponse?.isSuccessful == true) scanPage(partResponse.document, partResponse.text, partUrl)
+            }
+        }
+        // Normal episodes should not wait for requests to secondary part pages before trying
+        // their primary player. Source traversal is capped below to keep slow extractors bounded.
         // should not wait for requests to secondary part pages before trying their primary player.
         fun priority(url: String): Int {
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
