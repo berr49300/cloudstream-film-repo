@@ -24,6 +24,14 @@ class DDiziParserTest {
         assertEquals(0, DDiziParser.seriesPageNumber("https://www.ddizi.tel/diziler/1856/teskilat/sayfa-0"))
         assertEquals(1, DDiziParser.seriesPageNumber("https://www.ddizi.tel/diziler/1856/teskilat/sayfa-1"))
         assertEquals(null, DDiziParser.seriesPageNumber("https://www.ddizi.tel/diziler/1856/teskilat"))
+        assertEquals(
+            "https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle",
+            DDiziParser.seriesBaseUrl("https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle/sayfa-7")
+        )
+        assertEquals(
+            "https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle",
+            DDiziParser.seriesBaseUrl("https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle")
+        )
     }
 
     @Test
