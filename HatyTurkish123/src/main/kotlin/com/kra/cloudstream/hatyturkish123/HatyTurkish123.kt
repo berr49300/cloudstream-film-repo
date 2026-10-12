@@ -2,7 +2,6 @@ package com.kra.cloudstream.hatyturkish123
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.loadExtractor
-import org.jsoup.nodes.Element
 
 /**
  * İlk bağımsız katalog adaptörü.
