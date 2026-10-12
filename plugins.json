@@ -79,5 +79,146 @@
         "description": "FullHDFilmizlesene ba\u011f\u0131ms\u0131z Kotlin sa\u011flay\u0131c\u0131s\u0131",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FullHDFilmizlesene.cs3",
         "name": "FullHDFilmizlesene"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=canlikolik5.my",
+        "fileHash": "sha256-fc4121d033fbd10b3db1b0793f897f1216ab795f3fae162b7b44d8eacd15dfe3",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 19407,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 1,
+        "internalName": "HatyCanlikolik",
+        "description": "Haty Canlikolik canl\u0131 yay\u0131n sa\u011flay\u0131c\u0131s\u0131 (beta; yay\u0131n do\u011frulamas\u0131 bekliyor)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyCanlikolik.cs3",
+        "name": "HatyCanlikolik"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=canlitribun938.top",
+        "fileHash": "sha256-06859ebc94d25f52ae29672ea9799a283d431172735ce2fca20b070dafbeaf62",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 19372,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 1,
+        "internalName": "HatyCanliTribun",
+        "description": "Haty Canl\u0131Trib\u00fcn spor sa\u011flay\u0131c\u0131s\u0131 (beta; oynatma do\u011frulamas\u0131 bekliyor)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyCanliTribun.cs3",
+        "name": "HatyCanliTribun"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=dizipal1430.com",
+        "fileHash": "sha256-43bbef449f74dda50a2a61733afff61cfa253dcff1dc47fef23d6ea14f6b843c",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 27916,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "HatyDiziPal",
+        "description": "Haty DiziPal sa\u011flay\u0131c\u0131s\u0131 (beta; canl\u0131 oynatma do\u011frulamas\u0131 bekliyor)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyDiziPal.cs3",
+        "name": "HatyDiziPal"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=diziyou.net",
+        "fileHash": "sha256-1471fb6d947e78f0acd633952e6a38ebe3dfb2694dba6abb19e59d668d7aee11",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 13351,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "HatyDiziYou",
+        "description": "Haty \u2014 DiziYou sa\u011flay\u0131c\u0131s\u0131 (beta; oynatma do\u011frulamas\u0131 bekliyor)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyDiziYou.cs3",
+        "name": "HatyDiziYou"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=papazsports1022.pro",
+        "fileHash": "sha256-37f7d4f9817f4dc3ccf3165eddab1466c11815c2278e093a3a628258858a6b42",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 17755,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 2,
+        "internalName": "HatyPapaz",
+        "description": "Haty Papaz spor etkinlikleri (beta; yay\u0131n do\u011frulamas\u0131 bekliyor)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyPapaz.cs3",
+        "name": "HatyPapaz"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=tabii.com",
+        "fileHash": "sha256-06e847ef8ded67abdcdc812679a7b4304b95dddbe5fe45eb337ec27661e3767e",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 13258,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 1,
+        "internalName": "HatyTabii",
+        "description": "Haty tabii canl\u0131 yay\u0131n sa\u011flay\u0131c\u0131s\u0131 (beta)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyTabii.cs3",
+        "name": "HatyTabii"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=turkish123.com",
+        "fileHash": "sha256-5224ba5b2e2d92636051fc56ac0fd99c57bb6dcd8d6802a26a2eba7bf6f61924",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 13192,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "HatyTurkish123",
+        "description": "Haty \u2014 Turkish123 katalog sa\u011flay\u0131c\u0131s\u0131 (ilk test s\u00fcr\u00fcm\u00fc)",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/HatyTurkish123.cs3",
+        "name": "HatyTurkish123"
     }
 ]
