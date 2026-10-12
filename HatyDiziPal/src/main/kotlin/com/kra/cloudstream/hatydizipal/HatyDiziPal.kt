@@ -119,7 +119,7 @@ class HatyDiziPal : MainAPI() {
     }
 
     /** Pure page-to-model mapping, separated from network access for tests. */
-    fun parseLoadMetadata(doc: Document, url: String): LoadResponse? {
+    suspend fun parseLoadMetadata(doc: Document, url: String): LoadResponse? {
         if (!isSiteUrl(url)) return null
         val path = URI(url).path.orEmpty()
         val isSeries = path.contains("/dizi/")
