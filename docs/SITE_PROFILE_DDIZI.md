@@ -76,3 +76,8 @@ The repository's discovery playbook and acceptance checklist already existed, bu
 1. On a known series detail page, check the `DDiziTrace stage=episode-map` line: `pages`, `anchors`, `episodes`, `seasonFinals` and `seasonCounts`.
 2. On a failing episode, check `stage=source-summary` plus preceding `candidate-attempt`, `youtube-extract`, `extractor`, `nested-page`, and `emit-unprobed` lines.
 3. A working source is confirmed only when it begins playing and continues beyond initial buffering; an emitted link alone is not PASS.
+
+## Additional current player-family evidence
+
+- [Teşkilat 111](https://www.ddizi.tel/izle/84456/teskilat-111-bolum-izle-sezon-finali-hd43.htm) contains an iframe to `www.ddizi.re/player/youtube.php?id=...`; the web fetcher returned 403 for that cross-domain relay, so its accessibility from the user's device remains **UNKNOWN**. The provider parser recognizes the relay pattern and normalizes its video ID to a YouTube watch URL; v7 adds a regression test using the currently observed route pattern.
+- [Dark 3x08](https://www.ddizi.tel/izle/72226/dark-3-sezon-8-bolum-izle.htm) exposes a `video` link to `/player/oynat/{id}`, which currently returns the site's own HTTP 404. These examples confirm that source families can differ by episode even within the same overall site; classifying all local shows as HLS and all foreign shows as JavaScript would be unsupported.
