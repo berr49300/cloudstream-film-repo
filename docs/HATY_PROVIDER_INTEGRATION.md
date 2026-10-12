@@ -25,6 +25,14 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 | Papaz | Candidate sports provider | Resolve the remote base URL from public, permitted evidence; static APK strings were insufficient |
 | Generic media types | APK strings include .m3u8, .mpd, .mp4, .m3u, .ts and .flv | Add format handling only where actual provider/source evidence supports it |
 
+## Implementation status — 2026-10-12
+
+- [x] Repository modules are auto-discovered by `settings.gradle.kts` when a directory contains `build.gradle.kts`; no hard-coded include list is needed.
+- [x] Confirmed Turkish123 public series catalogue HTML is rendered with linked series entries; public page inspection alone does not confirm raw selectors or playback.
+- [ ] New provider source modules: not yet implemented.
+- [ ] Search, detail, episode mapping, source resolution and subtitles: not yet runtime verified.
+- [ ] APK remote domains for CanlıTribün and Papaz: unresolved; do not guess.
+
 ## Implementation order
 
 1. **Inventory and build wiring:** confirm every module already in the repo, avoid duplicates, identify shared helper boundaries and keep one feed.
