@@ -126,7 +126,47 @@ class DDizi : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val page = app.get(url, referer = "$mainUrl/").document
+        var resolvedUrl = url
+        var response = runCatching { app.get(resolvedUrl, referer = "$mainUrl/") }.getOrNull()
+
+        if (response?.isSuccessful != true && DDiziParser.isSeriesUrl(url)) {
+            // Some old DDizi cards retain a short slug while the actual live route has
+            // a longer canonical slug. Recover only on a failed series request, keyed by ID.
+            val id = DDiziParser.seriesId(url)
+            if (!id.isNullOrBlank()) {
+                val catalogUrls = listOf(
+                    "$mainUrl/",
+                    "$mainUrl/yabanci-dizi-izle",
+                    "$mainUrl/eski.diziler.izle"
+                )
+                for (catalogUrl in catalogUrls) {
+                    val catalog = runCatching {
+                        app.get(catalogUrl, referer = "$mainUrl/").document
+                    }.getOrNull() ?: continue
+                    val replacement = catalog.select("a[href*='/diziler/$id/']")
+                        .mapNotNull { fixUrlNull(it.attr("href")) }
+                        .firstOrNull { it != url && isSameSite(it) && DDiziParser.isSeriesUrl(it) }
+                        ?: continue
+                    val candidateResponse = runCatching {
+                        app.get(replacement, referer = "$mainUrl/")
+                    }.getOrNull()
+                    if (candidateResponse?.isSuccessful == true) {
+                        resolvedUrl = replacement
+                        response = candidateResponse
+                        break
+                    }
+                }
+            }
+        }
+
+        val successfulResponse = response?.takeIf { it.isSuccessful } ?: return null
+        val page = successfulResponse.document
+        val canonicalSeriesUrl = page.selectFirst("link[rel=canonical]")
+            ?.attr("href")?.let { fixUrlNull(it) }
+            ?.takeIf { isSameSite(it) && DDiziParser.isSeriesUrl(it) }
+        if (!DDiziParser.isEpisodeUrl(resolvedUrl) && canonicalSeriesUrl != null) {
+            resolvedUrl = canonicalSeriesUrl
+        }
 
         val seriesUrl = if (DDiziParser.isEpisodeUrl(url)) {
             val episodeTitleHint = page.selectFirst("h1")?.text()?.trim()
@@ -143,11 +183,11 @@ class DDizi : MainAPI() {
                 ) href else null
             }
         } else {
-            url
+            resolvedUrl
         }
         if (seriesUrl.isNullOrBlank()) return null
 
-        val seriesPage = if (seriesUrl == url) page else
+        val seriesPage = if (!DDiziParser.isEpisodeUrl(url)) page else
             app.get(seriesUrl, referer = "$mainUrl/").document
 
         val rawTitle = seriesPage.selectFirst("h1")?.text()?.trim()
