@@ -8,3 +8,8 @@ cloudstream {
     tvTypes = listOf("Movie", "TvSeries")
     iconUrl = "https://www.google.com/s2/favicons?sz=128&domain=dizipal1430.com"
 }
+
+dependencies {
+    testImplementation("com.lagradost:cloudstream3:pre-release")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+}

@@ -185,9 +185,9 @@ This section supersedes earlier dated snapshots in this file where implementatio
 | DiziYou | HatyDiziYou beta | diziyou.net route shapes observed; player embed responded 403 in research environment; playback unverified |
 | DiziPal | HatyDiziPal beta | dizipal1430.com redirected to dizipalorjinal14.com on 2026-10-12; live home catalog rendered. GET /api/search.php?q=..., /dizi/, /film/, /bolum/ and videoplay.vip behavior remain secondary code evidence, not independently verified raw responses or proof of APK resolver equivalence |
 | tabii | HatyTabii beta live provider | Official live route observed; stream exposure and device playback not verified; no access-control bypass |
-| Papaz | HatyPapaz beta | papazsports.co is a discovery lead only, not confirmed as APK active remote base; live playback unverified |
-| Canlikolik | Not implemented | Public evidence indicates a rotating canlikolik*.my domain family, but not the APK's live remote configuration or channel/player responses |
-| CanlıTribün | Not implemented | Public evidence indicates rotating canlitribun*.live and canlitribun*.top families, but no verified event/player response chain |
+| Papaz | HatyPapaz beta | Public mirror candidates papazsports1022.pro / 1023.pro; APK active base and live playback unverified |
+| Canlikolik | HatyCanlikolik beta | Parses same-family channel/match links and explicit media candidates from HTML; remote config and playback unverified |
+| CanlıTribün | HatyCanliTribun beta | Parses same-family event links and explicit media candidates; active APK domain and playback unverified |
 
 Latest CI before this commit passed at [workflow run 38257290766](https://github.com/berr49300/cloudstream-film-repo/actions/runs/38257290766). The current branch CI is being rerun after the DiziPal host and pagination correction. Build and unit tests do not verify playback or subtitles. main and builds remain untouched.
 
@@ -197,3 +197,18 @@ Latest CI before this commit passed at [workflow run 38257290766](https://github
 - Added separate HatyCanlikolik and HatyCanliTribun beta modules. Both use bounded candidate-domain lists, same-family event/channel filtering, and only literal iframe/video/source/manifest URLs in returned HTML. The APK remote live-domain feed and device playback are not verified.
 - Updated HatyPapaz to public mirror candidates papazsports1022.pro and papazsports1023.pro. This is discovery evidence, not proof of the APK's active remote configuration.
 - If mirror requests are blocked or expose only a challenge/shell, the adapter returns no invented stream and marks runtime behavior unverified.
+
+
+## Current module matrix — source and verification status
+
+| Module | Implemented surface | Remaining blocker |
+|---|---|---|
+| HatyTurkish123 | HTML catalogue/detail/episode links | Search, proper player chain, subtitles and device playback unverified |
+| HatyDiziYou | HTML-linked catalogue/episodes and explicit embeds | Player gave 403 in research environment; playback unverified |
+| HatyDiziPal | Host redirect, catalogue/search/detail/episode adapter, explicit player extraction | Live API responses and APK's own DizipalRmK resolver not confirmed |
+| HatyTabii | Official live-page route and explicit source extraction | Auth/DRM and device playback unverified; no bypass implemented |
+| HatyPapaz | Public mirror catalogue adapter | Active APK host and player chain unverified |
+| HatyCanlikolik | Rotating public host candidates; HTML channel/match parser | APK remote config feed and player chain unverified |
+| HatyCanliTribun | Public route candidate; HTML event parser | Active APK host and player chain unverified |
+
+A green CI result validates source compilation, tests, plugin packaging and repository metadata only; it cannot substitute for running the plugins inside CloudStream against current provider pages.

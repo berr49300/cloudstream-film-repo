@@ -90,9 +90,9 @@ class HatyPapaz : MainAPI() {
                 val raw = el.attr(attr).trim()
                 if (raw.isNotBlank()) resolve(doc.baseUri(), raw).takeIf(::isHttpUrl)?.let(result::add)
             }
-            Regex("""https?://[^'""\\s)<>]+""").findAll(el.attr("onclick")).map { it.value }.forEach(result::add)
+            Regex("""https?://[^'"\s)<>]+""").findAll(el.attr("onclick")).map { it.value }.forEach(result::add)
         }
-        Regex("""https?:\\?/\\?/[^""'\\s<>]+?\\.(?:m3u8|mpd)(?:\\?[^""'\\s<>]*)?""")
+        Regex("""https?:\\?/\\?/[^"'\s<>]+?\.(?:m3u8|mpd)(?:\?[^"'\s<>]*)?""")
             .findAll(doc.html()).map { it.value.replace("\\/", "/").replace("&amp;", "&") }
             .filter(::isHttpUrl).forEach(result::add)
         return result
