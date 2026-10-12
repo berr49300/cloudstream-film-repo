@@ -30,7 +30,8 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 - [x] Repository modules are auto-discovered by `settings.gradle.kts` when a directory contains `build.gradle.kts`; no hard-coded include list is needed.
 - [x] Confirmed Turkish123 public series catalogue HTML is rendered with linked series entries; public page inspection alone does not confirm raw selectors or playback.
 - [x] Turkish123 initial beta provider module exists and is included in the unified repo feed build.
-- [ ] Dizipal and Diziyou: public discovery evidence collected; provider modules are not yet implemented because the current source/player behavior is not verified.
+- [ ] Dizipal: public discovery evidence collected; module still pending current-domain/player verification.
+- [x] DiziYou: separate beta module added under `HatyDiziYou/`, using only current-host links found in returned HTML and delegating visible embeds to CloudStream extractors. Search/pagination are disabled and playback remains unverified because the observed embed returned HTTP 403.
 - [ ] Search, detail, episode mapping, source resolution and subtitles: not yet runtime verified.
 - [ ] APK remote domains for CanlıTribün and Papaz: unresolved; do not guess.
 
@@ -147,3 +148,9 @@ This pass recovered class names and literal strings from DEX, but a full method-
 - Inspected a maintained public CloudStream DiziYou implementation in Kekik-cloudstream. It documents an older `diziyou3.com` host and a player convention based on `iframe#diziyouPlayer`, option IDs, HLS path patterns and VTT subtitles.
 - The current public site observed for this project is `diziyou.net`; an episode page's iframe was observed pointing to `ksdpictures.site/dzembed.php?id=...`, but the embed returned HTTP 403 during inspection.
 - These are not yet proven to be the same player protocol. The old HLS/subtitle URL construction is **not** copied into a new provider without current evidence. Detailed gate: [HATY_DIZIYOU_EVIDENCE.md](HATY_DIZIYOU_EVIDENCE.md).
+
+
+### DiziYou module added — 2026-10-12
+- Added independent Gradle module `HatyDiziYou` on the feature branch. It is auto-discovered by `settings.gradle.kts` and therefore joins the single repo feed when the build succeeds.
+- The adapter uses the currently observed `diziyou.net` host and the known `/dizi/` and `/bolum/` route families; it does not copy the old provider's constructed HLS/subtitle paths.
+- Status remains beta. Search and pagination are deliberately disabled pending confirmed route/API evidence; live playback and subtitles are **NOT TESTED/BLOCKED**.
