@@ -549,26 +549,31 @@ class DDizi : MainAPI() {
             "stage=source-discovery route=${safeRoute(data)} http=${response.code} " +
                 "candidateCount=${candidates.size} partCount=${partPages.size}"
         )
-        // At most two extra parts; the main source is always inspected first.
-        for (partUrl in partPages.take(2)) {
-            val partStartedAt = System.currentTimeMillis()
-            val partResponse = runCatching { app.get(partUrl, referer = data) }.getOrNull()
-            candidateRequests++
-            Log.d(
-                "DDiziTrace",
-                "stage=episode-part route=${safeRoute(partUrl)} http=${partResponse?.code ?: 0} " +
-                    "elapsedMs=${System.currentTimeMillis() - partStartedAt}"
-            )
-            if (partResponse?.isSuccessful == true) scanPage(partResponse.document, partResponse.text, partUrl)
+        // Only request multipart pages when the main episode page yielded no player candidate.
+        // This preserves multipart fallback without adding latency to ordinary episodes.
+        if (candidates.isEmpty()) {
+            for (partUrl in partPages.take(2)) {
+                val partStartedAt = System.currentTimeMillis()
+                val partResponse = runCatching { app.get(partUrl, referer = data) }.getOrNull()
+                candidateRequests++
+                Log.d(
+                    "DDiziTrace",
+                    "stage=episode-part route=${safeRoute(partUrl)} http=${partResponse?.code ?: 0} " +
+                        "elapsedMs=${System.currentTimeMillis() - partStartedAt}"
+                )
+                if (partResponse?.isSuccessful == true) scanPage(partResponse.document, partResponse.text, partUrl)
+            }
         }
-
+        // Normal episodes should not wait for requests to secondary part pages before trying
+        // their primary player. Source traversal is capped below to keep slow extractors bounded.
+        // should not wait for requests to secondary part pages before trying their primary player.
         fun priority(url: String): Int {
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             when {
                 path.endsWith(".m3u8") -> return 0
-                DDiziParser.youtubeWatchUrlIfEmbed(url) != null -> return 1
-                path.endsWith("/player/telif/index.php") || path.endsWith("/youtube.php") -> return 1
-                isDirectMediaUrl(url) -> return 2
+                isDirectMediaUrl(url) -> return 1
+                DDiziParser.youtubeWatchUrlIfEmbed(url) != null -> return 2
+                path.endsWith("/player/telif/index.php") || path.endsWith("/youtube.php") -> return 2
                 path.startsWith("/player/oynat/") || path.contains("/embed/") -> return 3
                 path.endsWith("/ajax.php") || path.endsWith("/geox.php") -> return 4
                 path.endsWith(".js") || path.endsWith(".php") -> return 6
@@ -594,7 +599,7 @@ class DDizi : MainAPI() {
             qualityOverride: Int? = null
         ) {
             val family = sourceFamily(link.url, link.type)
-            if (emitted >= 6) {
+            if (emitted >= 4) {
                 Log.d("DDiziTrace", "stage=skip family=$family route=${safeRoute(link.url)} reason=total-link-limit")
                 return
             }
@@ -633,7 +638,7 @@ class DDizi : MainAPI() {
                 else -> ExtractorLinkType.VIDEO
             }
             val family = sourceFamily(url, mediaType)
-            if (emitted >= 6) {
+            if (emitted >= 4) {
                 Log.d("DDiziTrace", "stage=skip family=$family route=${safeRoute(url)} reason=total-link-limit")
                 return
             }
@@ -664,7 +669,7 @@ class DDizi : MainAPI() {
             emitted++
         }
 
-        while (queue.isNotEmpty() && visited.size < 12 && emitted < 6) {
+        while (queue.isNotEmpty() && visited.size < 6 && emitted < 4) {
             val (candidate, parentReferer) = queue.removeFirst()
             if (!visited.add(candidate)) continue
             val candidateStartedAt = System.currentTimeMillis()
