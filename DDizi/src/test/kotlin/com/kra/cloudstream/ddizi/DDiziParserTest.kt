@@ -8,6 +8,9 @@ import org.junit.Test
 class DDiziParserTest {
     @Test
     fun recognizesObservedSeriesAndEpisodeRoutes() {
+        assertEquals("2171", DDiziParser.seriesId("https://www.ddizi.tel/diziler/2171/alti-ustu-istanbul"))
+        assertEquals("2171", DDiziParser.seriesId("https://www.ddizi.tel/diziler/2171/alti-ustu-istanbul-son-bolum-izle"))
+        assertEquals(null, DDiziParser.seriesId("https://www.ddizi.tel/izle/2171/test.htm"))
         assertTrue(DDiziParser.isDdiziHost("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
         assertTrue(DDiziParser.isDdiziHost("https://www.ddizi.im/diziler/2160/sevdigim-sensin-son-bolum-izle"))
         assertFalse(DDiziParser.isDdiziHost("https://example.com/diziler/2160/test"))
@@ -16,6 +19,7 @@ class DDiziParserTest {
         assertFalse(DDiziParser.isEpisodeUrl("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
         assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yabanci-dizi-izle"))
         assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler"))
+        assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler.izle"))
         assertFalse(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yeni-eklenenler8"))
     }
 
