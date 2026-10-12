@@ -40,6 +40,26 @@
         "name": "Dizilla"
     },
     {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=diziyou.one",
+        "fileHash": "sha256-26eebb1098609c711c6df2da0da9f7dc994743e880112803d4d82320f5d92140",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 17002,
+        "status": 1,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "DiziYou",
+        "description": "DiziYou katalog ve b\u00f6l\u00fcm sa\u011flay\u0131c\u0131s\u0131 \u2014 do\u011frulama s\u00fcr\u00fcyor",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DiziYou.cs3",
+        "name": "DiziYou"
+    },
+    {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=filmmakinesi.to",
         "fileHash": "sha256-705add1a1e217f847d7aa6dfbaafae3c23a4440deb1fa1324d89b5b4e357c42f",
         "apiVersion": 1,
