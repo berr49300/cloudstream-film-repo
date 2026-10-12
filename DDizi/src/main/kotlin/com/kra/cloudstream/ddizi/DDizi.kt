@@ -6,6 +6,9 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 import java.net.URI
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 /**
  * Independent first-pass provider for DDizi.
@@ -183,11 +186,22 @@ class DDizi : MainAPI() {
             }
             .take(20)
 
-        additionalPageUrls.forEach { pageUrl ->
-            if (pageUrl.equals(seriesUrl, ignoreCase = true)) return@forEach
-            runCatching { app.get(pageUrl, referer = seriesUrl).document }
-                .getOrNull()
-                ?.let { seriesDocuments.add(it) }
+        // Fetch pagination pages in small batches rather than 20 sequential round trips.
+        // Keep batches bounded so DDizi is not flooded with concurrent requests.
+        additionalPageUrls.chunked(4).forEach { batch ->
+            val fetchedPages = coroutineScope {
+                batch.map { pageUrl ->
+                    async {
+                        if (pageUrl.equals(seriesUrl, ignoreCase = true)) return@async null
+                        runCatching { app.get(pageUrl, referer = seriesUrl).document }
+                            .getOrNull()
+                            ?.let { pageUrl to it }
+                    }
+                }.awaitAll()
+            }
+            fetchedPages.filterNotNull().forEach { (_, document) ->
+                seriesDocuments.add(document)
+            }
         }
 
         // DDizi puts the series' own episode list before a separate "Bugünkü Bölümler"
@@ -289,7 +303,7 @@ class DDizi : MainAPI() {
     ): LinkedHashSet<String> {
         val output = linkedSetOf<String>()
         fun add(raw: String?) {
-            if (raw.isNullOrBlank() || output.size >= 36) return
+            if (raw.isNullOrBlank() || output.size >= 18) return
             val normalized = decodePlayerText(raw.trim()).trim('"', '\'', ' ', '\n', '\r')
             val url = resolveCandidateUrl(baseUrl, normalized) ?: return
             val uri = runCatching { URI(url) }.getOrNull() ?: return
@@ -322,7 +336,7 @@ class DDizi : MainAPI() {
         val scriptText = document.select("script").joinToString("\n") { it.data().ifBlank { it.html() } }
         val variants = linkedSetOf(decodePlayerText(html), decodePlayerText(scriptText))
         val base64Pattern = Regex("""(?i)(?:atob|base64_decode|base64)\s*\(\s*["']([A-Za-z0-9+/]{20,}={0,2})["']\s*\)""")
-        for (match in base64Pattern.findAll(scriptText).take(24)) {
+        for (match in base64Pattern.findAll(scriptText).take(10)) {
             runCatching {
                 String(Base64.decode(match.groupValues[1], Base64.DEFAULT), Charsets.UTF_8)
             }.getOrNull()?.takeIf { it.isNotBlank() }?.let { variants.add(decodePlayerText(it)) }
