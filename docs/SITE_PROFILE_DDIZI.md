@@ -60,3 +60,24 @@ This confirms that at least these two player buttons are broken at the **site en
 ## Analysis process correction
 
 The repository's discovery playbook and acceptance checklist already existed, but the initial DDizi v5 work did not produce a complete, evidence-backed DDizi profile before the release. This was a process miss. This profile now records the known routes and the concrete 404 checks; the unresolved player chain remains BLOCKED until a current working source family is evidenced.
+
+
+## v7 investigation — 2026-10-12
+
+- The live Teşkilat detail page currently lists 10 episodes per page (188–179 on the base route); pagination exposes historic pages, including a `/sayfa-0` route that duplicates the base page. See [live detail page](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle) and [page 1 link target](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle/sayfa-1).
+- **Likely root cause for the exact Teşkilat screenshot:** the live `/sayfa-7` detail page contains episodes 118–109 and marks 111 as `Sezon Finali` ([live page 7](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle/sayfa-7)). If the provider starts with this paginated route, the previous code uses `/sayfa-7` as the parent series path; the sibling page links then fail the `candidatePath.startsWith("$seriesPath/")` test, so older finals such as 79, 48 and 14 are never seen. With only finale 111 detected, 109–111 all become Season 1. The screenshot's visible three entries exactly match that page's Season 1 group. The user's exact request URL is not in the screenshot, so confirm the initial route with v7's `stage=episode-pages route=... baseRoute=...` trace.
+- The previous implementation also fetched only the first 8 pagination links and could spend one slot fetching duplicate `/sayfa-0`. v7 normalizes any paginated route back to the base series URL, fetches the base page when needed, ignores duplicate `/sayfa-0`, then fetches up to 20 historic pages in batches of four. It logs redacted route, HTTP status and duration for each page.
+- v7 source diagnostics use the `DDiziTrace` log tag. Load and candidate logs record a query-redacted host/path, source family, extraction elapsed time, HTTP result where explicitly requested, found/selected qualities, skipped candidate limits, and which source families were emitted. Direct HLS links are marked `emit-unprobed`: emitting the URL does not verify its manifest or media segments.
+- The source picker labels distinct families (for example `DDizi YouTube`, `DDizi HLS (host)`, or `DDizi external-host`) so the user can report which specific option plays. At most 12 candidates are visited and at most 6 links are shown, keeping the search bounded rather than probing endlessly.
+- User device playback remains **NOT TESTED** from this automation environment. The automated build can validate Kotlin/parser behavior but cannot press play in the user's CloudStream app.
+
+## What to inspect in the next device test
+
+1. On a known series detail page, check the `DDiziTrace stage=episode-map` line: `pages`, `anchors`, `episodes`, `seasonFinals` and `seasonCounts`.
+2. On a failing episode, check `stage=source-summary` plus preceding `candidate-attempt`, `youtube-extract`, `extractor`, `nested-page`, and `emit-unprobed` lines.
+3. A working source is confirmed only when it begins playing and continues beyond initial buffering; an emitted link alone is not PASS.
+
+## Additional current player-family evidence
+
+- [Teşkilat 111](https://www.ddizi.tel/izle/84456/teskilat-111-bolum-izle-sezon-finali-hd43.htm) contains an iframe to `www.ddizi.re/player/youtube.php?id=...`; the web fetcher returned 403 for that cross-domain relay, so its accessibility from the user's device remains **UNKNOWN**. The provider parser recognizes the relay pattern and normalizes its video ID to a YouTube watch URL; v7 adds a regression test using the currently observed route pattern.
+- [Dark 3x08](https://www.ddizi.tel/izle/72226/dark-3-sezon-8-bolum-izle.htm) exposes a `video` link to `/player/oynat/{id}`, which currently returns the site's own HTTP 404. These examples confirm that source families can differ by episode even within the same overall site; classifying all local shows as HLS and all foreign shows as JavaScript would be unsupported.

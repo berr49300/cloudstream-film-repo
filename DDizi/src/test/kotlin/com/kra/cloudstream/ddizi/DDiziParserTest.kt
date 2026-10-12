@@ -21,6 +21,17 @@ class DDiziParserTest {
         assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler"))
         assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler.izle"))
         assertFalse(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yeni-eklenenler8"))
+        assertEquals(0, DDiziParser.seriesPageNumber("https://www.ddizi.tel/diziler/1856/teskilat/sayfa-0"))
+        assertEquals(1, DDiziParser.seriesPageNumber("https://www.ddizi.tel/diziler/1856/teskilat/sayfa-1"))
+        assertEquals(null, DDiziParser.seriesPageNumber("https://www.ddizi.tel/diziler/1856/teskilat"))
+        assertEquals(
+            "https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle",
+            DDiziParser.seriesBaseUrl("https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle/sayfa-7")
+        )
+        assertEquals(
+            "https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle",
+            DDiziParser.seriesBaseUrl("https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle")
+        )
     }
 
     @Test
@@ -101,6 +112,12 @@ class DDiziParserTest {
 
     @Test
     fun resolvesHistoricalYoutubeRelay() {
+        assertEquals(
+            "https://www.youtube.com/watch?v=ppIikuHZ1Rw",
+            DDiziParser.youtubeWatchUrlIfEmbed(
+                "https://www.ddizi.re/player/youtube.php?id=ppIikuHZ1Rw"
+            )
+        )
         assertEquals(
             "https://www.youtube.com/watch?v=BC30qtjYt3E",
             DDiziParser.youtubeWatchUrlIfEmbed("https://www.ddizi.re/player/youtube.php?id=BC30qtjYt3E")
@@ -194,6 +211,34 @@ class DDiziParserTest {
         assertEquals(1, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=251"))
         assertEquals(2, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=140&tlang=en"))
         assertEquals(3, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=251&tlang=en"))
+    }
+
+    @Test
+    fun mapsTeskilatEpisodesUsingSeasonFinalsFromFullHistory() {
+        // DDizi uses global numbering, with the season finale marker on episodes 14, 48, 79,
+        // 111, 145 and 184. A page-0 duplicate must not replace historical pages in the scan.
+        val finals = DDiziParser.seasonFinalEpisodeNumbers(
+            listOf(
+                "Teşkilat 14.Bölüm Sezon Finali",
+                "Teşkilat 48.Bölüm Sezon Finali",
+                "Teşkilat 79.Bölüm Sezon Finali",
+                "Teşkilat 111.Bölüm Sezon Finali",
+                "Teşkilat 145.Bölüm Sezon Finali",
+                "Teşkilat 184.Bölüm Sezon Finali"
+            )
+        )
+        assertEquals(setOf(14, 48, 79, 111, 145, 184), finals)
+        assertEquals(4, DDiziParser.seasonForEpisode(109, finals))
+        assertEquals(4, DDiziParser.seasonForEpisode(111, finals))
+        assertEquals(5, DDiziParser.seasonForEpisode(112, finals))
+        assertEquals(5, DDiziParser.seasonForEpisode(145, finals))
+        assertEquals(6, DDiziParser.seasonForEpisode(146, finals))
+        assertEquals(7, DDiziParser.seasonForEpisode(185, finals))
+        assertEquals(30, DDiziParser.seasonLocalEpisodeNumber(109, finals))
+        assertEquals(32, DDiziParser.seasonLocalEpisodeNumber(111, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(112, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(146, finals))
+        assertEquals(1, DDiziParser.seasonLocalEpisodeNumber(185, finals))
     }
 
     @Test
