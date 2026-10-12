@@ -183,10 +183,10 @@ This section supersedes earlier dated snapshots in this file where implementatio
 | DDizi | Existing; protected | Not changed in this PR |
 | Turkish123 | HatyTurkish123 beta | HTML catalogue/detail/episode URLs are parsed; search, pagination, playback and subtitles remain unverified |
 | DiziYou | HatyDiziYou beta | diziyou.net route shapes observed; player embed responded 403 in research environment; playback unverified |
-| DiziPal | HatyDiziPal beta | Public provider reference lists dizipal1430.com, GET /api/search.php?q=..., /dizi/, /film/, /bolum/ and videoplay.vip player behavior. These are secondary code evidence, not live response verification of the APK flow |
+| DiziPal | HatyDiziPal beta | dizipal1430.com redirected to dizipalorjinal14.com on 2026-10-12; live home catalog rendered. GET /api/search.php?q=..., /dizi/, /film/, /bolum/ and videoplay.vip behavior remain secondary code evidence, not independently verified raw responses or proof of APK resolver equivalence |
 | tabii | HatyTabii beta live provider | Official live route observed; stream exposure and device playback not verified; no access-control bypass |
 | Papaz | HatyPapaz beta | papazsports.co is a discovery lead only, not confirmed as APK active remote base; live playback unverified |
 | Canlikolik | Not implemented | Public evidence indicates a rotating canlikolik*.my domain family, but not the APK's live remote configuration or channel/player responses |
 | CanlıTribün | Not implemented | Public evidence indicates rotating canlitribun*.live and canlitribun*.top families, but no verified event/player response chain |
 
-Latest CI before this commit passed at [workflow run 38257290766](https://github.com/berr49300/cloudstream-film-repo/actions/runs/38257290766). This commit will trigger new CI. Build and unit tests do not verify playback or subtitles. main and builds remain untouched.
+Latest CI before this commit passed at [workflow run 38257290766](https://github.com/berr49300/cloudstream-film-repo/actions/runs/38257290766). The current branch CI is being rerun after the DiziPal host and pagination correction. Build and unit tests do not verify playback or subtitles. main and builds remain untouched.
