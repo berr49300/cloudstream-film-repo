@@ -10,7 +10,7 @@
 
 | Claim | Status | Evidence | Remaining gap |
 |---|---|---|---|
-| Candidate host is https://dizipal1430.com | HYPOTHESIS / public-code evidence | Maintained public CloudStream provider lists this host | Fresh raw HTTP response not validated here |
+| https://dizipalorjinal14.com redirects to https://dizipalorjinal14.com | CONFIRMED web redirect at 2026-10-12 check time | Public homepage fetch followed redirect and rendered a film/series catalog | Mirror can change; raw API responses still not independently verified |
 | Catalog contains /dizi/ and /film/ links | HYPOTHESIS | Public provider parser targets these route families | Verify current raw DOM |
 | Search API is GET /api/search.php?q=... | HYPOTHESIS | Public provider code calls it and expects results[].title,type,slug,poster | Verify actual status and JSON response |
 | Episodes use /bolum/ routes | HYPOTHESIS | Public parser targets these route families | Validate season/special episode cases |
