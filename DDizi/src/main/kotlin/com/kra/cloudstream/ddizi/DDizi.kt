@@ -502,8 +502,8 @@ class DDizi : MainAPI() {
 
                 val extracted = mutableListOf<ExtractorLink>()
                 runCatching {
-                    // Let subtitles through, but buffer format links so only one stable H.264
-                    // (preferably 720p) entry and one default AAC track are exposed to the player.
+                    // Keep the 1080p option when available plus one lower-quality fallback.
+                    // Audio alternatives remain bounded to one preferred default track per link.
                     loadExtractor(youtubeUrl, "", subtitleCallback) { extracted.add(it) }
                 }.onFailure { Log.w("DDizi", "YouTube extraction failed for a player candidate") }
 
