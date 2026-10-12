@@ -228,7 +228,7 @@ internal object DDiziParser {
         preferredYoutubeVariantIndices(candidates, maxVariants = 1).firstOrNull()
 
     fun qualityFromLabel(label: String): Int? =
-        Regex("""(?i)\\b(4320|2160|1440|1080|720|576|540|480|360|240)\\s*p\\b""")
+        Regex("""(?i)\b(4320|2160|1440|1080|720|576|540|480|360|240)\s*p\b""")
             .find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
 
     /**
