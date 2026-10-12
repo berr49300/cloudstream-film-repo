@@ -47,6 +47,13 @@ If ADB is unavailable, use the visible source labels as the test IDs: select eac
 4. Keep separate results for domestic and foreign series; do not assume they share the same source chain.
 5. Re-run parser tests and the full build after every removal. Preserve the evidence in this matrix.
 
+## v8 candidate change (not yet runtime-verified)
+
+- Resolver now stops after emitting a YouTube link and a separate direct-media fallback; if one family is absent, it continues through the bounded queue.
+- Candidate traversal cap reduced from 12 to 8.
+- CI must pass before release. This can reduce time spent discovering sources; it cannot itself prevent buffering caused by the selected stream's network/CDN.
+- Device PASS/BUFFER evidence is still required before removing any additional source family.
+
 ## Current verification boundary
 
 Automated unit/build tests and public website checks run in GitHub Actions/web research. This environment cannot directly install or operate the user's CloudStream Android app, so actual playback and buffering require one device test cycle.
