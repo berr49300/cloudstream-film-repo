@@ -128,6 +128,41 @@ class DDiziParserTest {
     }
 
     @Test
+    fun prefersH264At720pAndAvoidsExcessivelyHighResolution() {
+        assertEquals(
+            2,
+            DDiziParser.preferredYoutubeVariantIndex(
+                listOf(
+                    "YouTube H264" to 1080,
+                    "YouTube VP9" to 720,
+                    "YouTube H264" to 720,
+                    "YouTube H264" to 480
+                )
+            )
+        )
+        assertEquals(
+            1,
+            DDiziParser.preferredYoutubeVariantIndex(
+                listOf("YouTube H264" to 1080, "YouTube VP9" to 720, "YouTube VP9" to 480)
+            )
+        )
+        assertEquals(
+            1,
+            DDiziParser.preferredYoutubeVariantIndex(
+                listOf("YouTube H264" to 2160, "YouTube H264" to 1080)
+            )
+        )
+    }
+
+    @Test
+    fun prefersOneDefaultAacTrackOverTranslatedOpusTracks() {
+        assertEquals(0, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=140"))
+        assertEquals(1, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=251"))
+        assertEquals(2, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=140&tlang=en"))
+        assertEquals(3, DDiziParser.youtubeAudioTrackPriority("https://video.google.test/v?itag=251&tlang=en"))
+    }
+
+    @Test
     fun mapsGlobalEpisodeNumbersToSeasonLocalIndicesWithoutMixingSeries() {
         // Observed Teşkilat season boundaries: 14, 48, and 79 are season finales.
         val teskilatFinals = DDiziParser.seasonFinalEpisodeNumbers(
