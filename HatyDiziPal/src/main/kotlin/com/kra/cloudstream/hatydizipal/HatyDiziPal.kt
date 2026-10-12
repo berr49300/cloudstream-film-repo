@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets
  * authentication, CAPTCHA, region controls or DRM.
  */
 class HatyDiziPal : MainAPI() {
-    override var mainUrl = "https://dizipal1430.com"
+    override var mainUrl = "https://dizipalorjinal14.com"
     override var name = "Haty DiziPal"
     override var lang = "tr"
     override val hasMainPage = true
@@ -36,7 +36,7 @@ class HatyDiziPal : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val target = if (page <= 1) request.data else {
             val separator = if (request.data.contains("?")) "&" else "?"
-            "$request.data$separator" + "page=$page"
+            request.data + separator + "page=$page"
         }
         val doc = app.get(target).document
         val results = doc.select("a[href*='/dizi/'], a[href*='/film/']")
@@ -256,7 +256,7 @@ class HatyDiziPal : MainAPI() {
         runCatching { URI(base).resolve(candidate).toString() }.getOrElse { candidate }
 
     private fun isSiteUrl(url: String): Boolean =
-        runCatching { URI(url).host?.equals(URI(mainUrl).host, ignoreCase = true) == true }
+        runCatching { URI(url).host?.let { host -> host.equals(URI(mainUrl).host, ignoreCase = true) || host.equals("dizipal1430.com", ignoreCase = true) || host.equals("www.dizipal1430.com", ignoreCase = true) } == true }
             .getOrDefault(false)
 
     data class DiziPalSearchRoot(
