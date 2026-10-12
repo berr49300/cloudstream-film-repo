@@ -33,7 +33,7 @@ class DiziYou : MainAPI() {
         val uri = runCatching { URI(href) }.getOrNull() ?: return false
         val path = uri.path.orEmpty()
         if (!uri.host.equals(URI(mainUrl).host, true)) return false
-        if (path.isBlank() || path == "/" || path.startsWith("/wp-") || path in setOf("/genel/", "/hakkimizda/")) return false
+        if (path.isBlank() || path == "/" || path.startsWith("/wp-") || path.contains("-sezon-") || path.contains("-bolum") || path in setOf("/genel/", "/hakkimizda/", "/iletisim/")) return false
         return selectFirst("img") != null && cardTitle().isNotBlank()
     }
     private fun Element.toSearchResponse(): SearchResponse? {
@@ -105,6 +105,7 @@ class DiziYou : MainAPI() {
         val frameUrl = frame?.attr("data-src").orEmpty().ifBlank { frame?.attr("src").orEmpty() }
         return Regex("/player/([a-zA-Z0-9_-]+)(?:\\.html)?", RegexOption.IGNORE_CASE)
             .find(frameUrl)?.groupValues?.getOrNull(1)
+            ?: Regex("[?&](?:id|itemId)=([a-zA-Z0-9_-]+)", RegexOption.IGNORE_CASE).find(frameUrl)?.groupValues?.getOrNull(1)
             ?: Regex("""(?i)\bitemId\s*[:=]\s*['"]([a-zA-Z0-9_-]+)['"]""").find(doc.html())?.groupValues?.getOrNull(1)
             ?: Regex("""(?i)\bdata-id\s*=\s*['"]([a-zA-Z0-9_-]+)['"]""").find(doc.html())?.groupValues?.getOrNull(1)
     }
