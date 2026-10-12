@@ -34,7 +34,8 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 - [x] tabii: separate beta live-provider module added, using the official live-page route and only explicit source URLs returned by the page; playback is unverified.
 - [x] DiziYou: separate beta module added under `HatyDiziYou/`, using only current-host links found in returned HTML and delegating visible embeds to CloudStream extractors. Search/pagination are disabled and playback remains unverified because the observed embed returned HTTP 403.
 - [ ] Search, detail, episode mapping, source resolution and subtitles: not yet runtime verified.
-- [ ] APK remote domains for CanlıTribün and Papaz: unresolved; do not guess.
+- [x] Papaz: independent beta HTML adapter added for publicly discovered `papazsports.co`; this is not confirmed as the APK's active domain, and live playback is unverified.
+- [ ] Canlıkoli̇k and CanlıTribün: active base URLs and source chains remain unresolved; do not guess.
 
 ## Implementation order
 
@@ -161,3 +162,9 @@ This pass recovered class names and literal strings from DEX, but a full method-
 - Added independent `HatyTabii/` beta module based on the APK's `TabiiTvRepository`/`TabiiExtractor` evidence and observed official route `/tr/watch/live/trt1`.
 - It discovers live-page links and only emits media URLs explicitly present in the official response; it does not synthesize manifests. If the service uses an authenticated or DRM-protected player not exposed in page HTML, playback remains blocked/unverified.
 - Search, channel completeness, manifest access, and real CloudStream playback are not yet verified.
+
+
+### Papaz beta module added — 2026-10-12
+- Added independent `HatyPapaz/` module using publicly discoverable `papazsports.co` pages. The APK inventory confirms Papaz repository/config classes, but does **not** prove that this domain matches the APK's current runtime configuration.
+- It parses event/channel-like links from page HTML and resolves only explicitly exposed iframe/video/manifest candidates. No generated stream URLs or access-control bypasses are used.
+- Catalogue completeness, current domain match, stream access, playback, and subtitles remain **NOT TESTED**.
