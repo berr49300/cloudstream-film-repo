@@ -24,7 +24,7 @@ class HatyDiziPalParserTest {
         assertEquals(2, items.size)
         assertTrue(items[0] is TvSeriesSearchResponse)
         assertEquals("Reacher", items[0].name)
-        assertEquals("https://dizipal1430.com/dizi/reacher", items[0].url)
+        assertEquals("https://dizipalorjinal14.com/dizi/reacher", items[0].url)
         assertEquals("Dune: Part Two", items[1].name)
     }
 
@@ -48,7 +48,7 @@ class HatyDiziPalParserTest {
         assertEquals(2, result?.episodes?.size)
         assertEquals(1, result?.episodes?.get(0)?.season)
         assertEquals(1, result?.episodes?.get(0)?.episode)
-        assertEquals("https://dizipal1430.com/bolum/silo-1-sezon-1-bolum", result?.episodes?.get(0)?.data)
+        assertEquals("https://dizipalorjinal14.com/bolum/silo-1-sezon-1-bolum", result?.episodes?.get(0)?.data)
     }
 
     @Test
