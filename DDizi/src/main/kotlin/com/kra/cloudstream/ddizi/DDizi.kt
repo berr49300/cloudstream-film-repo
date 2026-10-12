@@ -764,7 +764,12 @@ class DDizi : MainAPI() {
                 val extracted = mutableListOf<ExtractorLink>()
                 runCatching {
                     loadExtractor(candidate, parentReferer, subtitleCallback) { extracted.add(it) }
-                }.onFailure { Log.d("DDizi", "Extractor failed for host=" + host, it) }
+                }.onFailure {
+                    Log.d(
+                        "DDiziTrace",
+                        "stage=extractor-fallback route=${safeRoute(candidate)} error=${it.javaClass.simpleName}"
+                    )
+                }
                 Log.d(
                     "DDiziTrace",
                     "stage=extractor-fallback route=${safeRoute(candidate)} host=$host " +
