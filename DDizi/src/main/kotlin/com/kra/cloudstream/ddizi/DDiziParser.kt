@@ -17,6 +17,11 @@ internal object DDiziParser {
             .find(runCatching { URI(url).path.orEmpty() }.getOrDefault(""))
             ?.groupValues?.getOrNull(1)
 
+    fun seriesPageNumber(url: String): Int? =
+        Regex("""(?i)/sayfa-(\d+)$""")
+            .find(runCatching { URI(url).path.orEmpty().trimEnd('/') }.getOrDefault(""))
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+
     fun isEpisodeUrl(url: String): Boolean =
         runCatching { URI(url).path.orEmpty() }.getOrDefault(url)
             .startsWith("/izle/", ignoreCase = true)
