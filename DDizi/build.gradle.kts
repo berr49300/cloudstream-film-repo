@@ -1,10 +1,10 @@
-version = 4
+version = 5
 
 cloudstream {
     authors = listOf("berr49300")
     language = "tr"
-    description = "DDizi katalog, doğru sezon/bölüm eşlemesi ve genişletilmiş oynatıcı çözümlemesi"
+    description = "DDizi hızlı kaynak çözümleme, sade ses/video seçenekleri ve sezon eşlemesi"
     status = 3
     tvTypes = listOf("TvSeries")
-    iconUrl = "https://www.google.com/s2/favicons?sz=128&domain=ddizi.tel"
+    iconUrl = "https://www.ddizi.tel/images/logo.png"
 }

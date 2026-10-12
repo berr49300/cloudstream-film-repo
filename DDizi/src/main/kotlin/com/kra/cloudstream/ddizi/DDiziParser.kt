@@ -182,6 +182,52 @@ internal object DDiziParser {
     private fun isValidYoutubeId(value: String): Boolean =
         Regex("""^[A-Za-z0-9_-]{6,32}$""").matches(value)
 
+    /**
+     * Prefer a broadly supported H.264 stream at or below 720p to reduce buffering
+     * on low-bandwidth devices. Fall back to another <=720p format before choosing
+     * a higher-resolution H.264 stream.
+     */
+    fun preferredYoutubeVariantIndex(candidates: List<Pair<String, Int>>): Int? {
+        val valid = candidates.withIndex().filter { it.value.second > 0 }
+        if (valid.isEmpty()) return candidates.indices.firstOrNull()
+        fun isH264(name: String): Boolean =
+            name.contains("h264", true) || name.contains("avc", true)
+
+        val h264 = valid.filter { isH264(it.value.first) }
+        h264.filter { it.value.second <= 720 }
+            .maxByOrNull { it.value.second }
+            ?.let { return it.index }
+
+        valid.filter { it.value.second <= 720 }
+            .maxByOrNull { it.value.second }
+            ?.let { return it.index }
+
+        h264.minByOrNull { it.value.second }
+            ?.let { return it.index }
+
+        return valid.minByOrNull { it.value.second }?.index
+    }
+
+    /**
+     * YouTube's audio links expose codec itags through their query string. Keep one
+     * default/original AAC stream where possible, avoiding translated OPUS variants
+     * that are often exposed with a missing ("und") or misleading language label.
+     */
+    fun youtubeAudioTrackPriority(rawUrl: String): Int {
+        val query = runCatching { URI(rawUrl).rawQuery.orEmpty() }.getOrDefault("")
+        val itag = Regex("""(?:^|&)itag=(\d+)(?:&|$)""")
+            .find(query)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val translated = Regex("""(?:^|&)tlang=[^&]+""")
+            .containsMatchIn(query)
+        val aacItags = setOf(139, 140, 141, 256, 258)
+        return when {
+            !translated && itag in aacItags -> 0
+            !translated -> 1
+            itag in aacItags -> 2
+            else -> 3
+        }
+    }
+
     fun episodeNumber(value: String): Int? =
         Regex("""(?i)(\d+)\s*\.?\s*b[oö]l[uü]m\b""")
             .find(value)?.groupValues?.get(1)?.toIntOrNull()
