@@ -124,7 +124,7 @@ jobs:
           find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp publish-input/repo.json publish/repo.json
           cp publish-input/build/plugins.json publish/plugins.json
-          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \\;
+          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
 
           count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
           test "${count}" -ge 1
