@@ -47,33 +47,16 @@ class HatyDiziPal : MainAPI() {
 
     /** Pure DOM parser exposed for fixture-backed tests. */
     fun parseSearchElement(element: Element): SearchResponse? {
-        val href = fixUrlNull(element.attr("href")) ?: return null
-        if (!isSiteUrl(href)) return null
-        val path = URI(href).path.orEmpty()
-        val isSeries = path.contains("/dizi/")
-        val isMovie = path.contains("/film/")
-        if (!isSeries && !isMovie) return null
-
-        val image = element.selectFirst("img")
-        val title = element.attr("title").ifBlank {
-            element.selectFirst(".title, h2, h3, h4, .name")?.text()?.trim()
-                ?: image?.attr("alt")?.takeIf { it.isNotBlank() }
-                ?: element.text().trim()
-        }.trim()
-        if (title.isBlank()) return null
-        val poster = fixUrlNull(image?.attr("data-src")?.ifBlank { null }
-            ?: image?.attr("src")?.ifBlank { null })
-        val year = Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
-        val cleanTitle = title.replace(Regex("""\s*\((19|20)\d{2}\)\s*$"""), "").trim()
-        return if (isSeries) {
-            newTvSeriesSearchResponse(cleanTitle, href, TvType.TvSeries) {
-                posterUrl = poster
-                this.year = year
+        val item = DiziPalHtmlParser.parseCatalogElement(element, mainUrl) ?: return null
+        return if (item.isSeries) {
+            newTvSeriesSearchResponse(item.title, item.url, TvType.TvSeries) {
+                posterUrl = item.posterUrl
+                year = item.year
             }
         } else {
-            newMovieSearchResponse(cleanTitle, href, TvType.Movie) {
-                posterUrl = poster
-                this.year = year
+            newMovieSearchResponse(item.title, item.url, TvType.Movie) {
+                posterUrl = item.posterUrl
+                year = item.year
             }
         }
     }
@@ -142,20 +125,13 @@ class HatyDiziPal : MainAPI() {
             ?: Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
 
         if (isSeries) {
-            val episodes = doc.select("a[href*='/bolum/']").mapNotNull { element ->
-                val href = fixUrlNull(element.attr("href")) ?: return@mapNotNull null
-                if (!isSiteUrl(href)) return@mapNotNull null
-                val label = element.text().trim()
-                val season = Regex("""(\d+)\s*[-.]?\s*sezon""", RegexOption.IGNORE_CASE)
-                    .find("$label $href")?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                val episode = Regex("""(\d+)\s*[-.]?\s*bolum""", RegexOption.IGNORE_CASE)
-                    .find("$label $href")?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
-                newEpisode(href) {
-                    name = label.ifBlank { "$season. Sezon $episode. Bölüm" }
-                    this.season = season
-                    this.episode = episode
+            val episodes = DiziPalHtmlParser.parseEpisodeEntries(doc, url).map { item ->
+                newEpisode(item.url) {
+                    name = item.title
+                    season = item.season
+                    episode = item.episode
                 }
-            }.distinctBy { it.data }
+            }
             return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 posterUrl = poster
                 this.plot = plot
@@ -255,9 +231,7 @@ class HatyDiziPal : MainAPI() {
     private fun resolveUrl(base: String, candidate: String): String =
         runCatching { URI(base).resolve(candidate).toString() }.getOrElse { candidate }
 
-    private fun isSiteUrl(url: String): Boolean =
-        runCatching { URI(url).host?.let { host -> host.equals(URI(mainUrl).host, ignoreCase = true) || host.equals("dizipal1430.com", ignoreCase = true) || host.equals("www.dizipal1430.com", ignoreCase = true) } == true }
-            .getOrDefault(false)
+    private fun isSiteUrl(url: String): Boolean = DiziPalHtmlParser.isSiteUrl(url)
 
     data class DiziPalSearchRoot(
         @JsonProperty("results") val results: List<DiziPalSearchResult>? = null

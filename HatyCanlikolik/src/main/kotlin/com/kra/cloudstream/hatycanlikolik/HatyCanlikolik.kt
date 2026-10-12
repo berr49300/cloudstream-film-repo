@@ -74,22 +74,10 @@ class HatyCanlikolik : MainAPI() {
         return null
     }
 
-    fun parseCatalog(doc: Document): List<SearchResponse> {
-        val items = linkedMapOf<String, SearchResponse>()
-        doc.select("a[href]").forEach { a ->
-            val raw = a.attr("href").trim()
-            if (raw.isBlank() || raw.startsWith("#") || raw.startsWith("javascript:", true)) return@forEach
-            val href = resolve(doc.baseUri(), raw)
-            if (!isCanlikolikUrl(href) || URI(href).path.orEmpty().trim('/').isBlank()) return@forEach
-            val title = titleOf(a)
-            if (title.length < 2 || !looksRelevant(href, title, a)) return@forEach
-            val img = a.selectFirst("img")
-            val imgRaw = img?.attr("data-src").orEmpty().ifBlank { img?.attr("data-lazy-src").orEmpty() }.ifBlank { img?.attr("src").orEmpty() }
-            val poster = imgRaw.takeIf { it.isNotBlank() }?.let { resolve(doc.baseUri(), it) }
-            items.putIfAbsent(href, newLiveSearchResponse(title, href) { posterUrl = poster })
+    fun parseCatalog(doc: Document): List<SearchResponse> =
+        CanlikolikHtmlParser.parseCatalog(doc).map { entry ->
+            newLiveSearchResponse(entry.title, entry.url) { posterUrl = entry.posterUrl }
         }
-        return items.values.toList()
-    }
 
     private fun mediaCandidates(doc: Document): Set<String> {
         val result = linkedSetOf<String>()
@@ -117,10 +105,7 @@ class HatyCanlikolik : MainAPI() {
         return listOf("mac", "match", "event", "kanal", "canli", "live", "stream", "futbol", "basketbol", "voleybol", "tenis", "league", "spor", "bein", "tabii", "trt", "s-sport", "ssport", "tv8", "atv", "a-spor", "nba", "vs", "yayın").any(source::contains)
     }
 
-    private fun isCanlikolikUrl(url: String): Boolean = runCatching {
-        val host = URI(url).host.orEmpty().lowercase().removePrefix("www.")
-        Regex("""^canlikolik\\d*\\.(my|live|cam)$""").matches(host)
-    }.getOrDefault(false)
+    private fun isCanlikolikUrl(url: String): Boolean = CanlikolikHtmlParser.isCanlikolikUrl(url)
 
     private fun resolve(base: String, value: String): String = runCatching { URI(base).resolve(value).toString() }.getOrElse { value }
     private fun isHttpUrl(url: String) = url.startsWith("https://", true) || url.startsWith("http://", true)

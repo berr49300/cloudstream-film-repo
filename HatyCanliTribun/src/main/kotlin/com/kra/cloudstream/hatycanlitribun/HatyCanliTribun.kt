@@ -75,22 +75,10 @@ class HatyCanliTribun : MainAPI() {
         }
         return null
     }
-    fun parseCatalog(doc: Document): List<SearchResponse> {
-        val items = linkedMapOf<String, SearchResponse>()
-        doc.select("a[href]").forEach { a ->
-            val raw = a.attr("href").trim()
-            if (raw.isBlank() || raw.startsWith("#") || raw.startsWith("javascript:", true)) return@forEach
-            val href = resolve(doc.baseUri(), raw)
-            if (!isSiteUrl(href) || URI(href).path.orEmpty().trim('/').isBlank()) return@forEach
-            val title = titleOf(a)
-            if (title.length < 2 || !looksRelevant(href, title, a)) return@forEach
-            val img = a.selectFirst("img")
-            val rawPoster = img?.attr("data-src").orEmpty().ifBlank { img?.attr("data-lazy-src").orEmpty() }.ifBlank { img?.attr("src").orEmpty() }
-            val poster = rawPoster.takeIf { it.isNotBlank() }?.let { resolve(doc.baseUri(), it) }
-            items.putIfAbsent(href, newLiveSearchResponse(title, href) { posterUrl = poster })
+    fun parseCatalog(doc: Document): List<SearchResponse> =
+        CanliTribunHtmlParser.parseCatalog(doc).map { entry ->
+            newLiveSearchResponse(entry.title, entry.url) { posterUrl = entry.posterUrl }
         }
-        return items.values.toList()
-    }
     private fun mediaCandidates(doc: Document): Set<String> {
         val result = linkedSetOf<String>()
         doc.select("iframe[src], video[src], source[src], embed[src], [data-src], [data-url], [data-hls], [data-stream]").forEach { el ->
@@ -114,10 +102,7 @@ class HatyCanliTribun : MainAPI() {
         val source = (URI(url).path.orEmpty() + " " + title + " " + a.className() + " " + a.parent()?.attr("class").orEmpty()).lowercase()
         return listOf("mac", "match", "canli", "live", "event", "spor", "futbol", "basketbol", "voleybol", "tenis", "league", "vs", "izle", "yayın").any(source::contains)
     }
-    private fun isSiteUrl(url: String): Boolean = runCatching {
-        val host = URI(url).host.orEmpty().lowercase().removePrefix("www.")
-        Regex("""^canlitribun\\d+\\.(top|live)$""").matches(host)
-    }.getOrDefault(false)
+    private fun isSiteUrl(url: String): Boolean = CanliTribunHtmlParser.isSiteUrl(url)
     private fun resolve(base: String, value: String): String = runCatching { URI(base).resolve(value).toString() }.getOrElse { value }
     private fun isHttpUrl(url: String) = url.startsWith("https://", true) || url.startsWith("http://", true)
 }

@@ -7,8 +7,3 @@ cloudstream {
     tvTypes = listOf("Live")
     iconUrl = "https://www.google.com/s2/favicons?sz=128&domain=canlikolik5.my"
 }
-
-dependencies {
-    testImplementation("com.lagradost:cloudstream3:pre-release")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-}

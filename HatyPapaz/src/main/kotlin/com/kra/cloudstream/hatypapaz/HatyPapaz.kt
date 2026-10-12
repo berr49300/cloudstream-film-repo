@@ -10,14 +10,14 @@ import java.net.URI
 
 /** APK includes PapazRepository and PapazBaseUrlRepository; public mirrors are discovery leads, not proof of APK config. */
 class HatyPapaz : MainAPI() {
-    override var mainUrl = "https://www.papazsports1022.pro"
+    override var mainUrl = "https://www.papazsports1028.pro"
     override var name = "Haty Papaz"
     override var lang = "tr"
     override val hasMainPage = true
     override val hasQuickSearch = true
     override val supportedTypes = setOf(TvType.Live)
     override val mainPage = mainPageOf("$mainUrl/" to "Maçlar ve kanallar")
-    private val hosts = listOf("https://www.papazsports1022.pro/", "https://www.papazsports1023.pro/", "https://papazsports.co/")
+    private val hosts = listOf("https://www.papazsports1028.pro/", "https://www.papazsports1022.pro/", "https://www.papazsports1023.pro/", "https://papazsports.co/")
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         if (page > 1) return newHomePageResponse(request.name, emptyList(), hasNext = false)
@@ -108,7 +108,7 @@ class HatyPapaz : MainAPI() {
     }
     private fun isPapazUrl(url: String): Boolean = runCatching {
         val host = URI(url).host.orEmpty().lowercase().removePrefix("www.")
-        Regex("""^papazsports\\d+\\.pro$""").matches(host) || host == "papazsports.co"
+        Regex("""^papazsports\d+\.pro$""").matches(host) || host == "papazsports.co"
     }.getOrDefault(false)
     private fun resolve(base: String, value: String): String = runCatching { URI(base).resolve(value).toString() }.getOrElse { value }
     private fun isHttpUrl(url: String) = url.startsWith("https://", true) || url.startsWith("http://", true)
