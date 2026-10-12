@@ -1,10 +1,10 @@
 [
     {
-        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=ddizi.tel",
-        "fileHash": "sha256-276de83447d815677420c2557c462ce0c0582636b8737b2ec3a0a18597630920",
+        "iconUrl": "https://www.ddizi.tel/images/logo.png",
+        "fileHash": "sha256-3bc051d654b83ae932a3e5c49f2ee2b58e2411ba849e19e6e990f89c02d9cda1",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 48181,
+        "fileSize": 60468,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -13,9 +13,9 @@
         "tvTypes": [
             "TvSeries"
         ],
-        "version": 4,
+        "version": 5,
         "internalName": "DDizi",
-        "description": "DDizi katalog, do\u011fru sezon/b\u00f6l\u00fcm e\u015flemesi ve geni\u015fletilmi\u015f oynat\u0131c\u0131 \u00e7\u00f6z\u00fcmlemesi",
+        "description": "DDizi h\u0131zl\u0131 kaynak \u00e7\u00f6z\u00fcmleme, sade ses/video se\u00e7enekleri ve sezon e\u015flemesi",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DDizi.cs3",
         "name": "DDizi"
     },
