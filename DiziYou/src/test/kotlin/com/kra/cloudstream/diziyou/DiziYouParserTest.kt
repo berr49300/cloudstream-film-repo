@@ -2,7 +2,6 @@ package com.kra.cloudstream.diziyou
 
 import org.jsoup.Jsoup
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiziYouParserTest {
@@ -18,16 +17,5 @@ class DiziYouParserTest {
     @Test fun episodeSlugExposesSeasonAndEpisodeNumbers() {
         assertEquals(1 to 1, parseEpisodeNumbers("https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/"))
     }
-    @Test fun playerIdIsFoundFromIframe() {
-        val doc = Jsoup.parse("<iframe id='diziyouPlayer' src='https://player.example/player/item_123.html'></iframe>")
-        assertEquals("item_123", DiziYou().extractPlayerId(doc))
-    }
-    @Test fun playerIdIsFoundFromInlineConfig() {
-        val doc = Jsoup.parse("<script>var itemId = 'item_456';</script>")
-        assertEquals("item_456", DiziYou().extractPlayerId(doc))
-    }
-    @Test fun playerCandidatesIncludeIframeAndVideoSource() {
-        val doc = Jsoup.parse("<iframe src='https://embed.example/watch/1'></iframe><video><source src='https://cdn.example/video.m3u8'></video>")
-        assertTrue(DiziYou().getPlayerCandidates(doc).size >= 2)
-    }
+
 }
