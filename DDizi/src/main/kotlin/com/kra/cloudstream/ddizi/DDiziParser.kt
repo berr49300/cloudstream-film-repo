@@ -12,6 +12,11 @@ internal object DDiziParser {
             host == "ddizi.im" || host.endsWith(".ddizi.im")
     }
 
+    fun seriesId(url: String): String? =
+        Regex("""(?i)/diziler/(\\d+)(?:/|$)""")
+            .find(runCatching { URI(url).path.orEmpty() }.getOrDefault(""))
+            ?.groupValues?.getOrNull(1)
+
     fun isEpisodeUrl(url: String): Boolean =
         runCatching { URI(url).path.orEmpty() }.getOrDefault(url)
             .startsWith("/izle/", ignoreCase = true)
@@ -23,7 +28,8 @@ internal object DDiziParser {
     fun isSeriesCatalogUrl(url: String): Boolean {
         val path = runCatching { URI(url).path.orEmpty().trimEnd('/') }.getOrDefault(url)
         return path.endsWith("/yabanci-dizi-izle", true) ||
-            path.endsWith("/eski.diziler", true)
+            path.endsWith("/eski.diziler", true) ||
+            path.endsWith("/eski.diziler.izle", true)
     }
 
     /**
