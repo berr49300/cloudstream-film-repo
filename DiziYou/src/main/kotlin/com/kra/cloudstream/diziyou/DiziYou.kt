@@ -5,7 +5,7 @@ import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 import java.net.URI
 
-/** Initial conservative provider. Current raw DOM/player contract remains partly unverified. */
+/** Conservative provider; the live raw DOM and player contract are still partly unverified. */
 class DiziYou : MainAPI() {
     override var mainUrl = "https://www.diziyou.one"
     override var name = "DiziYou"
@@ -65,12 +65,13 @@ class DiziYou : MainAPI() {
             val href = a.absoluteLink() ?: return@mapNotNull null
             if (!runCatching { URI(href).host.equals(URI(mainUrl).host, true) }.getOrDefault(false)) return@mapNotNull null
             val label = a.text().trim().replace(Regex("\\s+"), " ")
-            val match = Regex("(?i)(\\d+)\\.\\s*(?:bölüm|bolum)").find(label)
-            if (match == null && !label.contains("bölüm", true) && !label.contains("bolum", true)) return@mapNotNull null
+            val numbering = parseEpisodeNumbers(label)
+            if (numbering.second == null && !label.contains("bölüm", true) && !label.contains("bolum", true)) return@mapNotNull null
             val card = a.closest(".episode, .bolumust, article, li, [class*=episode]") ?: a
             newEpisode(href) {
                 name = label.ifBlank { "Bölüm" }
-                episode = match?.groupValues?.getOrNull(1)?.toIntOrNull()
+                season = numbering.first ?: 1
+                episode = numbering.second
                 posterUrl = card.selectFirst("img")?.let { img -> listOf("data-src", "data-lazy-src", "src").firstNotNullOfOrNull { k -> img.attr(k).takeIf { it.isNotBlank() } }?.let { fixUrlNull(it) } }
             }
         }.distinctBy { it.data }
@@ -87,4 +88,11 @@ class DiziYou : MainAPI() {
         frames.forEach { frame -> runCatching { loadExtractor(frame, data, subtitleCallback, callback); attempted = true } }
         return attempted
     }
+}
+
+/** Extracts season/episode numbering from observed labels such as "2. Sezon 3. Bölüm". */
+internal fun parseEpisodeNumbers(label: String): Pair<Int?, Int?> {
+    val season = Regex("(?i)(\\d+)\\.\\s*sezon").find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    val episode = Regex("(?i)(\\d+)\\.\\s*(?:bölüm|bolum)").find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    return season to episode
 }

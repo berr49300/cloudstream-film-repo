@@ -13,8 +13,12 @@ class DiziYouParserTest {
         assertEquals("Silo", card!!.selectFirst("h3")!!.text())
         assertEquals("/poster.jpg", card.selectFirst("img")!!.attr("src"))
     }
-    @Test fun episodeLabelExposesEpisodeNumber() {
-        val match = Regex("(?i)(\\d+)\\.\\s*(?:bölüm|bolum)").find("1. Sezon 2. Bölüm (test)")
-        assertEquals("2", match?.groupValues?.getOrNull(1))
+
+    @Test fun episodeLabelExposesSeasonAndEpisodeNumbers() {
+        assertEquals(2 to 3, parseEpisodeNumbers("2. Sezon 3. Bölüm (Test)"))
+    }
+
+    @Test fun englishEpisodeLabelWithoutSeasonLeavesSeasonUnknown() {
+        assertEquals(null to 1, parseEpisodeNumbers("1. Bölüm (Episode One)"))
     }
 }

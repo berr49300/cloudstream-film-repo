@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish to the builds branch (only works when run from main)"
+        description: "Publish to the builds branch (requires explicit approval)"
         type: boolean
         required: true
         default: false
@@ -92,7 +92,7 @@ jobs:
   publish:
     name: Publish validated build to builds branch
     needs: build
-    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish == true }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -124,7 +124,7 @@ jobs:
           find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp publish-input/repo.json publish/repo.json
           cp publish-input/build/plugins.json publish/plugins.json
-          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
+          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \\;
 
           count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
           test "${count}" -ge 1
