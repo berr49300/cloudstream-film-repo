@@ -16,8 +16,8 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 | Dizilla | Existing provider | Preserve; regression-test only when shared infrastructure changes |
 | FullHDFilmizlesene | Existing provider | Preserve; regression-test only when shared infrastructure changes |
 | DDizi | Existing provider | Preserve |
-| Dizipal | Candidate found in APK inventory | Verify public site routes, catalogue, episodes and player before implementing |
-| Diziyou | Candidate found in APK inventory | Verify public site routes, catalogue, episodes and player before implementing |
+| Dizipal | Public site family exists; current canonical domain is unstable/uncertain | Catalogue examples found in public provider code, but domain and current player must be revalidated before implementation |
+| Diziyou | Public catalogue page observed at https://diziyou.net/; another public domain https://www.diziyou.one/ also surfaced | Catalogue exists; exact raw selectors, episode mapping and player chain still require verification |
 | Turkish123 | Candidate found in APK inventory | Verify raw HTML, search, episodes, source chain and subtitles before implementing |
 | Canlikolik | Candidate live-TV provider | Verify current public channel list and permitted playback metadata |
 | tabii | Candidate service provider; public URL observed: https://www.tabii.com/ | Verify official public catalogue and supported playback interface |
@@ -29,7 +29,8 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 
 - [x] Repository modules are auto-discovered by `settings.gradle.kts` when a directory contains `build.gradle.kts`; no hard-coded include list is needed.
 - [x] Confirmed Turkish123 public series catalogue HTML is rendered with linked series entries; public page inspection alone does not confirm raw selectors or playback.
-- [ ] New provider source modules: not yet implemented.
+- [x] Turkish123 initial beta provider module exists and is included in the unified repo feed build.
+- [ ] Dizipal and Diziyou: public discovery evidence collected; provider modules are not yet implemented because the current source/player behavior is not verified.
 - [ ] Search, detail, episode mapping, source resolution and subtitles: not yet runtime verified.
 - [ ] APK remote domains for CanlıTribün and Papaz: unresolved; do not guess.
 
@@ -77,8 +78,11 @@ Not confirmed:
 
 - Repository contribution rules and existing module conventions reviewed.
 - Static APK source inventory recorded.
-- Turkish123 public home, series list and one detail page inspected.
-- New provider Kotlin modules: NOT STARTED.
+- Turkish123 public home, series list and one detail page inspected; initial beta module committed.
+- Diziyou public catalogue pages discovered; raw selectors and player chain still unverified.
+- Dizipal public provider examples were found in a third-party repository, but they are not copied; its active domain and player chain need independent validation.
+- Official tabii public catalogue and live-channel listings are visible, but a supported playback interface has not been verified. No authentication, geo-restriction, or DRM bypass will be attempted.
+- Canlikolik, CanlıTribün and Papaz: no verified source/response chain yet.
 - CloudStream playback/subtitles: NOT TESTED.
 - Release branch `builds`: unchanged.
 
@@ -91,3 +95,27 @@ Not confirmed:
 - **Known gaps:** search is intentionally disabled; pagination is intentionally limited to the first page; episode-link conventions and extractor/subtitle playback are not yet verified against live responses; no Android device playback test has been run.
 - **Not yet implemented:** Dizipal, Diziyou, Canlikolik, tabii, CanlıTribün and Papaz. Their endpoints/player paths must be independently verified before adding provider code. Existing FilmMakinesi, Dizilla, FullHDFilmizlesene and DDizi modules remain untouched.
 - **Validation status:** GitHub file commits succeeded. A Gradle build/test result is not yet available from this editing session, so this module must be treated as beta/unverified, not as a completed release.
+
+
+## Additional public reconnaissance — 2026-10-12
+
+### Diziyou
+- Public catalogue evidence: https://diziyou.net/ and https://www.diziyou.one/hakkimizda/
+- The pages expose catalogue/series entries and recent episodes in rendered public output.
+- Not yet verified from raw responses: stable canonical host, HTML selectors, pagination/search request format, episode detail schema, media-source chain, subtitles, and CloudStream playback.
+- Status: **RECONNAISSANCE ONLY**; do not ship a guessed parser.
+
+### Dizipal
+- Public evidence indicates the domain family changes frequently; a third-party CloudStream repository contains a historical adapter targeting a numbered domain, but that is not proof that the domain or implementation is currently valid.
+- No third-party implementation has been copied into Haty.
+- Status: **BLOCKED pending current-domain and public player verification**.
+
+### tabii
+- Official public page: https://www.tabii.com/tr
+- The official page lists series, films, documentaries, kids content, and TRT live channels.
+- A rendered public catalogue does not establish a supported unauthenticated playback API. Playback may be subject to account, region, or DRM rules.
+- Status: **PUBLIC CATALOGUE CONFIRMED; PLAYBACK INTERFACE NOT VERIFIED**. Do not bypass access controls.
+
+### Remaining sources
+- Canlikolik: current public channel list and source metadata not yet verified.
+- CanlıTribün and Papaz: base domains still unresolved from verified evidence; no domain guesses or fabricated stream URLs.
