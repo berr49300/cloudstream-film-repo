@@ -60,3 +60,19 @@ This confirms that at least these two player buttons are broken at the **site en
 ## Analysis process correction
 
 The repository's discovery playbook and acceptance checklist already existed, but the initial DDizi v5 work did not produce a complete, evidence-backed DDizi profile before the release. This was a process miss. This profile now records the known routes and the concrete 404 checks; the unresolved player chain remains BLOCKED until a current working source family is evidenced.
+
+
+## v7 investigation — 2026-10-12
+
+- The live Teşkilat detail page currently lists 10 episodes per page (188–179 on the base route); pagination exposes historic pages, including a `/sayfa-0` route that duplicates the base page. See [live detail page](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle) and [page 1 link target](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle/sayfa-1).
+- Previous code scanned only the first 8 pagination links and could spend one slot fetching the duplicate `/sayfa-0`. This could leave older `Sezon Finali` boundaries undiscovered and incorrectly assign a group such as 109–111 to Season 1. The exact number of anchors accepted on the user's installed page is still **NOT CONFIRMED**; v7 logs the page, anchor, accepted-episode and per-season counts to distinguish pagination misses from title-filter misses.
+- v7 ignores `/sayfa-0`, fetches up to 20 actual historical pages in batches of four, and logs their redacted route, HTTP status and duration.
+- v7 source diagnostics use the `DDiziTrace` log tag. Candidate logs record a query-redacted host/path, source family, extraction elapsed time, HTTP result where explicitly requested, found/selected qualities, and which source families were emitted. Direct HLS links are marked `emit-unprobed`: emitting the URL does not verify its manifest or media segments.
+- The source picker labels distinct families (for example `DDizi YouTube`, `DDizi HLS (host)`, or `DDizi external-host`) so the user can report which specific option plays. At most 12 candidates are visited and at most 6 links are shown, keeping the search bounded rather than probing endlessly.
+- User device playback remains **NOT TESTED** from this automation environment. The automated build can validate Kotlin/parser behavior but cannot press play in the user's CloudStream app.
+
+## What to inspect in the next device test
+
+1. On a known series detail page, check the `DDiziTrace stage=episode-map` line: `pages`, `anchors`, `episodes`, `seasonFinals` and `seasonCounts`.
+2. On a failing episode, check `stage=source-summary` plus preceding `candidate-attempt`, `youtube-extract`, `extractor`, `nested-page`, and `emit-unprobed` lines.
+3. A working source is confirmed only when it begins playing and continues beyond initial buffering; an emitted link alone is not PASS.
