@@ -5,6 +5,18 @@ import java.net.URLDecoder
 import java.util.Locale
 
 internal object DDiziParser {
+    /** The current .tel site also has a legacy .im host that redirects to it. */
+    fun isDdiziHost(url: String): Boolean {
+        val host = runCatching { URI(url).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
+        return host == "ddizi.tel" || host.endsWith(".ddizi.tel") ||
+            host == "ddizi.im" || host.endsWith(".ddizi.im")
+    }
+
+    fun seriesId(url: String): String? =
+        Regex("""(?i)/diziler/(\d+)(?:/|$)""")
+            .find(runCatching { URI(url).path.orEmpty() }.getOrDefault(""))
+            ?.groupValues?.getOrNull(1)
+
     fun isEpisodeUrl(url: String): Boolean =
         runCatching { URI(url).path.orEmpty() }.getOrDefault(url)
             .startsWith("/izle/", ignoreCase = true)
@@ -16,7 +28,8 @@ internal object DDiziParser {
     fun isSeriesCatalogUrl(url: String): Boolean {
         val path = runCatching { URI(url).path.orEmpty().trimEnd('/') }.getOrDefault(url)
         return path.endsWith("/yabanci-dizi-izle", true) ||
-            path.endsWith("/eski.diziler", true)
+            path.endsWith("/eski.diziler", true) ||
+            path.endsWith("/eski.diziler.izle", true)
     }
 
     /**
@@ -121,7 +134,7 @@ internal object DDiziParser {
         }
 
         // DDizi's same-site relay may wrap a full URL or just a video ID.
-        if ((host == "ddizi.tel" || host.endsWith(".ddizi.tel")) &&
+        if ((isDdiziHost(url) || host == "ddizi.re" || host.endsWith(".ddizi.re")) &&
             (path.endsWith("/player/telif/index.php") || path.endsWith("/player/youtube.php") ||
                 path.endsWith("/youtube.php"))
         ) {
@@ -183,30 +196,46 @@ internal object DDiziParser {
         Regex("""^[A-Za-z0-9_-]{6,32}$""").matches(value)
 
     /**
-     * Prefer a broadly supported H.264 stream at or below 720p to reduce buffering
-     * on low-bandwidth devices. Fall back to another <=720p format before choosing
-     * a higher-resolution H.264 stream.
+     * Keep quality options useful rather than flooding the picker: prefer the best
+     * available resolution up to 1080p, then expose a lower-quality fallback.
+     * Within the same resolution prefer H.264/AVC for broader decoder compatibility.
      */
-    fun preferredYoutubeVariantIndex(candidates: List<Pair<String, Int>>): Int? {
-        val valid = candidates.withIndex().filter { it.value.second > 0 }
-        if (valid.isEmpty()) return candidates.indices.firstOrNull()
-        fun isH264(name: String): Boolean =
-            name.contains("h264", true) || name.contains("avc", true)
+    fun preferredYoutubeVariantIndices(
+        candidates: List<Pair<String, Int>>,
+        maxVariants: Int = 2
+    ): List<Int> {
+        if (candidates.isEmpty() || maxVariants <= 0) return emptyList()
 
-        val h264 = valid.filter { isH264(it.value.first) }
-        h264.filter { it.value.second <= 720 }
-            .maxByOrNull { it.value.second }
-            ?.let { return it.index }
+        val valid = candidates.withIndex().filter { it.value.second in 1..4320 }
+        if (valid.isEmpty()) return candidates.indices.take(1)
 
-        valid.filter { it.value.second <= 720 }
-            .maxByOrNull { it.value.second }
-            ?.let { return it.index }
+        val atOrBelow1080 = valid.filter { it.value.second <= 1080 }
+        val pool = if (atOrBelow1080.isNotEmpty()) {
+            atOrBelow1080
+        } else {
+            // There is no <=1080 stream; avoid selecting an even higher resolution
+            // when the extractor only returned high-resolution variants.
+            val minimum = valid.minOf { it.value.second }
+            valid.filter { it.value.second == minimum }
+        }
 
-        h264.minByOrNull { it.value.second }
-            ?.let { return it.index }
+        fun codecPriority(name: String): Int =
+            if (name.contains("h264", true) || name.contains("avc", true)) 0 else 1
 
-        return valid.minByOrNull { it.value.second }?.index
+        return pool.sortedWith(
+            compareByDescending<IndexedValue<Pair<String, Int>>> { it.value.second }
+                .thenBy { codecPriority(it.value.first) }
+        ).distinctBy { it.value.second }
+            .take(maxVariants)
+            .map { it.index }
     }
+
+    fun preferredYoutubeVariantIndex(candidates: List<Pair<String, Int>>): Int? =
+        preferredYoutubeVariantIndices(candidates, maxVariants = 1).firstOrNull()
+
+    fun qualityFromLabel(label: String): Int? =
+        Regex("""(?i)\b(4320|2160|1440|1080|720|576|540|480|360|240)\s*p\b""")
+            .find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
 
     /**
      * YouTube's audio links expose codec itags through their query string. Keep one

@@ -8,11 +8,18 @@ import org.junit.Test
 class DDiziParserTest {
     @Test
     fun recognizesObservedSeriesAndEpisodeRoutes() {
+        assertEquals("2171", DDiziParser.seriesId("https://www.ddizi.tel/diziler/2171/alti-ustu-istanbul"))
+        assertEquals("2171", DDiziParser.seriesId("https://www.ddizi.tel/diziler/2171/alti-ustu-istanbul-son-bolum-izle"))
+        assertEquals(null, DDiziParser.seriesId("https://www.ddizi.tel/izle/2171/test.htm"))
+        assertTrue(DDiziParser.isDdiziHost("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
+        assertTrue(DDiziParser.isDdiziHost("https://www.ddizi.im/diziler/2160/sevdigim-sensin-son-bolum-izle"))
+        assertFalse(DDiziParser.isDdiziHost("https://example.com/diziler/2160/test"))
         assertTrue(DDiziParser.isSeriesUrl("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
         assertTrue(DDiziParser.isEpisodeUrl("https://www.ddizi.tel/izle/38955/kanit-100-bolum-final.htm"))
         assertFalse(DDiziParser.isEpisodeUrl("https://www.ddizi.tel/diziler/2160/sevdigim-sensin-son-bolum-izle"))
         assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yabanci-dizi-izle"))
         assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler"))
+        assertTrue(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/eski.diziler.izle"))
         assertFalse(DDiziParser.isSeriesCatalogUrl("https://www.ddizi.tel/yeni-eklenenler8"))
     }
 
@@ -128,9 +135,9 @@ class DDiziParserTest {
     }
 
     @Test
-    fun prefersH264At720pAndAvoidsExcessivelyHighResolution() {
+    fun prefers1080pThen720pFallbackAndAvoidsExcessivelyHighResolution() {
         assertEquals(
-            2,
+            0,
             DDiziParser.preferredYoutubeVariantIndex(
                 listOf(
                     "YouTube H264" to 1080,
@@ -141,7 +148,7 @@ class DDiziParserTest {
             )
         )
         assertEquals(
-            1,
+            0,
             DDiziParser.preferredYoutubeVariantIndex(
                 listOf("YouTube H264" to 1080, "YouTube VP9" to 720, "YouTube VP9" to 480)
             )
@@ -152,6 +159,33 @@ class DDiziParserTest {
                 listOf("YouTube H264" to 2160, "YouTube H264" to 1080)
             )
         )
+    }
+
+    @Test
+    fun keepsAUsefulYoutubeQualityFallbackAndReadsQualityFromLabel() {
+        assertEquals(
+            listOf(0, 2),
+            DDiziParser.preferredYoutubeVariantIndices(
+                listOf(
+                    "YouTube H264 1080p" to 1080,
+                    "YouTube VP9 720p" to 720,
+                    "YouTube H264 720p" to 720,
+                    "YouTube H264 480p" to 480
+                )
+            )
+        )
+        assertEquals(
+            listOf(1, 2),
+            DDiziParser.preferredYoutubeVariantIndices(
+                listOf(
+                    "YouTube H264 2160p" to 2160,
+                    "YouTube H264 720p" to 720,
+                    "YouTube H264 480p" to 480
+                )
+            )
+        )
+        assertEquals(1080, DDiziParser.qualityFromLabel("YouTube H264 1080p"))
+        assertEquals(null, DDiziParser.qualityFromLabel("YouTube H264"))
     }
 
     @Test
