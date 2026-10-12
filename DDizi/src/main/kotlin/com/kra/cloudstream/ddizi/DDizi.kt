@@ -664,7 +664,22 @@ class DDizi : MainAPI() {
             emitted++
         }
 
-        while (queue.isNotEmpty() && visited.size < 12 && emitted < 6) {
+        while (queue.isNotEmpty() && visited.size < 8 && emitted < 6) {
+            // Fast path: once we have both YouTube and a separate direct-media fallback,
+            // stop traversing unrelated/dead player wrappers. Extra requests delay source
+            // resolution without improving the normal source picker.
+            // If either family is missing, keep searching the bounded queue for alternatives.
+            val hasYoutube = (emittedByFamily["YouTube"] ?: 0) > 0
+            val hasMediaFallback = listOf("HLS", "Video", "DASH")
+                .any { (emittedByFamily[it] ?: 0) > 0 }
+            if (hasYoutube && hasMediaFallback) {
+                Log.d(
+                    "DDiziTrace",
+                    "stage=early-stop reason=youtube-plus-media-fallback visited=${visited.size} " +
+                        "emitted=${emitted} emittedByFamily=${emittedByFamily} queueRemaining=${queue.size}"
+                )
+                break
+            }
             val (candidate, parentReferer) = queue.removeFirst()
             if (!visited.add(candidate)) continue
             val candidateStartedAt = System.currentTimeMillis()
