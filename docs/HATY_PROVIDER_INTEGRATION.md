@@ -16,7 +16,7 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 | Dizilla | Existing provider | Preserve; regression-test only when shared infrastructure changes |
 | FullHDFilmizlesene | Existing provider | Preserve; regression-test only when shared infrastructure changes |
 | DDizi | Existing provider | Preserve |
-| Dizipal | Public site family exists; current canonical domain is unstable/uncertain | Catalogue examples found in public provider code, but domain and current player must be revalidated before implementation |
+| Dizipal | Independent beta module added at HatyDiziPal/ using the currently listed https://dizipal1430.com host and public route/player patterns | Catalogue/search/detail/episode parsing and explicit player-source extraction implemented; live behavior remains unverified |
 | Diziyou | Public catalogue page observed at https://diziyou.net/; another public domain https://www.diziyou.one/ also surfaced | Catalogue exists; exact raw selectors, episode mapping and player chain still require verification |
 | Turkish123 | Candidate found in APK inventory | Verify raw HTML, search, episodes, source chain and subtitles before implementing |
 | Canlikolik | Candidate live-TV provider | Verify current public channel list and permitted playback metadata |
@@ -30,12 +30,13 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 - [x] Repository modules are auto-discovered by `settings.gradle.kts` when a directory contains `build.gradle.kts`; no hard-coded include list is needed.
 - [x] Confirmed Turkish123 public series catalogue HTML is rendered with linked series entries; public page inspection alone does not confirm raw selectors or playback.
 - [x] Turkish123 initial beta provider module exists and is included in the unified repo feed build.
-- [ ] Dizipal: public discovery evidence collected; module still pending current-domain/player verification.
+- [x] Dizipal: independent beta module added using public route/player patterns; fresh live responses and playback remain unverified.
 - [x] tabii: separate beta live-provider module added, using the official live-page route and only explicit source URLs returned by the page; playback is unverified.
 - [x] DiziYou: separate beta module added under `HatyDiziYou/`, using only current-host links found in returned HTML and delegating visible embeds to CloudStream extractors. Search/pagination are disabled and playback remains unverified because the observed embed returned HTTP 403.
 - [ ] Search, detail, episode mapping, source resolution and subtitles: not yet runtime verified.
 - [x] Papaz: independent beta HTML adapter added for publicly discovered `papazsports.co`; this is not confirmed as the APK's active domain, and live playback is unverified.
-- [ ] Canlıkoli̇k and CanlıTribün: active base URLs and source chains remain unresolved; do not guess.
+- [ ] Canlikolik: public evidence points to a rotating canlikolik*.my domain family, but the APK active host/config and channel response chain remain unresolved.
+- [ ] CanlıTribün: public evidence points to rotating canlitribun*.live / canlitribun*.top families, but the APK active host/config and source chain remain unresolved.
 
 ## Implementation order
 
@@ -96,7 +97,7 @@ Not confirmed:
 - **Catalog behavior:** reads the observed public home and series-list pages, extracts same-site series links from page HTML, and loads episode links only when their URLs visibly indicate episode/season/part paths.
 - **Playback behavior:** delegates only explicitly embedded iframe/video/source URLs to CloudStream's extractor loader. No player endpoint or signed stream URL is hard-coded.
 - **Known gaps:** search is intentionally disabled; pagination is intentionally limited to the first page; episode-link conventions and extractor/subtitle playback are not yet verified against live responses; no Android device playback test has been run.
-- **Not yet implemented:** Dizipal, Diziyou, Canlikolik, tabii, CanlıTribün and Papaz. Their endpoints/player paths must be independently verified before adding provider code. Existing FilmMakinesi, Dizilla, FullHDFilmizlesene and DDizi modules remain untouched.
+- **Independent beta modules present:** HatyTurkish123, HatyDiziYou, HatyDiziPal, HatyTabii and HatyPapaz. Existing FilmMakinesi, Dizilla, FullHDFilmizlesene and DDizi modules remain untouched. Canlikolik and CanlıTribün are not implemented because the APK's active remote domains/player chains are not verified.
 - **Validation status:** GitHub file commits succeeded. A Gradle build/test result is not yet available from this editing session, so this module must be treated as beta/unverified, not as a completed release.
 
 
@@ -168,3 +169,24 @@ This pass recovered class names and literal strings from DEX, but a full method-
 - Added independent `HatyPapaz/` module using publicly discoverable `papazsports.co` pages. The APK inventory confirms Papaz repository/config classes, but does **not** prove that this domain matches the APK's current runtime configuration.
 - It parses event/channel-like links from page HTML and resolves only explicitly exposed iframe/video/manifest candidates. No generated stream URLs or access-control bypasses are used.
 - Catalogue completeness, current domain match, stream access, playback, and subtitles remain **NOT TESTED**.
+
+
+## Canonical completion status — refreshed 2026-10-12
+
+This section supersedes earlier dated snapshots in this file where implementation checkbox wording conflicts with the current branch.
+
+| APK family | Module status | Evidence/status boundary |
+|---|---|---|
+| FilmMakinesi | Existing; protected | Not duplicated or changed in this PR |
+| Dizilla | Existing; protected | Not duplicated or changed in this PR |
+| FullHDFilmizlesene | Existing; protected | Not duplicated or changed in this PR |
+| DDizi | Existing; protected | Not changed in this PR |
+| Turkish123 | HatyTurkish123 beta | HTML catalogue/detail/episode URLs are parsed; search, pagination, playback and subtitles remain unverified |
+| DiziYou | HatyDiziYou beta | diziyou.net route shapes observed; player embed responded 403 in research environment; playback unverified |
+| DiziPal | HatyDiziPal beta | Public provider reference lists dizipal1430.com, GET /api/search.php?q=..., /dizi/, /film/, /bolum/ and videoplay.vip player behavior. These are secondary code evidence, not live response verification of the APK flow |
+| tabii | HatyTabii beta live provider | Official live route observed; stream exposure and device playback not verified; no access-control bypass |
+| Papaz | HatyPapaz beta | papazsports.co is a discovery lead only, not confirmed as APK active remote base; live playback unverified |
+| Canlikolik | Not implemented | Public evidence indicates a rotating canlikolik*.my domain family, but not the APK's live remote configuration or channel/player responses |
+| CanlıTribün | Not implemented | Public evidence indicates rotating canlitribun*.live and canlitribun*.top families, but no verified event/player response chain |
+
+Latest CI before this commit passed at [workflow run 38257290766](https://github.com/berr49300/cloudstream-film-repo/actions/runs/38257290766). This commit will trigger new CI. Build and unit tests do not verify playback or subtitles. main and builds remain untouched.
