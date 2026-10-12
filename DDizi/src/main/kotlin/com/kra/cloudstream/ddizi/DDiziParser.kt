@@ -22,6 +22,12 @@ internal object DDiziParser {
             .find(runCatching { URI(url).path.orEmpty().trimEnd('/') }.getOrDefault(""))
             ?.groupValues?.getOrNull(1)?.toIntOrNull()
 
+    /** Normalize a paginated series URL back to its stable detail route. */
+    fun seriesBaseUrl(url: String): String =
+        url.substringBefore('#').substringBefore('?')
+            .replace(Regex("""(?i)/sayfa-\d+/?$"""), "")
+            .trimEnd('/')
+
     fun isEpisodeUrl(url: String): Boolean =
         runCatching { URI(url).path.orEmpty() }.getOrDefault(url)
             .startsWith("/izle/", ignoreCase = true)
