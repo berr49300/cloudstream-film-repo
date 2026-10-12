@@ -719,7 +719,12 @@ class DDizi : MainAPI() {
                 val extractorStartedAt = System.currentTimeMillis()
                 runCatching {
                     loadExtractor(candidate, parentReferer, subtitleCallback) { extracted.add(it) }
-                }.onFailure { Log.d("DDizi", "Extractor failed for host=" + host, it) }
+                }.onFailure {
+                    Log.d(
+                        "DDiziTrace",
+                        "stage=extractor route=${safeRoute(candidate)} error=${it.javaClass.simpleName}"
+                    )
+                }
                 Log.d(
                     "DDiziTrace",
                     "stage=extractor route=${safeRoute(candidate)} host=$host elapsedMs=${System.currentTimeMillis() - extractorStartedAt} " +
@@ -760,7 +765,15 @@ class DDizi : MainAPI() {
                 runCatching {
                     loadExtractor(candidate, parentReferer, subtitleCallback) { extracted.add(it) }
                 }.onFailure { Log.d("DDizi", "Extractor failed for host=" + host, it) }
-                preferredExternalLinks(extracted).forEach { emitResolvedLink(it) }
+                Log.d(
+                    "DDiziTrace",
+                    "stage=extractor-fallback route=${safeRoute(candidate)} host=$host " +
+                        "elapsedMs=${System.currentTimeMillis() - nestedStartedAt} links=${extracted.size} " +
+                        "qualities=${extracted.map { it.quality }}"
+                )
+                preferredExternalLinks(extracted).forEach { link ->
+                    emitResolvedLink(link, displayName = sourceDisplayName(link.url, link.type))
+                }
             }
         }
 
