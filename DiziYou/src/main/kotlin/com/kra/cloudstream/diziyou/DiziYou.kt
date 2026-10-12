@@ -162,8 +162,8 @@ class DiziYou : MainAPI() {
         return Regex("/player/([a-zA-Z0-9_-]+)(?:\\.html)?", RegexOption.IGNORE_CASE)
             .find(src)?.groupValues?.getOrNull(1)
             ?: Regex("[?&](?:id|itemId)=([a-zA-Z0-9_-]+)", RegexOption.IGNORE_CASE).find(src)?.groupValues?.getOrNull(1)
-            ?: Regex("""(?i)\\bitemId\\s*[:=]\\s*['"]([a-zA-Z0-9_-]+)['"]""").find(doc.html())?.groupValues?.getOrNull(1)
-            ?: Regex("""(?i)\\bdata-id\\s*=\\s*['"]([a-zA-Z0-9_-]+)['"]""").find(doc.html())?.groupValues?.getOrNull(1)
+            ?: Regex("""(?i)\bitemId\s*[:=]\s*[\'"]([a-zA-Z0-9_-]+)[\'"]""").find(doc.html())?.groupValues?.getOrNull(1)
+            ?: Regex("""(?i)\bdata-id\s*=\s*[\'"]([a-zA-Z0-9_-]+)[\'"]""").find(doc.html())?.groupValues?.getOrNull(1)
     }
 
     private fun hasOption(doc: Document, vararg ids: String): Boolean =
@@ -174,7 +174,7 @@ class DiziYou : MainAPI() {
             val src = el.attr("data-src").ifBlank { el.attr("src") }.trim()
             if (src.isNotBlank()) add(fixUrl(src))
         }
-        Regex("""(?i)(https?:\\?/\\?/[^"'\\s<>]+?\\.m3u8(?:\\?[^"'\\s<>]*)?)""")
+        Regex("""(?i)(https?:\\?/\\?/[^"\\s<>]+?\.m3u8(?:\?[^"\\s<>]*)?)""")
             .findAll(doc.html()).forEach { match ->
                 add(match.value.replace("\\/", "/").replace("&amp;", "&"))
             }
