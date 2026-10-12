@@ -1,10 +1,10 @@
 [
     {
         "iconUrl": "https://www.ddizi.tel/images/logo.png",
-        "fileHash": "sha256-3bc051d654b83ae932a3e5c49f2ee2b58e2411ba849e19e6e990f89c02d9cda1",
+        "fileHash": "sha256-bb3ccb449965f50338a1992884ccb072f9d02b3dec2c8bbcfa6acac2ed9b04dc",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 60468,
+        "fileSize": 65075,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -13,9 +13,9 @@
         "tvTypes": [
             "TvSeries"
         ],
-        "version": 5,
+        "version": 6,
         "internalName": "DDizi",
-        "description": "DDizi h\u0131zl\u0131 kaynak \u00e7\u00f6z\u00fcmleme, sade ses/video se\u00e7enekleri ve sezon e\u015flemesi",
+        "description": "DDizi 1080p YouTube se\u00e7ene\u011fi, alternatif kaynaklar ve sezon e\u015flemesi",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DDizi.cs3",
         "name": "DDizi"
     },
