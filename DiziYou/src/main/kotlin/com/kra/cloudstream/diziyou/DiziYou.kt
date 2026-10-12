@@ -9,7 +9,7 @@ import java.net.URI
 class DiziYou : MainAPI() {
     override var mainUrl = "https://www.diziyou.one"
     override var name = "DiziYou"
-    override val lang = "tr"
+    override var lang = "tr"
     override val hasMainPage = true
     override val hasQuickSearch = false
     override val supportedTypes = setOf(TvType.TvSeries)
