@@ -113,6 +113,12 @@ class DDiziParserTest {
     @Test
     fun resolvesHistoricalYoutubeRelay() {
         assertEquals(
+            "https://www.youtube.com/watch?v=ppIikuHZ1Rw",
+            DDiziParser.youtubeWatchUrlIfEmbed(
+                "https://www.ddizi.re/player/youtube.php?id=ppIikuHZ1Rw"
+            )
+        )
+        assertEquals(
             "https://www.youtube.com/watch?v=BC30qtjYt3E",
             DDiziParser.youtubeWatchUrlIfEmbed("https://www.ddizi.re/player/youtube.php?id=BC30qtjYt3E")
         )
