@@ -361,12 +361,18 @@ class DDizi : MainAPI() {
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
         return when {
             host == "youtu.be" || host.endsWith(".youtube.com") || host == "youtube.com" ||
-                host.endsWith(".youtube-nocookie.com") || host == "youtube-nocookie.com" -> "YouTube"
+                host.endsWith(".youtube-nocookie.com") || host == "youtube-nocookie.com" ||
+                host == "googlevideo.com" || host.endsWith(".googlevideo.com") -> "YouTube"
             path.endsWith(".m3u8") || type == ExtractorLinkType.M3U8 -> "HLS"
             path.endsWith(".mpd") || type == ExtractorLinkType.DASH -> "DASH"
             path.endsWith(".mp4") || path.endsWith(".m4v") || type == ExtractorLinkType.VIDEO -> "Video"
             else -> host.removePrefix("www.").ifBlank { "external" }
         }
+    }
+
+    private fun maxLinksPerFamily(family: String): Int = when (family) {
+        "YouTube", "HLS", "Video", "DASH" -> 2
+        else -> 1
     }
 
     private fun sourceDisplayName(url: String, type: ExtractorLinkType): String {
@@ -557,7 +563,16 @@ class DDizi : MainAPI() {
             audioTracks: List<AudioFile> = link.audioTracks,
             qualityOverride: Int? = null
         ) {
-            if (emitted >= 6 || !emittedUrls.add(link.url)) return
+            val family = sourceFamily(link.url, link.type)
+            if (emitted >= 6) {
+                Log.d("DDiziTrace", "stage=skip family=$family route=${safeRoute(link.url)} reason=total-link-limit")
+                return
+            }
+            if (!emittedUrls.add(link.url)) return
+            if ((emittedByFamily[family] ?: 0) >= maxLinksPerFamily(family)) {
+                Log.d("DDiziTrace", "stage=skip family=$family route=${safeRoute(link.url)} reason=family-link-limit")
+                return
+            }
             val quality = (qualityOverride ?: link.quality).takeIf { it in 1..4320 }
                 ?: Qualities.Unknown.value
             // CloudStream renders the quality field separately; including "720p" in the
@@ -572,7 +587,6 @@ class DDizi : MainAPI() {
                 this.extractorData = link.extractorData
                 this.audioTracks = audioTracks
             })
-            val family = sourceFamily(link.url, link.type)
             emittedByFamily[family] = (emittedByFamily[family] ?: 0) + 1
             Log.d(
                 "DDiziTrace",
@@ -582,12 +596,21 @@ class DDizi : MainAPI() {
         }
 
         suspend fun emitMedia(url: String, referer: String) {
-            if (emitted >= 6 || !emittedUrls.add(url)) return
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             val mediaType = when {
                 path.endsWith(".m3u8") -> ExtractorLinkType.M3U8
                 path.endsWith(".mpd") -> ExtractorLinkType.DASH
                 else -> ExtractorLinkType.VIDEO
+            }
+            val family = sourceFamily(url, mediaType)
+            if (emitted >= 6) {
+                Log.d("DDiziTrace", "stage=skip family=$family route=${safeRoute(url)} reason=total-link-limit")
+                return
+            }
+            if (!emittedUrls.add(url)) return
+            if ((emittedByFamily[family] ?: 0) >= maxLinksPerFamily(family)) {
+                Log.d("DDiziTrace", "stage=skip family=$family route=${safeRoute(url)} reason=family-link-limit")
+                return
             }
             val quality = Regex("""(?i)(2160|1440|1080|720|480|360|240)p?""")
                 .find(path)?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -603,7 +626,6 @@ class DDizi : MainAPI() {
                 this.headers = mapOf("Referer" to referer)
                 this.quality = quality
             })
-            val family = sourceFamily(url, mediaType)
             emittedByFamily[family] = (emittedByFamily[family] ?: 0) + 1
             Log.d(
                 "DDiziTrace",
