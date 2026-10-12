@@ -13,7 +13,7 @@ internal object DDiziParser {
     }
 
     fun seriesId(url: String): String? =
-        Regex("""(?i)/diziler/(\\d+)(?:/|$)""")
+        Regex("""(?i)/diziler/(\d+)(?:/|$)""")
             .find(runCatching { URI(url).path.orEmpty() }.getOrDefault(""))
             ?.groupValues?.getOrNull(1)
 
