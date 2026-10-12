@@ -119,3 +119,11 @@ Not confirmed:
 ### Remaining sources
 - Canlikolik: current public channel list and source metadata not yet verified.
 - CanlıTribün and Papaz: base domains still unresolved from verified evidence; no domain guesses or fabricated stream URLs.
+
+
+### Diziyou follow-up — 2026-10-12
+- Current public series detail route observed: `https://diziyou.net/dizi/from/`; rendered output shows season selector controls and episode links.
+- Current public episode route observed: `https://diziyou.net/bolum/from-4-sezon-10-bolum/`; rendered output exposes previous/next episode navigation and a player iframe.
+- The iframe points to a `ksdpictures.site/dzembed.php?id=...` endpoint. Direct inspection returned HTTP 403 from the research environment, so the embed response, playback source, subtitle track behavior and required request context remain unverified.
+- This confirms the URL route shapes from rendered pages, but does **not** establish reliable raw HTML selectors or a usable player integration. No Diziyou provider code was added on the basis of this incomplete evidence.
+- Next verification required: obtain a sanitized, ordinary public response for catalogue/detail/episode pages and inspect only the iframe/embed behavior available without bypassing access controls; then add fixture-backed parser tests before provider implementation.
