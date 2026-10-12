@@ -31,6 +31,7 @@ The supplied APK, previously identified during static inspection as THY TV 5.0, 
 - [x] Confirmed Turkish123 public series catalogue HTML is rendered with linked series entries; public page inspection alone does not confirm raw selectors or playback.
 - [x] Turkish123 initial beta provider module exists and is included in the unified repo feed build.
 - [ ] Dizipal: public discovery evidence collected; module still pending current-domain/player verification.
+- [x] tabii: separate beta live-provider module added, using the official live-page route and only explicit source URLs returned by the page; playback is unverified.
 - [x] DiziYou: separate beta module added under `HatyDiziYou/`, using only current-host links found in returned HTML and delegating visible embeds to CloudStream extractors. Search/pagination are disabled and playback remains unverified because the observed embed returned HTTP 403.
 - [ ] Search, detail, episode mapping, source resolution and subtitles: not yet runtime verified.
 - [ ] APK remote domains for CanlıTribün and Papaz: unresolved; do not guess.
@@ -154,3 +155,9 @@ This pass recovered class names and literal strings from DEX, but a full method-
 - Added independent Gradle module `HatyDiziYou` on the feature branch. It is auto-discovered by `settings.gradle.kts` and therefore joins the single repo feed when the build succeeds.
 - The adapter uses the currently observed `diziyou.net` host and the known `/dizi/` and `/bolum/` route families; it does not copy the old provider's constructed HLS/subtitle paths.
 - Status remains beta. Search and pagination are deliberately disabled pending confirmed route/API evidence; live playback and subtitles are **NOT TESTED/BLOCKED**.
+
+
+### tabii module added — 2026-10-12
+- Added independent `HatyTabii/` beta module based on the APK's `TabiiTvRepository`/`TabiiExtractor` evidence and observed official route `/tr/watch/live/trt1`.
+- It discovers live-page links and only emits media URLs explicitly present in the official response; it does not synthesize manifests. If the service uses an authenticated or DRM-protected player not exposed in page HTML, playback remains blocked/unverified.
+- Search, channel completeness, manifest access, and real CloudStream playback are not yet verified.
