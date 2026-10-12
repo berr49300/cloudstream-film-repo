@@ -113,7 +113,7 @@ class DiziYou : MainAPI() {
     private fun hasOption(doc: org.jsoup.nodes.Document, vararg ids: String): Boolean =
         ids.any { doc.selectFirst("#$it, [id=$it], [data-id=$it]") != null }
 
-    private fun emitNativeCandidates(
+    private suspend fun emitNativeCandidates(
         doc: org.jsoup.nodes.Document,
         itemId: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
