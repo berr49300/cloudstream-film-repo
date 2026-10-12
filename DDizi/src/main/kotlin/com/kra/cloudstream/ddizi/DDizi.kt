@@ -6,9 +6,6 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 import java.net.URI
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 
 /**
  * Independent first-pass provider for DDizi.
@@ -186,22 +183,12 @@ class DDizi : MainAPI() {
             }
             .take(20)
 
-        // Fetch pagination pages in small batches rather than 20 sequential round trips.
-        // Keep batches bounded so DDizi is not flooded with concurrent requests.
-        additionalPageUrls.chunked(4).forEach { batch ->
-            val fetchedPages = coroutineScope {
-                batch.map { pageUrl ->
-                    async {
-                        if (pageUrl.equals(seriesUrl, ignoreCase = true)) return@async null
-                        runCatching { app.get(pageUrl, referer = seriesUrl).document }
-                            .getOrNull()
-                            ?.let { pageUrl to it }
-                    }
-                }.awaitAll()
-            }
-            fetchedPages.filterNotNull().forEach { (_, document) ->
-                seriesDocuments.add(document)
-            }
+        // Keep page requests bounded and avoid requiring coroutine dependencies in this plugin.
+        // Most series fit in the first page; only fetch the extra pages advertised by DDizi.
+        additionalPageUrls.take(8).forEach { pageUrl ->
+            if (pageUrl.equals(seriesUrl, ignoreCase = true)) return@forEach
+            val document = runCatching { app.get(pageUrl, referer = seriesUrl).document }.getOrNull()
+            if (document != null) seriesDocuments.add(document)
         }
 
         // DDizi puts the series' own episode list before a separate "Bugünkü Bölümler"
