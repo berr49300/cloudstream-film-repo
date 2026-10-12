@@ -125,7 +125,7 @@ class DiziYou : MainAPI() {
         val trDub = hasOption(doc, "turkceDublaj", "turkceDublajOption")
         if (!trSub && !enSub && !trDub) return false
         val storage = "https://storage.diziyou.one"
-        fun emit(label: String, url: String) {
+        suspend fun emit(label: String, url: String) {
             callback(newExtractorLink(name, label, url, ExtractorLinkType.M3U8) {
                 referer = "$mainUrl/"
                 quality = Qualities.Unknown.value
