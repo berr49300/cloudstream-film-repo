@@ -215,7 +215,7 @@ internal object DDiziParser {
      */
     fun youtubeAudioTrackPriority(rawUrl: String): Int {
         val query = runCatching { URI(rawUrl).rawQuery.orEmpty() }.getOrDefault("")
-        val itag = Regex("""(?:^|&)itag=(\\d+)(?:&|$)""")
+        val itag = Regex("""(?:^|&)itag=(\d+)(?:&|$)""")
             .find(query)?.groupValues?.getOrNull(1)?.toIntOrNull()
         val translated = Regex("""(?:^|&)tlang=[^&]+""")
             .containsMatchIn(query)
