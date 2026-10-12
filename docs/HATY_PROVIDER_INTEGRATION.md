@@ -141,3 +141,9 @@ Class-level evidence found in the supplied THY TV 5.0 DEX:
 - Static strings include the official tabii live route `https://www.tabii.com/tr/watch/live/trt1` and a sample player URL `https://araplarsitesi.com/api/player?vid=wJXg8-2kr5s`; the latter is an example string, **not** accepted as a current provider endpoint.
 
 This pass recovered class names and literal strings from DEX, but a full method-level port still requires decompilation/inspection of the relevant bytecode and identifying any runtime-fetched configuration. Do not infer that an old literal or example URL is the active base domain. The next code changes should port one missing provider at a time from its repository/parser/resolver flow and add tests against sanitized, evidence-backed cases. Existing repo providers remain untouched.
+
+
+### DiziYou prior-art comparison — 2026-10-12
+- Inspected a maintained public CloudStream DiziYou implementation in Kekik-cloudstream. It documents an older `diziyou3.com` host and a player convention based on `iframe#diziyouPlayer`, option IDs, HLS path patterns and VTT subtitles.
+- The current public site observed for this project is `diziyou.net`; an episode page's iframe was observed pointing to `ksdpictures.site/dzembed.php?id=...`, but the embed returned HTTP 403 during inspection.
+- These are not yet proven to be the same player protocol. The old HLS/subtitle URL construction is **not** copied into a new provider without current evidence. Detailed gate: [HATY_DIZIYOU_EVIDENCE.md](HATY_DIZIYOU_EVIDENCE.md).
