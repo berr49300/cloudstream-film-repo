@@ -129,8 +129,14 @@ class DDizi : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
+        val loadStartedAt = System.currentTimeMillis()
         var resolvedUrl = url
         var response = runCatching { app.get(resolvedUrl, referer = "$mainUrl/") }.getOrNull()
+        Log.d(
+            "DDiziTrace",
+            "stage=series-load route=${safeRoute(url)} http=${response?.code ?: 0} " +
+                "elapsedMs=${System.currentTimeMillis() - loadStartedAt}"
+        )
 
         if (response?.isSuccessful != true && DDiziParser.isSeriesUrl(url)) {
             // Some old DDizi cards retain a short slug while the actual live route has
@@ -150,9 +156,15 @@ class DDizi : MainAPI() {
                         .mapNotNull { fixUrlNull(it.attr("href")) }
                         .firstOrNull { it != url && isSameSite(it) && DDiziParser.isSeriesUrl(it) }
                         ?: continue
+                    val fallbackStartedAt = System.currentTimeMillis()
                     val candidateResponse = runCatching {
                         app.get(replacement, referer = "$mainUrl/")
                     }.getOrNull()
+                    Log.d(
+                        "DDiziTrace",
+                        "stage=canonical-fallback route=${safeRoute(replacement)} http=${candidateResponse?.code ?: 0} " +
+                            "elapsedMs=${System.currentTimeMillis() - fallbackStartedAt}"
+                    )
                     if (candidateResponse?.isSuccessful == true) {
                         resolvedUrl = replacement
                         response = candidateResponse
@@ -250,7 +262,8 @@ class DDizi : MainAPI() {
         seriesDocuments.addAll(additionalDocuments)
         Log.d(
             "DDiziTrace",
-            "stage=episode-pages title=${DDiziParser.normalizeTitle(title)} pageCount=${seriesDocuments.size} paginationLinks=${additionalPageUrls.size}"
+            "stage=episode-pages title=${DDiziParser.normalizeTitle(title)} route=${safeRoute(url)} " +
+                "baseRoute=${safeRoute(seriesUrl)} pageCount=${seriesDocuments.size} paginationLinks=${additionalPageUrls.size}"
         )
 
         // DDizi puts the series' own episode list before a separate "Bugünkü Bölümler"
@@ -490,11 +503,23 @@ class DDizi : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val startedAt = System.currentTimeMillis()
-        val response = runCatching { app.get(data, referer = "$mainUrl/") }.getOrNull() ?: return false
-        if (!response.isSuccessful) {
-            Log.w("DDizi", "Episode page returned HTTP " + response.code)
+        val response = runCatching { app.get(data, referer = "$mainUrl/") }.getOrNull()
+        if (response == null) {
+            Log.w("DDiziTrace", "stage=episode-open route=${safeRoute(data)} http=0 outcome=network-error")
             return false
         }
+        if (!response.isSuccessful) {
+            Log.w(
+                "DDiziTrace",
+                "stage=episode-open route=${safeRoute(data)} http=${response.code} outcome=http-error"
+            )
+            return false
+        }
+        Log.d(
+            "DDiziTrace",
+            "stage=episode-open route=${safeRoute(data)} http=${response.code} " +
+                "elapsedMs=${System.currentTimeMillis() - startedAt}"
+        )
         val candidates = linkedMapOf<String, String>()
         val partPages = linkedSetOf<String>()
         var candidateRequests = 0
