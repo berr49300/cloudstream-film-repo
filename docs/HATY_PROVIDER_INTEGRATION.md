@@ -1,62 +1,75 @@
-# Haty — unified provider integration
+# Haty — unified application provider integration
 
-## Purpose
+## Goal
 
-Haty is the working name for this repository-side integration effort. The aim is to keep independently implemented CloudStream providers in one repository and one repo feed, rather than force unrelated sites into a single brittle `MainAPI`.
+Haty is the working name for the complete multi-provider project. The goal is to bring every identifiable source family from the inspected APK into this repository and its single CloudStream repo feed. This is a project-wide inventory and integration effort, not a Turkish123-only plugin.
 
-## Source inventory
+The repo/feed is unified; provider adapters remain separate Gradle modules because each site/service has its own catalogue, API, player and access rules. The user-facing experience can be unified by installing the providers from the same feed.
 
-The supplied APK previously identified as THY TV 5.0 was inspected statically. Its class/string inventory suggests these provider families:
+## Full source inventory
 
-| Provider family | Current repository status | Next step |
+The supplied APK, previously identified during static inspection as THY TV 5.0, was not run. Class/string names below are evidence of candidate families, not proof that current sites work or that playback is compatible.
+
+| Provider family | Current repo status | Haty integration action |
 |---|---|---|
-| FilmMakinesi | Already exists | Preserve; no duplicate |
-| Dizilla | Already exists | Preserve; no duplicate |
-| FullHDFilmizlesene | Already exists | Preserve; no duplicate |
-| Dizipal | Not yet integrated from this inventory | Verify public current routes and page/player flow before implementation |
-| Diziyou | Not yet integrated from this inventory | Verify public current routes and page/player flow before implementation |
-| Turkish123 | Candidate for a separate provider | Public pages inspected; HTML selectors and source/playback flow still need verification |
-| Canlikolik | Candidate live-TV provider | Verify public channel list and permitted stream metadata |
-| tabii | Candidate live-TV provider | Verify official public catalogue/channel flow and permitted playback interface |
-| CanlıTribün | Candidate sports provider | Remote base URL was not confirmed from static APK strings |
-| Papaz | Candidate sports provider | Remote base URL was not confirmed from static APK strings |
+| FilmMakinesi | Existing provider | Preserve; do not duplicate or modify without a separate request |
+| Dizilla | Existing provider | Preserve; regression-test only when shared infrastructure changes |
+| FullHDFilmizlesene | Existing provider | Preserve; regression-test only when shared infrastructure changes |
+| DDizi | Existing provider | Preserve |
+| Dizipal | Candidate found in APK inventory | Verify public site routes, catalogue, episodes and player before implementing |
+| Diziyou | Candidate found in APK inventory | Verify public site routes, catalogue, episodes and player before implementing |
+| Turkish123 | Candidate found in APK inventory | Verify raw HTML, search, episodes, source chain and subtitles before implementing |
+| Canlikolik | Candidate live-TV provider | Verify current public channel list and permitted playback metadata |
+| tabii | Candidate service provider; public URL observed: https://www.tabii.com/ | Verify official public catalogue and supported playback interface |
+| CanlıTribün | Candidate sports provider | Resolve the remote base URL from public, permitted evidence; static APK strings were insufficient |
+| Papaz | Candidate sports provider | Resolve the remote base URL from public, permitted evidence; static APK strings were insufficient |
+| Generic media types | APK strings include .m3u8, .mpd, .mp4, .m3u, .ts and .flv | Add format handling only where actual provider/source evidence supports it |
+
+## Implementation order
+
+1. **Inventory and build wiring:** confirm every module already in the repo, avoid duplicates, identify shared helper boundaries and keep one feed.
+2. **Dizipal and Diziyou:** investigate public routes and raw responses; implement independent modules once selectors and player chains are evidenced.
+3. **Turkish123:** investigate raw HTML, search/pagination, episode mapping, player/source chain and subtitles; then implement and add sanitized fixture tests.
+4. **Live TV:** investigate Canlikolik and tabii independently. Do not treat a website as a channel list or assume every stream is compatible.
+5. **Sports:** investigate CanlıTribün and Papaz base URLs and public response formats. Keep sports providers isolated from series/film providers.
+6. **Integration and acceptance:** run unit tests, Gradle build, plugin index generation and repo-feed checks. Verify runtime playback/subtitles separately on CloudStream before marking them passed.
+
+The order may change if a provider is blocked or a better-supported public interface is found. No endpoints, selectors or media URLs will be guessed.
 
 ## Turkish123 reconnaissance — 2026-10-12
 
 Public pages observed:
-- Home: `https://ahs.turkish123.com/`
-- Series list: `https://ahs.turkish123.com/series-list/`
-- Example detail: `https://ahs.turkish123.com/anne-yarisi/`
+- Home: https://ahs.turkish123.com/
+- Series list: https://ahs.turkish123.com/series-list/
+- Example detail: https://ahs.turkish123.com/anne-yarisi/
 
-Confirmed from public page output:
-- The site exposes Home, Series, Episodes, Calendar and Genre navigation.
+Confirmed from rendered public page output:
+- Navigation includes Home, Series, Episodes, Calendar and Genre.
 - The series list contains links to individual series pages.
-- The example detail page exposes season/episode links, title, synopsis, genre, cast, duration, quality, year and status.
-- The detail page includes a YouTube trailer iframe and episode/content controls.
-- The site states that content is provided by non-affiliated third parties; the page itself does not establish that every media source is authorized or directly hosted by the site.
+- The example detail page exposes title, synopsis, genre, cast, duration, quality, year, status and episode/content links.
+- A YouTube trailer iframe is present.
 
-Not yet confirmed:
-- The exact stable HTML selectors in raw response markup.
-- Search request behavior and pagination rules.
-- The episode-to-player request chain and the response shape for video sources.
-- Whether any source is directly playable in CloudStream, what headers are required, and whether subtitles are declared.
-- Any real-device playback result.
+Not confirmed:
+- Raw HTML selectors and embedded data shapes.
+- Search request and pagination behavior.
+- Episode-to-player request chain, playable source formats, required headers and subtitle behavior.
+- Real CloudStream playback.
 
-## Implementation policy
+## Implementation and provenance policy
 
-1. Use a separate Gradle module for each independent provider; the existing `settings.gradle.kts` auto-discovers directories with `build.gradle.kts`.
-2. Do not copy a third-party app wholesale or reuse its private keys, tokens, cookies, or signed media URLs. Implement from independently verified public behavior and preserve any required license/attribution for code that is lawfully reused.
-3. Do not invent selectors, API schemas, endpoints, source URLs, or headers. If a route is blocked or dynamic behavior cannot be confirmed, mark it BLOCKED and add only deterministic parsing tests based on sanitized evidence.
-4. Do not bypass authentication, CAPTCHA, DRM, certificate pinning, or other access controls.
+1. Each independent provider remains a separate module; all modules are distributed from the same repo feed.
+2. Haty is the project name, not a claim that the original APK or third-party services were authored by this project. Do not falsify provenance or remove legally required notices.
+3. Do not copy a third-party app wholesale or reuse private keys, tokens, cookies or signed media URLs. Implement from independently verified public behavior and preserve license/attribution for any code lawfully reused.
+4. Do not bypass authentication, CAPTCHA, DRM, certificate pinning or other access controls.
 5. Keep existing protected providers untouched unless separately requested.
-6. Run the documented unit tests and Gradle build when an execution environment is available. Build success does not prove playback.
-7. Do not publish to `builds` without explicit release approval.
+6. Tests/builds must report PASS, FAIL, BLOCKED or NOT TESTED accurately. Build success alone does not prove playback or subtitle rendering.
+7. Do not publish to `builds` or merge to `main` without explicit approval.
 
 ## Current status
 
-- Repository convention and protected-scope rules reviewed.
-- Static APK inventory recorded.
+- Repository contribution rules and existing module conventions reviewed.
+- Static APK source inventory recorded.
 - Turkish123 public home, series list and one detail page inspected.
-- Provider implementation: NOT STARTED; stable raw HTML selectors and player flow still need evidence.
-- CloudStream playback: NOT TESTED.
-- No release published.
+- New provider Kotlin modules: NOT STARTED.
+- CloudStream playback/subtitles: NOT TESTED.
+- Release branch `builds`: unchanged.
