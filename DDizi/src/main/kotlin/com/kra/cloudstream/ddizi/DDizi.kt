@@ -565,14 +565,15 @@ class DDizi : MainAPI() {
         fun priority(url: String): Int {
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             when {
-                path.endsWith(".m3u8") || isDirectMediaUrl(url) -> return 0
+                path.endsWith(".m3u8") -> return 0
                 DDiziParser.youtubeWatchUrlIfEmbed(url) != null -> return 1
                 path.endsWith("/player/telif/index.php") || path.endsWith("/youtube.php") -> return 1
-                path.startsWith("/player/oynat/") || path.contains("/embed/") -> return 2
-                path.endsWith("/ajax.php") || path.endsWith("/geox.php") -> return 3
-                path.endsWith(".js") || path.endsWith(".php") -> return 5
+                isDirectMediaUrl(url) -> return 2
+                path.startsWith("/player/oynat/") || path.contains("/embed/") -> return 3
+                path.endsWith("/ajax.php") || path.endsWith("/geox.php") -> return 4
+                path.endsWith(".js") || path.endsWith(".php") -> return 6
             }
-            return 4
+            return 5
         }
 
         val queue = java.util.ArrayDeque<Pair<String, String>>()
