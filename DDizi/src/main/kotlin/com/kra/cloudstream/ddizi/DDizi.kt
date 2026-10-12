@@ -186,11 +186,15 @@ class DDizi : MainAPI() {
                 ) href else null
             }
         } else {
-            resolvedUrl
+            DDiziParser.seriesBaseUrl(resolvedUrl)
         }
         if (seriesUrl.isNullOrBlank()) return null
 
-        val seriesPage = if (!DDiziParser.isEpisodeUrl(url)) page else
+        val basePageAlreadyLoaded = !DDiziParser.isEpisodeUrl(url) &&
+            DDiziParser.seriesPageNumber(url) == null &&
+            DDiziParser.seriesBaseUrl(url).equals(seriesUrl, ignoreCase = true) &&
+            DDiziParser.seriesBaseUrl(resolvedUrl).equals(seriesUrl, ignoreCase = true)
+        val seriesPage = if (basePageAlreadyLoaded) page else
             app.get(seriesUrl, referer = "$mainUrl/").document
 
         val rawTitle = seriesPage.selectFirst("h1")?.text()?.trim()
