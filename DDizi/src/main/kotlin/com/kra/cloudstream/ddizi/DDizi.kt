@@ -440,7 +440,7 @@ class DDizi : MainAPI() {
         val emittedUrls = linkedSetOf<String>()
         var emitted = 0
 
-        fun emitResolvedLink(
+        suspend fun emitResolvedLink(
             link: ExtractorLink,
             displayName: String? = null,
             audioTracks: List<AudioFile> = link.audioTracks
@@ -466,7 +466,7 @@ class DDizi : MainAPI() {
             emitted++
         }
 
-        fun emitMedia(url: String, referer: String) {
+        suspend fun emitMedia(url: String, referer: String) {
             if (!emittedUrls.add(url)) return
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             val mediaType = when {
