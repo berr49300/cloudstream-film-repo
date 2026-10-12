@@ -3,6 +3,7 @@ package com.kra.cloudstream.hatydizipal
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.lagradost.cloudstream3.TvSeriesSearchResponse
 import org.jsoup.Jsoup
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -29,7 +30,7 @@ class HatyDiziPalParserTest {
     }
 
     @Test
-    fun mapsEpisodeSlugSeasonAndNumberWithoutFabricatingEpisodes() {
+    fun mapsEpisodeSlugSeasonAndNumberWithoutFabricatingEpisodes() = runBlocking {
         val base = api.mainUrl
         val doc = Jsoup.parse(
             """
@@ -52,7 +53,7 @@ class HatyDiziPalParserTest {
     }
 
     @Test
-    fun rejectsUnsupportedOrForeignDetailUrls() {
+    fun rejectsUnsupportedOrForeignDetailUrls() = runBlocking {
         val base = api.mainUrl
         val doc = Jsoup.parse("<h1>Not a title</h1>", base)
         assertNull(api.parseLoadMetadata(doc, "https://untrusted.example/dizi/item"))
