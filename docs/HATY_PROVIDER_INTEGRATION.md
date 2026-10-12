@@ -81,3 +81,13 @@ Not confirmed:
 - New provider Kotlin modules: NOT STARTED.
 - CloudStream playback/subtitles: NOT TESTED.
 - Release branch `builds`: unchanged.
+
+
+## Implementation progress — 2026-10-12
+
+- **Implemented (initial beta):** `HatyTurkish123` module added under `HatyTurkish123/`; Gradle auto-discovery applies because the module has its own `build.gradle.kts`.
+- **Catalog behavior:** reads the observed public home and series-list pages, extracts same-site series links from page HTML, and loads episode links only when their URLs visibly indicate episode/season/part paths.
+- **Playback behavior:** delegates only explicitly embedded iframe/video/source URLs to CloudStream's extractor loader. No player endpoint or signed stream URL is hard-coded.
+- **Known gaps:** search is intentionally disabled; pagination is intentionally limited to the first page; episode-link conventions and extractor/subtitle playback are not yet verified against live responses; no Android device playback test has been run.
+- **Not yet implemented:** Dizipal, Diziyou, Canlikolik, tabii, CanlıTribün and Papaz. Their endpoints/player paths must be independently verified before adding provider code. Existing FilmMakinesi, Dizilla, FullHDFilmizlesene and DDizi modules remain untouched.
+- **Validation status:** GitHub file commits succeeded. A Gradle build/test result is not yet available from this editing session, so this module must be treated as beta/unverified, not as a completed release.
