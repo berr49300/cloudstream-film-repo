@@ -353,12 +353,27 @@ class DDizi : MainAPI() {
             .sortedBy { DDiziParser.youtubeAudioTrackPriority(it.url) }
             .take(1)
 
-    private fun preferredExternalLink(links: List<ExtractorLink>): ExtractorLink? {
-        if (links.isEmpty()) return null
-        val qualityLinks = links.filter { it.quality > 0 }
-        return qualityLinks.filter { it.quality <= 720 }.maxByOrNull { it.quality }
-            ?: qualityLinks.minByOrNull { it.quality }
-            ?: links.firstOrNull()
+    private fun preferredExternalLinks(links: List<ExtractorLink>, limit: Int = 2): List<ExtractorLink> {
+        val unique = links.distinctBy { it.url }
+        if (unique.isEmpty()) return emptyList()
+
+        val qualityLinks = unique.filter { it.quality in 1..4320 }
+        if (qualityLinks.isEmpty()) return unique.take(limit)
+
+        val atOrBelow1080 = qualityLinks.filter { it.quality <= 1080 }
+        val ordered = if (atOrBelow1080.isNotEmpty()) {
+            atOrBelow1080.sortedWith(
+                compareByDescending<ExtractorLink> { it.quality }
+                    .thenBy { if (it.name.contains("h264", true) || it.name.contains("avc", true)) 0 else 1 }
+            )
+        } else {
+            // If a host only exposes higher resolutions, use the lowest available first.
+            qualityLinks.sortedWith(
+                compareBy<ExtractorLink> { it.quality }
+                    .thenBy { if (it.name.contains("h264", true) || it.name.contains("avc", true)) 0 else 1 }
+            )
+        }
+        return ordered.distinctBy { it.quality }.take(limit)
     }
 
     override suspend fun loadLinks(
@@ -430,17 +445,15 @@ class DDizi : MainAPI() {
         suspend fun emitResolvedLink(
             link: ExtractorLink,
             displayName: String? = null,
-            audioTracks: List<AudioFile> = link.audioTracks
+            audioTracks: List<AudioFile> = link.audioTracks,
+            qualityOverride: Int? = null
         ) {
-            if (!emittedUrls.add(link.url)) return
-            val quality = link.quality.takeIf { it in 1..4320 } ?: Qualities.Unknown.value
-            val label = displayName ?: if (quality != Qualities.Unknown.value) {
-                "$name " + quality + "p"
-            } else if (link.type == ExtractorLinkType.M3U8) {
-                "$name HLS"
-            } else {
-                name
-            }
+            if (emitted >= 6 || !emittedUrls.add(link.url)) return
+            val quality = (qualityOverride ?: link.quality).takeIf { it in 1..4320 }
+                ?: Qualities.Unknown.value
+            // CloudStream renders the quality field separately; including "720p" in the
+            // name produced duplicate labels such as "DDizi 720p 720p".
+            val label = displayName ?: if (link.type == ExtractorLinkType.M3U8) "$name HLS" else name
             // Normalize the source label across YouTube and third-party extractors. Keep the
             // original URL, headers, subtitles and audio URL; only expose the chosen track.
             callback(newExtractorLink(name, label, link.url, link.type) {
@@ -454,7 +467,7 @@ class DDizi : MainAPI() {
         }
 
         suspend fun emitMedia(url: String, referer: String) {
-            if (!emittedUrls.add(url)) return
+            if (emitted >= 6 || !emittedUrls.add(url)) return
             val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
             val mediaType = when {
                 path.endsWith(".m3u8") -> ExtractorLinkType.M3U8
@@ -466,8 +479,7 @@ class DDizi : MainAPI() {
                 ?: Qualities.Unknown.value
             callback(newExtractorLink(
                 name,
-                if (mediaType == ExtractorLinkType.M3U8) "$name HLS"
-                else if (quality != Qualities.Unknown.value) "$name " + quality + "p" else name,
+                if (mediaType == ExtractorLinkType.M3U8) "$name HLS" else name,
                 url,
                 mediaType
             ) {
@@ -478,7 +490,7 @@ class DDizi : MainAPI() {
             emitted++
         }
 
-        while (queue.isNotEmpty() && visited.size < 12 && emitted < 2) {
+        while (queue.isNotEmpty() && visited.size < 12 && emitted < 6) {
             val (candidate, parentReferer) = queue.removeFirst()
             if (!visited.add(candidate)) continue
 
@@ -498,16 +510,28 @@ class DDizi : MainAPI() {
                 val variants = extracted.filter {
                     it.quality > 0 || it.name.contains("youtube", ignoreCase = true)
                 }.ifEmpty { extracted }
-                val chosenIndex = DDiziParser.preferredYoutubeVariantIndex(
-                    variants.map { it.name to it.quality }
-                )
-                val chosen = chosenIndex?.let { variants.getOrNull(it) }
-                if (chosen != null) {
-                    val audio = preferredAudioTracks(chosen)
-                    val label = if (chosen.quality > 0) "$name " + chosen.quality + "p" else name
-                    emitResolvedLink(chosen, label, audio)
+                val variantQualities = variants.map { link ->
+                    link.name to (link.quality.takeIf { it in 1..4320 }
+                        ?: DDiziParser.qualityFromLabel(link.name) ?: 0)
                 }
-                continue
+                val chosenIndices = DDiziParser.preferredYoutubeVariantIndices(variantQualities, maxVariants = 2)
+                if (chosenIndices.isNotEmpty()) {
+                    chosenIndices.forEach { index ->
+                        val chosen = variants.getOrNull(index) ?: return@forEach
+                        emitResolvedLink(
+                            chosen,
+                            displayName = name,
+                            audioTracks = preferredAudioTracks(chosen),
+                            qualityOverride = variantQualities[index].second
+                        )
+                    }
+                    continue
+                }
+
+                // A direct YouTube URL has nothing useful left to parse if its extractor
+                // fails, but a DDizi relay may still contain another player/source fallback.
+                val candidateHost = runCatching { URI(candidate).host.orEmpty().lowercase() }.getOrDefault("")
+                if (candidateHost.contains("youtube") || candidateHost == "youtu.be") continue
             }
 
             val path = runCatching { URI(candidate).path.orEmpty().lowercase() }.getOrDefault("")
@@ -539,7 +563,7 @@ class DDizi : MainAPI() {
             }
 
             val host = runCatching { URI(candidate).host.orEmpty().lowercase() }.getOrDefault("")
-            val isDdiziHost = host == "ddizi.tel" || host == "www.ddizi.tel" || host.endsWith(".ddizi.tel")
+            val isDdiziHost = DDiziParser.isDdiziHost(candidate)
             var extractorAttempted = false
 
             // Try a registered extractor before downloading the same external iframe page a
@@ -553,8 +577,9 @@ class DDizi : MainAPI() {
                 runCatching {
                     loadExtractor(candidate, parentReferer, subtitleCallback) { extracted.add(it) }
                 }.onFailure { Log.d("DDizi", "Extractor failed for host=" + host, it) }
-                preferredExternalLink(extracted)?.let { emitResolvedLink(it) }
-                if (extracted.isNotEmpty()) continue
+                val beforeExtractedLinks = emitted
+                preferredExternalLinks(extracted).forEach { emitResolvedLink(it) }
+                if (emitted > beforeExtractedLinks) continue
             }
 
             val nestedResponse = runCatching {
@@ -573,7 +598,7 @@ class DDizi : MainAPI() {
                 runCatching {
                     loadExtractor(candidate, parentReferer, subtitleCallback) { extracted.add(it) }
                 }.onFailure { Log.d("DDizi", "Extractor failed for host=" + host, it) }
-                preferredExternalLink(extracted)?.let { emitResolvedLink(it) }
+                preferredExternalLinks(extracted).forEach { emitResolvedLink(it) }
             }
         }
 
@@ -648,7 +673,7 @@ class DDizi : MainAPI() {
     private fun isSameSite(rawUrl: String): Boolean {
         val absolute = fixUrlNull(rawUrl) ?: return false
         val host = runCatching { URI(absolute).host.orEmpty().lowercase() }.getOrDefault("")
-        return host == "ddizi.tel" || host.endsWith(".ddizi.tel")
+        return DDiziParser.isDdiziHost(absolute)
     }
 
     private fun resolveCandidateUrl(baseUrl: String, rawUrl: String): String? =
@@ -666,7 +691,7 @@ class DDizi : MainAPI() {
             host.contains("google-analytics")
         ) return false
 
-        val isDdiziHost = host == "www.ddizi.tel" || host == "ddizi.tel" || host.endsWith(".ddizi.tel")
+        val isDdiziHost = DDiziParser.isDdiziHost(url)
         if (!isDdiziHost) return true
 
         // Same-site sources can be served through PHP/JS/player endpoints, not only /player/oynat.
