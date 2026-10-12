@@ -65,7 +65,7 @@ class HatyTurkish123 : MainAPI() {
             val label = anchor.text().trim().ifBlank {
                 anchor.selectFirst("img")?.attr("alt").orEmpty().trim()
             }
-            if (label.isNotBlank()) episodes.putIfAbsent(href, Episode(href, label))
+            if (label.isNotBlank()) episodes.putIfAbsent(href, newEpisode(href) { name = label })
         }
         if (episodes.isEmpty()) return null
         return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes.values.toList()) {
