@@ -46,3 +46,17 @@
 ## Root-cause notes
 
 The v5 release constrained the resolver to at most two emitted links and selected only one YouTube format capped around 720p. This was too restrictive for the user's explicit 1080p + fallback requirement. It also included the quality in the link name even though CloudStream displays the quality field separately, causing duplicate labels. The v6 candidate keeps a small bounded list of variants instead of returning every format, accepts the legacy `.im` alias, and still leaves runtime playback marked unverified.
+
+## Live source-route spot checks — 2026-10-12
+
+The public episode pages themselves are reachable and list an explicit `video` source button, but the target of that button currently returns an actual HTTP 404 from the public site:
+
+- Dark S3E8 source link: [`/player/oynat/f827901dcad74c34ebf7541c2bcb1377`](https://www.ddizi.tel/player/oynat/f827901dcad74c34ebf7541c2bcb1377) — **404 Not Found**.
+- Sevdiğim Sensin E20 source link: [`/player/oynat/fd36424d05d9766cc1fff388ea494094`](https://www.ddizi.tel/player/oynat/fd36424d05d9766cc1fff388ea494094) — **404 Not Found**.
+- The live foreign-series catalogue [`/yabanci-dizi-izle`](https://www.ddizi.tel/yabanci-dizi-izle) currently lists Dark, Berlin, Bridgerton, Elite, and other titles.
+
+This confirms that at least these two player buttons are broken at the **site endpoint**, independent of CloudStream. It does **not** prove every stream or every HLS candidate is broken. The source URL behind the CloudStream label `DDizi HLS` is not visible in the screenshot, so the exact status of that separate media URL remains **UNKNOWN**. Do not label HLS as healthy just because a direct media URL was emitted, and do not label a dead player wrapper as playable. A source-level device log with hostname/path and query values redacted is needed to trace the exact HLS failure.
+
+## Analysis process correction
+
+The repository's discovery playbook and acceptance checklist already existed, but the initial DDizi v5 work did not produce a complete, evidence-backed DDizi profile before the release. This was a process miss. This profile now records the known routes and the concrete 404 checks; the unresolved player chain remains BLOCKED until a current working source family is evidenced.
