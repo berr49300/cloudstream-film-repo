@@ -9,6 +9,7 @@ Copy one row per episode and source option. Do not paste a full signed playback 
 | Date | Series / episode | Visible source label | Outcome | Time to first frame | Error / note | Decision |
 |---|---|---|---|---:|---|---|
 | 2026-10-12 | Teşkilat 109–111 (user screenshot) | Episode list shows only 3 entries, Season 1 | FAIL — mapping | n/a | Historical season-final boundaries and accepted episode count not yet confirmed from device logs | Investigate pagination and episode filtering |
+| 2026-10-12 | Teşkilat 111 | iframe → `ddizi.re/player/youtube.php` | UNKNOWN — external fetch blocked | n/a | Public web fetch returned 403 on the cross-domain relay; this does not establish device behavior | Keep relay → YouTube resolver and verify on-device |
 | 2026-10-12 | Dark S3E8 | DDizi `video` button | FAIL — site URL | n/a | The linked `/player/oynat/{id}` URL returned HTTP 404 in a public-site check | Do not treat this wrapper as playable; look for other current sources |
 | 2026-10-12 | Sevdiğim Sensin E20 | DDizi `video` button | FAIL — site URL | n/a | The linked `/player/oynat/{id}` URL returned HTTP 404 in a public-site check | Do not treat this wrapper as playable; look for other current sources |
 
