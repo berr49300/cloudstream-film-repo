@@ -43,4 +43,15 @@ class DiziYouParserTest {
         assertEquals("/player/91303.html", frame.attr("data-src"))
     }
 
+    @Test fun episodeSlugMapsBackToSeriesUrl() {
+        assertEquals(
+            "https://www.diziyou.one/sold-out-on-you/",
+            DiziYou().seriesUrlFromEpisode("https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/")
+        )
+    }
+
+    @Test fun unrelatedUrlIsNotMappedToSeries() {
+        assertEquals(null, DiziYou().seriesUrlFromEpisode("https://example.com/show-1-sezon-1-bolum/"))
+    }
+
 }
