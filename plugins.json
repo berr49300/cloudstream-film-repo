@@ -41,10 +41,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=diziyou.one",
-        "fileHash": "sha256-0bb7a0376d309a3f35985efdef9ad97199763253d9edb2042793b0531d9a58f9",
+        "fileHash": "sha256-e26e0a1f17570dcb9cff5aff4fcf0239c48dfb2e0c37005a2d900e8e9d8c08ec",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 43815,
+        "fileSize": 49428,
         "status": 1,
         "language": "tr",
         "authors": [
@@ -53,7 +53,7 @@
         "tvTypes": [
             "TvSeries"
         ],
-        "version": 4,
+        "version": 5,
         "internalName": "DiziYou",
         "description": "DiziYou katalog, sezon/b\u00f6l\u00fcm ve oynat\u0131c\u0131 d\u00fczeltmeleri",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DiziYou.cs3",
