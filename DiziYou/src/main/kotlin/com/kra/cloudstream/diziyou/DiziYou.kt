@@ -154,7 +154,7 @@ class DiziYou : MainAPI() {
             anchor.text(), slugTitle(href)).mapNotNull(::cleanSeriesTitle).firstOrNull() ?: return null
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
             // Prefer artwork inside the exact matched link; the card wrapper may contain other images.
-            posterUrl = anchor.posterUrl() ?: this@toSeriesResult.posterUrl()
+            posterUrl = preferDiziYouPoster(anchor.posterUrl(), this@toSeriesResult.posterUrl())
         }
     }
 
@@ -505,6 +505,9 @@ class DiziYou : MainAPI() {
     }
 }
 
+
+internal fun preferDiziYouPoster(itemPoster: String?, cardPoster: String?): String? =
+    itemPoster?.takeIf(String::isNotBlank) ?: cardPoster?.takeIf(String::isNotBlank)
 
 internal fun diziYouBackgroundUrl(style: String, vararg fallbacks: String): String? {
     val inline = Regex("""(?i)url\(\s*['"]?([^'")]+)['"]?\s*\)""")
