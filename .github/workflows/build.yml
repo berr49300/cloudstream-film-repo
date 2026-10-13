@@ -92,7 +92,7 @@ jobs:
   publish:
     name: Publish validated build to builds branch
     needs: build
-    if: ${{ (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.ref == 'refs/heads/main' && github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-diziyou-v3]')) }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish == true }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,37 +121,10 @@ jobs:
             git -C publish remote add origin "${REMOTE}"
           fi
 
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            # One-time DiziYou-only release; preserve all other packages and index records.
-            artifact="$(find publish-input -type f -name "DiziYou.cs3" -print -quit)"
-            test -n "${artifact}"
-            cp "${artifact}" publish/DiziYou.cs3
-            python - <<'PY'
-          import json
-          from pathlib import Path
-
-          index_path = Path("publish/plugins.json")
-          current = json.loads(index_path.read_text(encoding="utf-8"))
-          incoming = json.loads(Path("publish-input/build/plugins.json").read_text(encoding="utf-8"))
-          matches = [entry for entry in incoming if entry.get("name") == "DiziYou" or entry.get("internalName") == "DiziYou"]
-          if len(matches) != 1:
-              raise SystemExit(f"Expected exactly one new DiziYou index entry, found {len(matches)}")
-          replacement = matches[0]
-          for position, entry in enumerate(current):
-              if entry.get("name") == "DiziYou" or entry.get("internalName") == "DiziYou":
-                  current[position] = replacement
-                  break
-          else:
-              current.append(replacement)
-          index_path.write_text(json.dumps(current, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
-          print("DiziYou entry updated; all other index entries preserved.")
-          PY
-          else
-            find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-            cp publish-input/repo.json publish/repo.json
-            cp publish-input/build/plugins.json publish/plugins.json
-            find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
-          fi
+          find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp publish-input/repo.json publish/repo.json
+          cp publish-input/build/plugins.json publish/plugins.json
+          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
           count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
           test "${count}" -ge 1
           python - <<'PY'
