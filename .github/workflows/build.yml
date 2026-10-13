@@ -148,7 +148,7 @@ jobs:
                   break
           if not found:
               raise SystemExit("Published plugin index has no DiziYou entry")
-          published_path.write_text(json.dumps(published, ensure_ascii=False, indent=4) + "\\n", encoding="utf-8")
+          published_path.write_text(json.dumps(published, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
           print("Publishing DiziYou v2 only; all other provider packages and index entries are preserved.")
           PY
           else
