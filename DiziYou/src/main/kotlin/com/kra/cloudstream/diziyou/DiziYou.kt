@@ -474,13 +474,18 @@ class DiziYou : MainAPI() {
                 }
                 if (id.isNullOrBlank()) {
                     parseDiziYouMediaUrls(playerDoc).firstOrNull()?.let { source ->
-                        val mediaType = directMediaType(source)
-                        if (mediaType != null) {
-                            callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
-                                referer = playerUrl
-                                quality = Qualities.Unknown.value
-                            })
-                            emitted = true
+                        val master = diziYouMasterPlaylistUrlFromMediaUrl(source)
+                        if (master != null) {
+                            emitted = emitPlaylistSources(master.first, master.second, callback) || emitted
+                        } else {
+                            val mediaType = directMediaType(source)
+                            if (mediaType != null) {
+                                callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
+                                    referer = playerUrl
+                                    quality = Qualities.Unknown.value
+                                })
+                                emitted = true
+                            }
                         }
                     }
                 }
@@ -490,18 +495,23 @@ class DiziYou : MainAPI() {
         if (id.isNullOrBlank() && playerUrl == null) {
             parseDiziYouSourceUrls(episodeDoc).firstOrNull()?.let { source ->
                 runCatching {
-                    val mediaType = directMediaType(source)
-                    if (mediaType != null) {
-                        callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
-                            referer = data
-                            quality = Qualities.Unknown.value
-                        })
-                        emitted = true
+                    val master = diziYouMasterPlaylistUrlFromMediaUrl(source)
+                    if (master != null) {
+                        emitted = emitPlaylistSources(master.first, master.second, callback) || emitted
                     } else {
-                        loadExtractor(source, data, subtitleCallback, { link ->
-                            callback(link)
+                        val mediaType = directMediaType(source)
+                        if (mediaType != null) {
+                            callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
+                                referer = data
+                                quality = Qualities.Unknown.value
+                            })
                             emitted = true
-                        })
+                        } else {
+                            loadExtractor(source, data, subtitleCallback, { link ->
+                                callback(link)
+                                emitted = true
+                            })
+                        }
                     }
                 }
             }
@@ -582,6 +592,26 @@ internal fun diziYouMasterPlaylistUrl(itemId: String, dubbed: Boolean = false): 
     require(Regex("""^[a-zA-Z0-9_-]+$""").matches(itemId)) { "Invalid DiziYou player ID" }
     val variant = if (dubbed) "${itemId}_tr" else itemId
     return "https://storage.diziyou.one/episodes/${variant}/play.m3u8"
+}
+
+/**
+ * When the episode page exposes only a selected rendition (often 720p.m3u8),
+ * recover the item ID and request its master playlist instead of pinning playback
+ * to that single resolution.
+ */
+internal fun diziYouMasterPlaylistUrlFromMediaUrl(mediaUrl: String): Pair<String, String>? {
+    val uri = runCatching { URI(mediaUrl) }.getOrNull() ?: return null
+    if (!uri.host.equals("storage.diziyou.one", ignoreCase = true)) return null
+    val match = Regex(
+        """^/episodes/([a-zA-Z0-9_-]+)/(?:play|(?:360|480|540|576|720|1080|1440|2160)p)\\.m3u8$""",
+        RegexOption.IGNORE_CASE
+    ).matchEntire(uri.path.orEmpty()) ?: return null
+    val folder = match.groupValues[1]
+    val dubbed = folder.endsWith("_tr", ignoreCase = true)
+    val itemId = if (dubbed) folder.dropLast(3) else folder
+    if (itemId.isBlank()) return null
+    val label = if (dubbed) "DiziYou • Türkçe Dublaj" else "DiziYou • Orijinal Dil"
+    return diziYouMasterPlaylistUrl(itemId, dubbed) to label
 }
 
 internal fun seriesUrlFromEpisode(
