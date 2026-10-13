@@ -127,6 +127,16 @@ class DiziYouParserTest {
         assertEquals(1, parseDiziYouMediaUrls(doc).size)
     }
 
+    @Test fun specificItemPosterWinsOverContainerImage() {
+        assertEquals(
+            "https://cdn.example/posters/breaking-bad.jpg",
+            preferDiziYouPoster(
+                "https://cdn.example/posters/breaking-bad.jpg",
+                "https://cdn.example/images/unrelated-badge.png"
+            )
+        )
+    }
+
     @Test fun posterCanBeReadFromCssBackgroundImage() {
         assertEquals(
             "https://cdn.example/posters/altered-carbon.jpg",
