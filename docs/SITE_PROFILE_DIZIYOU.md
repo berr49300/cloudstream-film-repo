@@ -1,6 +1,6 @@
 # DiziYou — Site Discovery Profile
 
-**Status:** IMPLEMENTATION BUILDS; LIVE CONTRACT PARTLY BLOCKED  
+**Status:** COMPARATIVE REVIEW APPLIED; LIVE CONTRACT PARTLY BLOCKED  
 **Site:** https://www.diziyou.one/  
 **Profile date:** 2026-10-12  
 **Provider implementation:** CREATED in `DiziYou/`  
@@ -22,7 +22,29 @@ These indexed results confirm visible catalogue and episode information, but the
 
 The current Kotlin module implements a conservative HTML-based catalogue/search/detail adapter and delegates discovered iframe/source URLs to CloudStream's standard extractor. Episode labels now parse both season and episode numbers from text such as `2. Sezon 3. Bölüm`.
 
-The implementation still uses broad fallback selectors because the live raw DOM was not retrievable. These selectors are hypotheses/fallbacks, not confirmed site contracts. The implementation does **not** hardcode the historical third-party provider's guessed storage HLS or subtitle URL patterns.
+The implementation still uses broad fallback selectors because the live raw DOM was not retrievable. These selectors are hypotheses/fallbacks, not confirmed site contracts.
+
+## Cross-repository comparison (2026-10-13)
+
+Reviewed public implementations:
+- [Emre-Kahveci/CloudStreamHub](https://github.com/Emre-Kahveci/CloudStreamHub), Kotlin CloudStream provider.
+- [Saloo1575/SalooRepo](https://github.com/Saloo1575/SalooRepo), Kotlin CloudStream provider with a player-page HLS lookup.
+- [falsisdev/anthology](https://github.com/falsisdev/anthology), JavaScript provider using the same site and storage host.
+
+Shared implementation signals across these references:
+- Episode pages use `iframe#diziyouPlayer` and the iframe commonly identifies a `/player/{id}.html` page.
+- Multiple independent implementations look for HLS under `storage.diziyou.one/episodes/{id}/play.m3u8`.
+- Some references also construct a Turkish-dub candidate under `episodes/{id}_tr/play.m3u8` and subtitle candidates under `subtitles/{id}/tr.vtt` and `en.vtt`.
+
+These are corroborated prior-art patterns, **not live-verified current endpoints**. The provider now prefers media URLs actually exposed by the player HTML, and keeps the storage URL layout only as a compatibility fallback. Subtitle and dub options are advertised only when matching option markers are found in the episode page. The site’s present raw HTML, HTTP response codes, manifest contents, and subtitle payloads remain unverified here.
+
+### Changes in the comparison branch
+
+- Player iframe URL is resolved from `src` or lazy `data-src`, even if the iframe uses a different host/path than expected.
+- Player HTML is inspected for ordinary and JavaScript-escaped `.m3u8`, `.mp4`, and `.mpd` URLs before using a constructed fallback.
+- A regression test covers plain and escaped HLS URL extraction.
+- Language variants remain available when a native HLS URL is also found.
+- No other provider module is changed.
 
 ## Verification matrix
 
@@ -30,11 +52,11 @@ The implementation still uses broad fallback selectors because the live raw DOM 
 |---|---|---|
 | Kotlin compile / plugin package | PASS | Actions run 38271563419 |
 | Existing module/unit tests before this change | PASS | Actions run 38271563419 |
-| Season/episode parser regression tests | Pending | New CI run after this commit |
+| Season/episode parser regression tests | Added/CI pending | Comparison branch adds URL extraction regression coverage |
 | Homepage catalogue in live CloudStream | NOT TESTED | No real device/session |
 | Search accuracy | NOT TESTED | Raw response inaccessible here |
 | Detail metadata and episode mapping | PARTLY TESTED | Indexed text evidence only; no raw DOM fixture |
-| Player iframe extraction | NOT TESTED | iframe URL/host not exposed by index |
+| Player iframe extraction | PARTLY TESTED | Unit fixture covers lazy data-src; live iframe remains unverified |
 | Video playback | NOT TESTED | No stream/manifest response or device test |
 | Turkish subtitles | NOT TESTED | Labels visible in index, actual subtitle URL/payload unverified |
 | English subtitles | NOT TESTED | Labels visible in index, actual subtitle URL/payload unverified |
