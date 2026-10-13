@@ -21,7 +21,7 @@ class DiziYouParserTest {
     @Test fun playerSourceParserFindsPlainAndEscapedHlsUrls() {
         val html = """<script>
             const first = "https://storage.diziyou.one/episodes/123/play.m3u8";
-            const second = "https:\\/\\/storage.diziyou.one/episodes/124/play.m3u8";
+            const second = "https:\/\/storage.diziyou.one/episodes/124/play.m3u8";
         </script>"""
         val doc = Jsoup.parse(html, "https://www.diziyou.one/")
         val urls = DiziYou().sourceUrls(doc).filter { it.contains(".m3u8", ignoreCase = true) }.toSet()
