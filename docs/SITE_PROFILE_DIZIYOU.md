@@ -4,7 +4,7 @@
 **Site:** https://www.diziyou.one/  
 **Profile date:** 2026-10-13  
 **Changed provider:** `DiziYou/` only  
-**Live playback:** NOT YET VERIFIED on a real CloudStream client  
+**Live client evidence:** User confirmed the current v2 plugin is working in CloudStream, but only the first of five identically named Native sources appears to work; revision 3 needs retesting after CI/build.  
 **Live raw HTML:** Direct fetch from this research environment returned HTTP 502; this does not establish that the public site is offline.
 
 ## Comparative research
@@ -61,9 +61,9 @@ Repositories containing copies or older variants were treated as corroborating e
 | Plugin package / repository validation | PASS | GitHub Actions run #468 built `.cs3`, generated the plugin index, validated the repository, and uploaded the build artifact; publish job was correctly skipped for a PR |
 | Catalogue on a real CloudStream client | NOT TESTED | Live browser HTML unavailable in this environment |
 | Search accuracy | NOT TESTED against live responses | Current raw search response unavailable |
-| Series page / season / episode order | Parser repaired, still needs live client test | Slug-filtered fixture logic; no real device/session |
-| Player iframe and native media | PARTLY TESTED with fixtures | Actual live iframe and manifest response unavailable |
-| Video playback | NOT VERIFIED | No client playback session |
+| Series page / season / episode order | PARTLY CONFIRMED on v2 | User screenshot shows episode listing, but file-like labels need cleanup in v3 |
+| Player iframe and native media | PARTLY CONFIRMED on v2 | Five Native entries shown; user reports only the first works. v3 now prefers a single selected source |
+| Video playback | PARTLY CONFIRMED on v2 | User reports the first of five Native entries works; v3 source de-duplication still needs a client retest |
 | Turkish / English subtitles | NOT VERIFIED | Option markers and URL patterns supported; actual VTT responses unverified |
 | Pagination | Implemented from known URL pattern, live-unverified | No current raw paginated response |
 
