@@ -92,7 +92,7 @@ jobs:
   publish:
     name: Publish validated build to builds branch
     needs: build
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish == true }}
+    if: ${{ (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.ref == 'refs/heads/main' && github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-diziyou-v2]')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,6 +110,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
+          PUBLISH_DIZIYOU_ONLY: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-diziyou-v2]') }}
         run: |
           set -euo pipefail
           REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
@@ -121,14 +122,44 @@ jobs:
             git -C publish remote add origin "${REMOTE}"
           fi
 
-          find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp publish-input/repo.json publish/repo.json
-          cp publish-input/build/plugins.json publish/plugins.json
-          find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
+          if [[ "${PUBLISH_DIZIYOU_ONLY}" == "true" ]]; then
+            # One-time DiziYou-only publication: preserve all other provider packages and index entries.
+            test -s publish-input/DiziYou/build/DiziYou.cs3
+            cp publish-input/DiziYou/build/DiziYou.cs3 publish/DiziYou.cs3
+            cp publish-input/repo.json publish/repo.json
+            python - <<'PY'
+          import json
+          from pathlib import Path
 
-          count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
-          test "${count}" -ge 1
-          python - <<'PY'
+          published_path = Path("publish/plugins.json")
+          built_path = Path("publish-input/build/plugins.json")
+          published = json.loads(published_path.read_text(encoding="utf-8"))
+          built = json.loads(built_path.read_text(encoding="utf-8"))
+          fresh = next((entry for entry in built if entry.get("internalName") == "DiziYou"), None)
+          if fresh is None:
+              raise SystemExit("Built plugin index does not contain DiziYou")
+          if not Path("publish/DiziYou.cs3").is_file():
+              raise SystemExit("DiziYou.cs3 was not copied")
+          found = False
+          for i, entry in enumerate(published):
+              if entry.get("internalName") == "DiziYou":
+                  published[i] = fresh
+                  found = True
+                  break
+          if not found:
+              raise SystemExit("Published plugin index has no DiziYou entry")
+          published_path.write_text(json.dumps(published, ensure_ascii=False, indent=4) + "\\n", encoding="utf-8")
+          print("Publishing DiziYou v2 only; all other provider packages and index entries are preserved.")
+          PY
+          else
+            find publish -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp publish-input/repo.json publish/repo.json
+            cp publish-input/build/plugins.json publish/plugins.json
+            find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
+
+            count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
+            test "${count}" -ge 1
+            python - <<'PY'
           import json
           from pathlib import Path
 
@@ -137,6 +168,7 @@ jobs:
               raise SystemExit("plugins.json is empty or has an unexpected format")
           print(f"Publishing {len(index)} index entries and {len(list(Path('publish').glob('*.cs3')))} .cs3 artifact(s)")
           PY
+          fi
 
           git -C publish config user.name "github-actions[bot]"
           git -C publish config user.email "41898282+github-actions[bot]@users.noreply.github.com"
