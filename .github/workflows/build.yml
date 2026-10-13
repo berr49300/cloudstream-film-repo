@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish to the builds branch (requires explicit approval)"
+        description: "Publish to the builds branch"
         type: boolean
         required: true
         default: false
@@ -92,7 +92,7 @@ jobs:
   publish:
     name: Publish validated build to builds branch
     needs: build
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish == true }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
