@@ -259,12 +259,19 @@ class DiziYou : MainAPI() {
                             foundNativeMedia = true
                         }
                         source.contains(".mp4", ignoreCase = true) || source.contains(".mpd", ignoreCase = true) -> {
-                            runCatching { loadExtractor(source, playerUrl, subtitleCallback, callback) }
-                                .onSuccess { emitted = true }
+                            runCatching {
+                                loadExtractor(source, playerUrl, subtitleCallback, { link ->
+                                    callback(link)
+                                    emitted = true
+                                })
+                            }
                         }
                         else -> runCatching {
-                            loadExtractor(source, playerUrl, subtitleCallback, callback)
-                        }.onSuccess { emitted = true }
+                            loadExtractor(source, playerUrl, subtitleCallback, { link ->
+                                callback(link)
+                                emitted = true
+                            })
+                        }
                     }
                 }
                 playerDoc.select("track[src], track[data-src]").forEach { track ->
@@ -312,8 +319,10 @@ class DiziYou : MainAPI() {
                     })
                     emitted = true
                 } else {
-                    loadExtractor(source, data, subtitleCallback, callback)
-                    emitted = true
+                    loadExtractor(source, data, subtitleCallback, { link ->
+                        callback(link)
+                        emitted = true
+                    })
                 }
             }
         }
