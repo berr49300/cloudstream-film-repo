@@ -68,7 +68,22 @@ class DiziYou : MainAPI() {
             }
             value
         }
-        return (images + responsive.filterNotNull().filter(::isLikelyPosterUrl))
+        // Some DiziYou cards store artwork in CSS/background attributes instead of <img>.
+        val backgroundElements = (listOf(this) + select(
+            "[style*=background-image], [style*=background:], [data-background], [data-bg], [data-thumb], [data-poster]"
+        )).distinct()
+        val backgrounds = backgroundElements.mapNotNull { element ->
+            val raw = diziYouBackgroundUrl(
+                element.attr("style"),
+                element.attr("data-background"),
+                element.attr("data-bg"),
+                element.attr("data-thumb"),
+                element.attr("data-poster")
+            ) ?: return@mapNotNull null
+            fixUrlNull(raw)?.takeIf(::isLikelyPosterUrl)
+        }
+
+        return (images + responsive.filterNotNull().filter(::isLikelyPosterUrl) + backgrounds)
             .firstOrNull { !it.startsWith("data:", true) }
     }
 
@@ -138,7 +153,8 @@ class DiziYou : MainAPI() {
         val title = sequenceOf(resultTitle(), anchor.attr("title"), anchor.selectFirst("img")?.attr("alt"),
             anchor.text(), slugTitle(href)).mapNotNull(::cleanSeriesTitle).firstOrNull() ?: return null
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-            posterUrl = this@toSeriesResult.posterUrl() ?: anchor.posterUrl()
+            // Prefer artwork inside the exact matched link; the card wrapper may contain other images.
+            posterUrl = anchor.posterUrl() ?: this@toSeriesResult.posterUrl()
         }
     }
 
@@ -231,7 +247,8 @@ class DiziYou : MainAPI() {
                 cards(app.get("$mainUrl/page/2/?s=$encoded", referer = "$mainUrl/").document)
             }.getOrDefault(emptyList()).filter { matchesSearchQuery(it, query) }.distinctBy { it.url }
         }
-        return repairMissingPosters(relevant.take(30), lookupLimit = 24)
+        // On explicit searches, prefer canonical artwork from each result's detail-page metadata.
+        return repairMissingPosters(relevant.take(30), lookupLimit = 24, replaceExisting = true)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query)
