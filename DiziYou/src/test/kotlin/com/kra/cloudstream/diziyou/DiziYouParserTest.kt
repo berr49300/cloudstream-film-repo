@@ -126,4 +126,33 @@ class DiziYouParserTest {
         )
         assertEquals(1, parseDiziYouMediaUrls(doc).size)
     }
+
+    @Test fun originalQualitySelectionUsesTheHlsMasterPlaylist() {
+        assertEquals(
+            "https://storage.diziyou.one/episodes/91303/play.m3u8",
+            diziYouMasterPlaylistUrl("91303")
+        )
+    }
+
+    @Test fun turkishDubGetsItsOwnMasterPlaylist() {
+        assertEquals(
+            "https://storage.diziyou.one/episodes/91303_tr/play.m3u8",
+            diziYouMasterPlaylistUrl("91303", dubbed = true)
+        )
+    }
+
+    @Test fun languageOptionsRequireActualOptionElements() {
+        val doc = Jsoup.parse(
+            """<script>const options = ["turkceAltyazili", "turkceDublaj"];</script>
+               <span class="diziyouOption" id="turkceAltyazili"></span>"""
+        )
+        assertEquals(true, hasDiziYouOption(doc, "turkceAltyazili"))
+        assertEquals(false, hasDiziYouOption(doc, "turkceDublaj"))
+    }
+
+    @Test fun invalidPlayerIdsCannotEnterStorageUrls() {
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            diziYouMasterPlaylistUrl("../123")
+        }
+    }
 }
