@@ -127,6 +127,59 @@ class DiziYouParserTest {
         assertEquals(1, parseDiziYouMediaUrls(doc).size)
     }
 
+    @Test fun posterCanBeReadFromCssBackgroundImage() {
+        assertEquals(
+            "https://cdn.example/posters/altered-carbon.jpg",
+            diziYouBackgroundUrl("background-image: url('https://cdn.example/posters/altered-carbon.jpg')", "/fallback.jpg")
+        )
+    }
+
+    @Test fun posterFallsBackToLazyBackgroundAttribute() {
+        assertEquals("/posters/after-life.jpg", diziYouBackgroundUrl("", "/posters/after-life.jpg"))
+    }
+
+    @Test fun hlsMasterVariantsAreResolvedAndSortedByQuality() {
+        val manifest = """#EXTM3U
+            #EXT-X-VERSION:3
+            #EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
+            1080p.m3u8
+            #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720
+            720p.m3u8
+            #EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=854x480
+            480p.m3u8
+        """
+        val variants = parseDiziYouHlsVariants(
+            "https://storage.diziyou.one/episodes/91303/play.m3u8", manifest
+        )
+        assertEquals(listOf(1080, 720, 480), variants.map { it.quality })
+        assertEquals(
+            "https://storage.diziyou.one/episodes/91303/1080p.m3u8",
+            variants.first().url
+        )
+    }
+
+    @Test fun mediaPlaylistDoesNotInventQualityVariants() {
+        val manifest = """#EXTM3U
+            #EXT-X-TARGETDURATION:8
+            #EXTINF:8.0,
+            segment000.ts
+            #EXT-X-ENDLIST
+        """
+        assertEquals(
+            emptyList<DiziYouHlsVariant>(),
+            parseDiziYouHlsVariants("https://storage.diziyou.one/episodes/91303/play.m3u8", manifest)
+        )
+    }
+
+    @Test fun separateAudioGroupsAreDetectedBeforeSplittingMasterPlaylist() {
+        val manifest = """#EXTM3U
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original",URI="audio.m3u8"
+            #EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720,AUDIO="audio"
+            720p.m3u8
+        """
+        assertEquals(true, hasDiziYouAlternateAudio(manifest))
+    }
+
     @Test fun originalQualitySelectionUsesTheHlsMasterPlaylist() {
         assertEquals(
             "https://storage.diziyou.one/episodes/91303/play.m3u8",
