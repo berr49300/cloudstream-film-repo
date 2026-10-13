@@ -1,80 +1,69 @@
 # DiziYou — Site Discovery Profile
 
-**Status:** COMPARATIVE REVIEW APPLIED; LIVE CONTRACT PARTLY BLOCKED  
+**Status:** Parser and catalogue repair applied; latest CI validation in progress  
 **Site:** https://www.diziyou.one/  
 **Profile date:** 2026-10-13  
-**Provider implementation:** CREATED in `DiziYou/`  
-**Previous baseline build/package:** PASS in GitHub Actions run 38271563419 (commit 1f8398ca4a9858a3b50de2c39e1855ee5e66bcc5)  
-**Current comparison branch CI:** PENDING for latest changes  
-**CloudStream playback:** NOT TESTED  
-**Live raw HTML/player contract:** BLOCKED in this research environment (502 on direct fetch)
+**Changed provider:** `DiziYou/` only  
+**Live playback:** NOT YET VERIFIED on a real CloudStream client  
+**Live raw HTML:** Direct fetch from this research environment returned HTTP 502; this does not establish that the public site is offline.
 
-## Evidence and current scope
+## Comparative research
 
-Search-indexed public pages expose the current homepage, series detail pages, episode detail pages, season/episode labels, and the labels “Türkçe Altyazılı”, “Türkçe Dublaj”, and “İngilizce Altyazılı”. Examples:
-- Homepage: https://www.diziyou.one/
-- Series detail: https://www.diziyou.one/silo/
-- Episode detail: https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/
-- Another episode page showing three language choices: https://www.diziyou.one/all-of-us-are-dead-1-sezon-1-bolum/
+Reviewed multiple public implementations rather than assuming a single old provider was current:
 
-These indexed results confirm visible catalogue and episode information, but they do not provide the current raw DOM, iframe src, player config, media URL, or subtitle payload. Direct fetch from this research environment returned 502, and a local fetch attempt could not resolve DNS. This is an environment access block, not evidence the site is offline.
+- [safarxe/CloudStream — DiziYou.kt](https://github.com/safarxe/CloudStream/blob/main/DiziYou/src/main/kotlin/com/keyiflerolsun/DiziYou.kt)
+- [feroxx/Kekik-cloudstream — DiziYou.kt](https://github.com/feroxx/Kekik-cloudstream/blob/master/DiziYou/src/main/kotlin/com/keyiflerolsun/DiziYou.kt)
+- [Emre-Kahveci/CloudStreamHub — DiziYou.kt](https://github.com/Emre-Kahveci/CloudStreamHub/blob/main/DiziYou/src/main/kotlin/com/cloudstream/tr/diziyou/DiziYou.kt)
+- [Saloo1575/SalooRepo — DiziYou.kt](https://github.com/Saloo1575/SalooRepo/blob/main/DiziYou/src/main/kotlin/com/saloo/sites/diziyou/DiziYou.kt)
+- [falsisdev/anthology — DiziYou provider](https://github.com/falsisdev/anthology/blob/main/src/diziyou/index.js)
+- [caca1403/cine-pulse — DiziYou provider](https://github.com/caca1403/cine-pulse/blob/main/api/providers/diziyou.py)
+- [DTH-GLOBAL/bot — DiziYou scraper](https://github.com/DTH-GLOBAL/bot/blob/main/diziyou.py)
 
-## Provider implementation
+Repositories containing copies or older variants were treated as corroborating evidence, not as proof of current live behaviour.
 
-The current Kotlin module implements a conservative HTML-based catalogue/search/detail adapter and delegates discovered iframe/source URLs to CloudStream's standard extractor. Episode labels parse both season and episode numbers from text such as `2. Sezon 3. Bölüm`. Latest episode cards are mapped back to a parent series only when the slug matches the site's explicit season/episode pattern.
+## What the implementations have in common
 
-The implementation still uses broad fallback selectors because the live raw DOM was not retrievable. These selectors are hypotheses/fallbacks, not confirmed site contracts.
+**Catalogue and search.** The current canonical domain referenced by these implementations is `https://www.diziyou.one`. Archive examples include:
 
-## Cross-repository comparison (2026-10-13)
+- `/dizi-arsivi/?filtrele=tarih&sirala=DESC`
+- `/dizi-arsivi/?filtrele=alfabetik&sirala=ASC`
+- `/dizi-arsivi/?filtrele=imdb&sirala=DESC&yil=&imdb=7`
+- Search uses `/?s={query}`.
 
-Reviewed public implementations:
-- [Emre-Kahveci/CloudStreamHub](https://github.com/Emre-Kahveci/CloudStreamHub), Kotlin CloudStream provider.
-- [Saloo1575/SalooRepo](https://github.com/Saloo1575/SalooRepo), Kotlin CloudStream provider with a player-page HLS lookup.
-- [falsisdev/anthology](https://github.com/falsisdev/anthology), JavaScript provider using the same site and storage host.
-- [UmayTrade/MyTV](https://github.com/UmayTrade/MyTV), [burak-ayd/cloudstream-repo](https://github.com/burak-ayd/cloudstream-repo), [21nek/nektv](https://github.com/21nek/nektv), [Kayracs3/Kayra](https://github.com/Kayracs3/Kayra), and [Barisakd2163/Xelo-Repo](https://github.com/Barisakd2163/Xelo-Repo), additional public Kotlin providers/forks found by GitHub code search. Several use older or alternate DiziYou domains, so their domain/player assumptions were not treated as current truth.
+**Series versus episode URLs.** Episode slugs repeatedly follow `-{season}-sezon-{episode}-bolum`. Treating an episode URL as a series detail URL causes a detail page to show the episode title and navigation/related links instead of the real series episode list.
 
-Shared implementation signals across these references:
-- Episode pages use `iframe#diziyouPlayer` and the iframe commonly identifies a `/player/{id}.html` page.
-- Multiple independent implementations look for HLS under `storage.diziyou.one/episodes/{id}/play.m3u8`.
-- Some references also construct a Turkish-dub candidate under `episodes/{id}_tr/play.m3u8` and subtitle candidates under `subtitles/{id}/tr.vtt` and `en.vtt`.
+**Player chain.** Multiple independent implementations inspect `iframe#diziyouPlayer`, commonly pointing to `/player/{id}.html`. One useful additional detail from another scraper is the `#diziyouSource` element on the player page, whose source attribute can expose the actual media URL. The Kotlin implementation now checks the player page for exposed source elements and ordinary or JS-escaped `.m3u8`, `.mp4`, and `.mpd` URLs before using the known storage-layout fallback.
 
-These are corroborated prior-art patterns, **not live-verified current endpoints**. The provider now prefers media URLs actually exposed by the player HTML, and keeps the storage URL layout only as a compatibility fallback. Subtitle and dub options are advertised only when matching option markers are found in the episode page. The site’s present raw HTML, HTTP response codes, manifest contents, and subtitle payloads remain unverified here.
+**Fallback media layout.** Public implementations commonly construct `https://storage.diziyou.one/episodes/{id}/play.m3u8`, and some also construct `episodes/{id}_tr/play.m3u8` and VTT subtitle URLs. These patterns are corroborated by public code, but the current endpoint response codes, manifest contents, required headers, and subtitle payloads were not live-verified here. They are compatibility fallbacks, not a claim that every episode has every language variant.
 
-### Changes in the comparison branch
+## Fixes applied to our DiziYou module
 
-- Latest-episode cards are mapped back to a series URL only when the URL matches the explicit `-{season}-sezon-{episode}-bolum` pattern; this prevents episode links from being mistaken for series pages.
-- Player iframe URL is resolved from `src` or lazy `data-src`, even if the iframe uses a different host/path than expected.
-- Source parsing is factored into top-level helpers so parser unit tests do not instantiate `MainAPI`; relative iframe URLs resolve against the document base URI.
-- The storage HLS fallback is keyed off a discovered player URL rather than the literal `diziyouPlayer` text appearing in HTML.
-- Player HTML is inspected for ordinary and JavaScript-escaped `.m3u8`, `.mp4`, and `.mpd` URLs before using a constructed fallback.
-- Regression tests cover plain/escaped HLS URL extraction and episode-to-series URL mapping.
-- Language variants remain available when a native HLS URL is also found.
-- No other provider module is changed.
+- Replaced the unsupported `/genel/` archive tab with archive URLs found in the comparable implementations.
+- Serialized main-page requests with a short delay, consistent with an older public DiziYou implementation's bot/rate-protection precautions.
+- Stopped treating the `#list-series` wrapper as a single card. Extraction now visits individual anchors/cards and deduplicates by URL.
+- Filtered out archive, pagination, category, tag, and episode paths where a series page is expected.
+- Episode cards map to the parent series URL only when the season/episode slug matches the known pattern.
+- Series names are taken from series-title elements or the series slug; poster alt text such as “İngilizce Altyazılı” and “Türkçe Dublaj” is not accepted as a series title.
+- Opening an episode URL first resolves the parent series page. Episode extraction filters links by the same parent series path and derives season/episode numbers from the URL before using visible labels. Generic navigation captions such as “Son Eklenen Bölümler” and “Önceki Bölüm” are not exposed as episode names.
+- Player resolution continues to prefer media actually present in player HTML; the known storage pattern remains a fallback when the player ID is found.
+- Added regression tests for slug-to-series mapping, a non-`www` episode hostname, title generation from an episode slug, and the `#diziyouSource` HLS source element.
+- No other provider module is changed. The pull request contains only the DiziYou provider, its parser tests, and this DiziYou-specific profile.
 
 ## Verification matrix
 
-| Capability | Status | Evidence |
+| Capability | Status | Evidence / limitation |
 |---|---|---|
-| Kotlin compile / plugin package | PENDING for current branch | Previous baseline passed in Actions run 38271563419; current branch run queued |
-| Existing module/unit tests before this change | PASS | Actions run 38271563419 |
-| Season/episode parser regression tests | Added/CI pending | Current branch covers escaped HLS URLs, relative iframe URLs, and episode-to-series mapping without provider instantiation |
-| Homepage catalogue in live CloudStream | NOT TESTED | No real device/session |
-| Search accuracy | NOT TESTED | Raw response inaccessible here |
-| Detail metadata and episode mapping | PARTLY TESTED | Indexed text evidence only; no raw DOM fixture |
-| Player iframe extraction | PARTLY TESTED | Unit fixture covers lazy data-src; live iframe remains unverified |
-| Video playback | NOT TESTED | No stream/manifest response or device test |
-| Turkish subtitles | NOT TESTED | Labels visible in index, actual subtitle URL/payload unverified |
-| English subtitles | NOT TESTED | Labels visible in index, actual subtitle URL/payload unverified |
-| Pagination | NOT TESTED | No verified pagination request/response |
+| Kotlin compile | CI running for latest repair | See the PR's latest Actions run |
+| Parser regression tests | Added; latest CI pending | Slug mapping, titles, lazy iframe, plain/escaped HLS and source element fixtures |
+| Plugin package / repository validation | CI running for latest repair | Workflow builds .cs3 artifacts but does not publish for a PR |
+| Catalogue on a real CloudStream client | NOT TESTED | Live browser HTML unavailable in this environment |
+| Search accuracy | NOT TESTED against live responses | Current raw search response unavailable |
+| Series page / season / episode order | Parser repaired, still needs live client test | Slug-filtered fixture logic; no real device/session |
+| Player iframe and native media | PARTLY TESTED with fixtures | Actual live iframe and manifest response unavailable |
+| Video playback | NOT VERIFIED | No client playback session |
+| Turkish / English subtitles | NOT VERIFIED | Option markers and URL patterns supported; actual VTT responses unverified |
+| Pagination | Implemented from known URL pattern, live-unverified | No current raw paginated response |
 
-## Historical prior-art — not a current contract
+## Remaining evidence needed
 
-An older public CloudStream provider in `feroxx/Kekik-cloudstream` used selectors including `div#list-series-main`, `div.incontent div#list-series`, `div.bolumust`, `iframe#diziyouPlayer`, and `span.diziyouOption`. It also constructed candidate media/subtitle URLs under a `storage` host. These are historical leads only; the current site's live DOM and media responses have not been verified. Do not copy these selectors or URL patterns into production without new evidence and a license/attribution review.
-
-## Next required validation
-
-1. Retry public access from a normal browser or an environment that can fetch the site's raw HTML.
-2. Save sanitized samples for homepage, series detail, episode page, iframe response and player config. Do not include cookies, tokens, or signed media URLs.
-3. Verify the actual iframe chain, media response, required headers, and subtitle files separately.
-4. Run the provider in CloudStream and test homepage, search, detail, season/episode order, direct episode opening, next episode, source switching, video playback, and each advertised subtitle track.
-5. Publish an updated artifact only after the checks and explicit manual approval.
+A successful build is necessary but does not establish that the live site is playable. Full acceptance still requires a working public response and a CloudStream client session to verify the home catalogue, search, series detail, episode order, the real player iframe/source, the HLS manifest, and each subtitle track actually advertised by that episode.
