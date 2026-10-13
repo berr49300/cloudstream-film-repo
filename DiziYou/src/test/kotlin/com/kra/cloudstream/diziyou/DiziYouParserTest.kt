@@ -151,8 +151,42 @@ class DiziYouParserTest {
     }
 
     @Test fun invalidPlayerIdsCannotEnterStorageUrls() {
-        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+        var thrown = false
+        try {
             diziYouMasterPlaylistUrl("../123")
+        } catch (_: IllegalArgumentException) {
+            thrown = true
         }
+        assertEquals(true, thrown)
+    }
+
+    @Test fun searchRequiresRelevantTitleOrSlugTerms() {
+        assertEquals(
+            true,
+            matchesDiziYouSearchQuery(
+                "The Queen's Gambit",
+                "https://www.diziyou.one/the-queens-gambit/",
+                "gambit"
+            )
+        )
+        assertEquals(
+            false,
+            matchesDiziYouSearchQuery(
+                "The Uncanny Counter",
+                "https://www.diziyou.one/the-uncanny-counter/",
+                "gambit"
+            )
+        )
+    }
+
+    @Test fun searchMatchingIgnoresTurkishDiacritics() {
+        assertEquals(
+            true,
+            matchesDiziYouSearchQuery(
+                "100 Yıl Yaşamak: Mavi Bölgelerin Sırları",
+                "https://www.diziyou.one/100-yil-yasamak/",
+                "mavi bolgelerin"
+            )
+        )
     }
 }
