@@ -54,6 +54,35 @@ class DiziYouParserTest {
         )
     }
 
+    @Test fun episodeUrlWithNonWwwHostMapsBackToSeries() {
+        assertEquals(
+            "https://www.diziyou.one/youth/",
+            seriesUrlFromEpisode("https://diziyou.one/youth-1-sezon-5-bolum/?ref=home")
+        )
+    }
+
+    @Test fun episodeCardTitleIsDerivedFromSeriesSlugNotArtworkCaption() {
+        assertEquals(
+            "Youth",
+            seriesTitleFromEpisodeUrl("https://www.diziyou.one/youth-1-sezon-5-bolum/")
+        )
+        assertEquals(
+            "Sold Out On You",
+            seriesTitleFromEpisodeUrl("https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/")
+        )
+    }
+
+    @Test fun actualPlayerSourceElementIsExtracted() {
+        val doc = Jsoup.parse(
+            """<video><source id="diziyouSource" src="/episodes/91303/720p.m3u8"></video>""",
+            "https://www.diziyou.one/player/91303.html"
+        )
+        assertEquals(
+            listOf("https://www.diziyou.one/episodes/91303/720p.m3u8"),
+            parseDiziYouSourceUrls(doc)
+        )
+    }
+
     @Test fun unrelatedUrlIsNotMappedToSeries() {
         assertEquals(null, seriesUrlFromEpisode("https://example.com/show-1-sezon-1-bolum/"))
     }
