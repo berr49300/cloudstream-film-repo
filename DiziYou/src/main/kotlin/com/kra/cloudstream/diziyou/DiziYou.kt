@@ -167,18 +167,30 @@ class DiziYou : MainAPI() {
     }
 
     private fun hasOption(doc: Document, vararg ids: String): Boolean =
-        ids.any { doc.selectFirst("#$it, [id=$it], [data-id=$it]") != null }
+        ids.any { id ->
+            doc.selectFirst("#$id, [id=$id], [data-id=$id], [class~=$id]") != null ||
+                doc.html().contains(id, ignoreCase = true)
+        }
 
-    private fun sourceUrls(doc: Document): List<String> = buildList {
+    internal fun sourceUrls(doc: Document): List<String> = buildList {
         doc.select("video source[src], source[src], video[src], iframe[src], iframe[data-src]").forEach { el ->
             val src = el.attr("data-src").ifBlank { el.attr("src") }.trim()
             if (src.isNotBlank()) add(fixUrl(src))
         }
-        Regex("""(?i)(https?:\\?/\\?/[^"'\s<>]+?\.m3u8(?:\?[^"'\s<>]*)?)""")
+        // Player configs may store URLs as ordinary https://... or escaped https:\/\/...
+        Regex("""(?i)(https?:\\?/\\?/[^"'\s<>]+?\.(?:m3u8|mp4|mpd)(?:\?[^"'\s<>]*)?)""")
             .findAll(doc.html()).forEach { match ->
                 add(match.value.replace("\\/", "/").replace("&amp;", "&"))
             }
     }.distinct()
+
+    private fun playerFrameUrl(doc: Document): String? {
+        val frame = doc.selectFirst("iframe#diziyouPlayer, iframe[src*=player], iframe[data-src*=player]")
+            ?: doc.selectFirst("iframe[src], iframe[data-src]")
+            ?: return null
+        val src = frame.attr("data-src").ifBlank { frame.attr("src") }.trim()
+        return src.takeIf { it.isNotBlank() }?.let { fixUrl(it) }
+    }
 
     override suspend fun loadLinks(
         data: String,
@@ -186,59 +198,79 @@ class DiziYou : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = app.get(data, referer = "$mainUrl/").document
-        val id = playerId(doc)
-        val storage = "https://storage.diziyou.one"
-        var emitted = false
+        val episodeDoc = app.get(data, referer = "$mainUrl/").document
+        val playerUrl = playerFrameUrl(episodeDoc)
+        val id = playerUrl?.let {
+            Regex("""/player/([a-zA-Z0-9_-]+)(?:\.html)?(?:[?#].*)?$""", RegexOption.IGNORE_CASE)
+                .find(it)?.groupValues?.getOrNull(1)
+        } ?: playerId(episodeDoc)
 
-        if (id != null) {
-            val trSub = hasOption(doc, "turkceAltyazili", "turkceAltyaziliOption")
-            val enSub = hasOption(doc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
-            val trDub = hasOption(doc, "turkceDublaj", "turkceDublajOption")
-            if (trSub || enSub) {
-                callback(newExtractorLink(name, "DiziYou • Orijinal Dil", "$storage/episodes/$id/play.m3u8", ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                if (trSub) subtitleCallback(SubtitleFile("Türkçe", "$storage/subtitles/$id/tr.vtt"))
-                if (enSub) subtitleCallback(SubtitleFile("İngilizce", "$storage/subtitles/$id/en.vtt"))
-                emitted = true
-            }
-            if (trDub) {
-                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", "$storage/episodes/${id}_tr/play.m3u8", ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
-            }
-            val playerFrame = doc.selectFirst("iframe#diziyouPlayer, iframe[src*=player], iframe[data-src*=player]")
-            val playerUrl = playerFrame?.attr("data-src").orEmpty().ifBlank { playerFrame?.attr("src").orEmpty() }
-            if (playerUrl.isNotBlank()) {
-                runCatching {
-                    val playerDoc = app.get(fixUrl(playerUrl), referer = data).document
-                    sourceUrls(playerDoc).forEach { source ->
-                        if (source.contains(".m3u8", true)) {
+        var emitted = false
+        var foundNativeMedia = false
+
+        // Prefer URLs actually exposed by the player page; do not rely on a guessed URL
+        // when the live player provides a concrete source.
+        if (playerUrl != null) {
+            runCatching {
+                val playerDoc = app.get(playerUrl, referer = data).document
+                sourceUrls(playerDoc).forEach { source ->
+                    when {
+                        source.contains(".m3u8", ignoreCase = true) -> {
                             callback(newExtractorLink(name, "DiziYou • Player", source, ExtractorLinkType.M3U8) {
-                                referer = fixUrl(playerUrl)
+                                referer = playerUrl
                                 quality = Qualities.Unknown.value
                             })
                             emitted = true
-                        } else {
-                            runCatching { loadExtractor(source, fixUrl(playerUrl), subtitleCallback, callback) }
+                            foundNativeMedia = true
                         }
+                        source.contains(".mp4", ignoreCase = true) || source.contains(".mpd", ignoreCase = true) -> {
+                            runCatching { loadExtractor(source, playerUrl, subtitleCallback, callback) }
+                                .onSuccess { emitted = true }
+                        }
+                        else -> runCatching {
+                            loadExtractor(source, playerUrl, subtitleCallback, callback)
+                        }.onSuccess { emitted = true }
                     }
-                    playerDoc.select("track[src], track[data-src]").forEach { track ->
-                        val src = track.attr("src").ifBlank { track.attr("data-src") }
-                        val lang = track.attr("srclang").ifBlank { track.attr("label") }.ifBlank { "Altyazı" }
-                        if (src.isNotBlank()) subtitleCallback(SubtitleFile(lang, fixUrl(src)))
-                    }
+                }
+                playerDoc.select("track[src], track[data-src]").forEach { track ->
+                    val src = track.attr("src").ifBlank { track.attr("data-src") }
+                    val lang = track.attr("srclang").ifBlank { track.attr("label") }.ifBlank { "Altyazı" }
+                    if (src.isNotBlank()) subtitleCallback(SubtitleFile(lang, fixUrl(src)))
                 }
             }
         }
 
-        sourceUrls(doc).forEach { source ->
+        // Compatibility fallback for the known DiziYou storage layout. Only advertise
+        // language variants when the episode page actually declares those options.
+        if (!foundNativeMedia && !id.isNullOrBlank()) {
+            val html = episodeDoc.html()
+            val trSub = hasOption(episodeDoc, "turkceAltyazili", "turkceAltyaziliOption")
+            val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
+            val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
+            val storage = "https://storage.diziyou.one"
+            if (trSub || enSub || trDub || html.contains("diziyouPlayer", ignoreCase = true)) {
+                callback(newExtractorLink(name, "DiziYou • Orijinal Dil", "$storage/episodes/$id/play.m3u8", ExtractorLinkType.M3U8) {
+                    referer = "$mainUrl/"
+                    quality = Qualities.Unknown.value
+                })
+                emitted = true
+                if (trSub) subtitleCallback(SubtitleFile("Türkçe", "$storage/subtitles/$id/tr.vtt"))
+                if (enSub) subtitleCallback(SubtitleFile("İngilizce", "$storage/subtitles/$id/en.vtt"))
+            }
+            if (trDub) {
+                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", "$storage/episodes/\${id}_tr/play.m3u8", ExtractorLinkType.M3U8) {
+                    referer = "$mainUrl/"
+                    quality = Qualities.Unknown.value
+                })
+                emitted = true
+            }
+        }
+
+        // Some episode pages expose a usable embed directly instead of the named player.
+        sourceUrls(episodeDoc).forEach { source ->
+            if (source == playerUrl) return@forEach
             runCatching {
-                if (source.contains(".m3u8", true)) {
+                if (source.contains(".m3u8", ignoreCase = true)) {
                     callback(newExtractorLink(name, "DiziYou • Video", source, ExtractorLinkType.M3U8) {
                         referer = data
                         quality = Qualities.Unknown.value
