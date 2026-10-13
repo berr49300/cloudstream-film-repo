@@ -198,8 +198,6 @@ class DiziYou : MainAPI() {
                 doc.html().contains(id, ignoreCase = true)
         }
 
-    private fun sourceUrls(doc: Document): List<String> = parseDiziYouSourceUrls(doc)
-
     private fun playerFrameUrl(doc: Document): String? {
         val frame = doc.selectFirst("iframe#diziyouPlayer, iframe[src*=player], iframe[data-src*=player]")
             ?: doc.selectFirst("iframe[src], iframe[data-src]")
@@ -266,7 +264,6 @@ class DiziYou : MainAPI() {
         // Compatibility fallback for the known DiziYou storage layout. Only advertise
         // language variants when the episode page actually declares those options.
         if (!id.isNullOrBlank()) {
-            val html = episodeDoc.html()
             val trSub = hasOption(episodeDoc, "turkceAltyazili", "turkceAltyaziliOption")
             val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
             val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
