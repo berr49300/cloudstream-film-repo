@@ -30,6 +30,7 @@ Reviewed public implementations:
 - [Emre-Kahveci/CloudStreamHub](https://github.com/Emre-Kahveci/CloudStreamHub), Kotlin CloudStream provider.
 - [Saloo1575/SalooRepo](https://github.com/Saloo1575/SalooRepo), Kotlin CloudStream provider with a player-page HLS lookup.
 - [falsisdev/anthology](https://github.com/falsisdev/anthology), JavaScript provider using the same site and storage host.
+- [UmayTrade/MyTV](https://github.com/UmayTrade/MyTV), [burak-ayd/cloudstream-repo](https://github.com/burak-ayd/cloudstream-repo), [21nek/nektv](https://github.com/21nek/nektv), [Kayracs3/Kayra](https://github.com/Kayracs3/Kayra), and [Barisakd2163/Xelo-Repo](https://github.com/Barisakd2163/Xelo-Repo), additional public Kotlin providers/forks found by GitHub code search. Several use older or alternate DiziYou domains, so their domain/player assumptions were not treated as current truth.
 
 Shared implementation signals across these references:
 - Episode pages use `iframe#diziyouPlayer` and the iframe commonly identifies a `/player/{id}.html` page.
@@ -40,9 +41,10 @@ These are corroborated prior-art patterns, **not live-verified current endpoints
 
 ### Changes in the comparison branch
 
+- Latest-episode cards are mapped back to a series URL only when the URL matches the explicit `-{season}-sezon-{episode}-bolum` pattern; this prevents episode links from being mistaken for series pages.
 - Player iframe URL is resolved from `src` or lazy `data-src`, even if the iframe uses a different host/path than expected.
 - Player HTML is inspected for ordinary and JavaScript-escaped `.m3u8`, `.mp4`, and `.mpd` URLs before using a constructed fallback.
-- A regression test covers plain and escaped HLS URL extraction.
+- Regression tests cover plain/escaped HLS URL extraction and episode-to-series URL mapping.
 - Language variants remain available when a native HLS URL is also found.
 - No other provider module is changed.
 
