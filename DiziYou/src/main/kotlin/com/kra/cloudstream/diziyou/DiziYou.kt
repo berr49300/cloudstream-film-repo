@@ -37,6 +37,22 @@ class DiziYou : MainAPI() {
             }?.let { fixUrlNull(it) }
     }
 
+    private fun isSeriesPath(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val expected = runCatching { URI(mainUrl).host.orEmpty().removePrefix("www.") }.getOrDefault("")
+        val host = uri.host.orEmpty().removePrefix("www.")
+        if (expected.isBlank() || !host.equals(expected, ignoreCase = true)) return false
+        val path = uri.path.orEmpty().trimEnd('/')
+        if (path.isBlank() || path == "/" ||
+            Regex("""-\\d+-sezon-\\d+-bolum$""", RegexOption.IGNORE_CASE).containsMatchIn(path)) return false
+        return !path.startsWith("/wp-", true) &&
+            !path.startsWith("/kategori/", true) &&
+            !path.startsWith("/category/", true) &&
+            !path.startsWith("/tag/", true) &&
+            !path.contains("/page/", true) &&
+            path !in setOf("/genel", "/hakkimizda", "/iletisim", "/dizi-arsivi", "/search")
+    }
+
     private fun cleanSeriesTitle(value: String?): String? {
         val cleaned = value.orEmpty()
             .replace(Regex("""(?i)\s*[-|]\s*DiziYou\s*$"""), "")
