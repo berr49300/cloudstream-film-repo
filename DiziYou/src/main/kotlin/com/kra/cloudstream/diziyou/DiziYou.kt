@@ -280,7 +280,7 @@ class DiziYou : MainAPI() {
             val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
             val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
             val storage = "https://storage.diziyou.one"
-            if (!foundNativeMedia && playerUrl != null) {
+            if (!foundNativeMedia) {
                 callback(newExtractorLink(name, "DiziYou • Orijinal Dil", "$storage/episodes/$id/play.m3u8", ExtractorLinkType.M3U8) {
                     referer = "$mainUrl/"
                     quality = Qualities.Unknown.value
