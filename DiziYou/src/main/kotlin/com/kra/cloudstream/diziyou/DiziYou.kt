@@ -14,10 +14,15 @@ class DiziYou : MainAPI() {
     override val hasMainPage = true
     override val hasQuickSearch = true
     override val supportedTypes = setOf(TvType.TvSeries)
+    // Match the working archive URLs used by other public DiziYou implementations.
+    override var sequentialMainPage = true
+    override var sequentialMainPageDelay = 250L
+    override var sequentialMainPageScrollDelay = 250L
+
     override val mainPage = mainPageOf(
-        "$mainUrl/" to "Popüler Dizilerden Son Bölümler",
-        "$mainUrl/genel/" to "Dizi Arşivi",
+        "$mainUrl/" to "Son Eklenen Bölümler",
         "$mainUrl/dizi-arsivi/?filtrele=tarih&sirala=DESC" to "Son Eklenen Diziler",
+        "$mainUrl/dizi-arsivi/?filtrele=alfabetik&sirala=ASC" to "Dizi Arşivi",
         "$mainUrl/dizi-arsivi/?filtrele=imdb&sirala=DESC&yil=&imdb=7" to "IMDb 7+"
     )
 
@@ -32,96 +37,79 @@ class DiziYou : MainAPI() {
             }?.let { fixUrlNull(it) }
     }
 
-    private fun Element.resultTitle(): String {
-        val imageAlt = selectFirst("img")?.attr("alt").orEmpty()
-        return listOf(
-            selectFirst("#categorytitle a")?.text(),
-            selectFirst(".cat-title-main span")?.text(),
-            selectFirst(".cat-title-main a")?.text(),
-            selectFirst(".cat-title-main")?.text(),
-            selectFirst("h2, h3, h4, [class*=title]")?.text(),
-            imageAlt,
-            attr("title"),
-            text()
-        ).map { it.orEmpty().trim() }.firstOrNull { it.isNotBlank() }
-            .orEmpty().replace(Regex("\\s+"), " ")
+    private fun cleanSeriesTitle(value: String?): String? {
+        val cleaned = value.orEmpty()
+            .replace(Regex("""(?i)\s*[-|]\s*DiziYou\s*$"""), "")
+            .replace(Regex("""(?i)\s+izle\s*$"""), "")
+            .replace(Regex("""(?i)\s+\(?\d{4}\)?\s*$"""), "")
+            .replace(Regex("""(?i)\s+\d+\.?\s*sezon\b.*$"""), "")
+            .replace(Regex("""(?i)\s+\d+\.?\s*b[öo]l[üu]m\b.*$"""), "")
+            .replace(Regex("""\s+"""), " ").trim(' ', '-', '|', ':')
+        val lower = cleaned.lowercase()
+        if (cleaned.isBlank() || lower in setOf("yok", "bilgi", "oynat", "izleniyor", "son eklenen bölümler", "dizi arşivi")) return null
+        if (listOf("altyazılı", "altyazili", "dublaj", "önceki bölüm", "onceki bolum").any(lower::contains)) return null
+        return cleaned
     }
 
-    private fun Element.isSeriesCard(): Boolean {
-        val href = absHref() ?: return false
-        val uri = runCatching { URI(href) }.getOrNull() ?: return false
-        if (!uri.host.equals(URI(mainUrl).host, true)) return false
-        val path = uri.path.orEmpty()
-        if (path.isBlank() || path == "/" || path.startsWith("/wp-") ||
-            path.contains("-sezon-") || path.contains("-bolum") ||
-            path.startsWith("/kategori/") || path.startsWith("/category/") ||
-            path.startsWith("/tag/") || path.contains("/page/") ||
-            path.trimEnd('/') in setOf("/genel", "/hakkimizda", "/iletisim", "/dizi-arsivi")) return false
-        return resultTitle().isNotBlank()
+    private fun slugTitle(url: String): String? {
+        val slug = runCatching { URI(url).path.orEmpty().trimEnd('/').substringAfterLast('/') }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: return null
+        val root = slug.replace(Regex("""-(\d+)-sezon-(\d+)-bolum$""", RegexOption.IGNORE_CASE), "")
+        if (root.isBlank()) return null
+        return root.split('-', '_').filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } }
+    }
+
+    private fun Element.resultTitle(): String {
+        val selectors = listOf("#categorytitle a", "#categorytitle", ".cat-title-main span",
+            ".cat-title-main a", ".series-title", ".entry-title", ".post-title", "h1", "h2", "h3", "h4")
+        val values = mutableListOf<String>()
+        selectors.forEach { selectFirst(it)?.text()?.takeIf(String::isNotBlank)?.let(values::add) }
+        attr("title").takeIf(String::isNotBlank)?.let(values::add)
+        selectFirst("a[title]")?.attr("title")?.takeIf(String::isNotBlank)?.let(values::add)
+        selectFirst("img")?.attr("alt")?.takeIf(String::isNotBlank)?.let(values::add)
+        return values.asSequence().mapNotNull(::cleanSeriesTitle).firstOrNull().orEmpty()
     }
 
     private fun Element.toSeriesResult(): SearchResponse? {
-        if (!isSeriesCard()) return null
-        val href = absHref() ?: return null
-        val title = resultTitle().removeSuffix(" izle").trim()
-        if (title.isBlank()) return null
+        val anchor = if (tagName() == "a" && hasAttr("href")) this else
+            select("a[href]").firstOrNull { it.absHref()?.let(::isSeriesPath) == true } ?: return null
+        val href = anchor.absHref() ?: return null
+        if (!isSeriesPath(href)) return null
+        val title = sequenceOf(resultTitle(), anchor.attr("title"), anchor.selectFirst("img")?.attr("alt"),
+            anchor.text(), slugTitle(href)).mapNotNull(::cleanSeriesTitle).firstOrNull() ?: return null
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-            posterUrl = this@toSeriesResult.posterUrl()
+            posterUrl = this@toSeriesResult.posterUrl() ?: anchor.posterUrl()
         }
     }
 
     private fun Element.toSeriesFromEpisode(): SearchResponse? {
         val episodeUrl = absHref() ?: return null
         val seriesUrl = seriesUrlFromEpisode(episodeUrl, mainUrl) ?: return null
-        val rawTitle = selectFirst("#dizi-ismi, .cat-title-main, [data-series-title]")?.text()
-            ?.trim()?.takeIf { it.isNotBlank() }
-            ?: selectFirst("img")?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
-            ?: attr("aria-label").trim().takeIf { it.isNotBlank() }
-            ?: attr("title").trim().takeIf { it.isNotBlank() }
-        val slugTitle = runCatching { URI(seriesUrl).path.orEmpty().trim('/') }
-            .getOrNull()?.substringAfterLast('/')?.replace('-', ' ')
-            ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-        val title = (rawTitle ?: slugTitle).orEmpty()
-            .replace(Regex("""(?i)\s+\d+\.?\s*sezon.*$"""), "")
-            .replace(Regex("""(?i)\s+\d+\.?\s*b[öo]l[üu]m.*$"""), "")
-            .trim()
-        if (title.isBlank()) return null
+        val candidates = listOf("#dizi-ismi", "[data-series-title]", ".cat-title-main span",
+            ".cat-title-main a", ".series-title", ".entry-title", "h1", "h2", "h3", "h4")
+            .mapNotNull { selectFirst(it)?.text()?.takeIf(String::isNotBlank) } +
+            listOf(attr("title"), selectFirst("a[title]")?.attr("title").orEmpty())
+        // Artwork alt text may be "İngilizce Altyazılı" / "Türkçe Dublaj", not the series name.
+        val title = candidates.asSequence().mapNotNull(::cleanSeriesTitle).firstOrNull()
+            ?: slugTitle(seriesUrl)?.let(::cleanSeriesTitle) ?: return null
         return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) {
             posterUrl = this@toSeriesFromEpisode.posterUrl()
         }
     }
 
     private fun cards(doc: Document): List<SearchResponse> {
-        // The homepage/search may expose latest episode cards rather than series cards.
-        // Convert only URLs matching the site's explicit season/episode slug pattern.
-        val episodeCards = doc.select(".listepisodes a[href], div.bolumust a[href], .latest-episodes a[href]")
-            .mapNotNull { it.toSeriesFromEpisode() }
-            .distinctBy { it.url }
-        val selectors = listOf(
-            "div.incontent div#list-series",
-            "div#list-series-main",
-            ".alphabetical-category-wrapper a[href]",
-            "div.cat-item",
-            "div.series-item",
-            "div.post",
-            "div.search-result",
-            ".list-series a[href]",
-            ".post-title a[href]",
-            ".entry-title a[href]",
-            "div#categorytitle",
-            "div.cat-img-main",
-            "article",
-            ".site-content a[href]",
-            "main a[href]"
-        )
-        for (selector in selectors) {
-            val found = doc.select(selector).mapNotNull { el ->
-                val card = if (el.tagName() == "a" && el.hasAttr("href")) el else el.selectFirst("a[href]") ?: el
-                card.toSeriesResult() ?: el.toSeriesResult()
-            }.distinctBy { it.url }
-            if (found.isNotEmpty()) return (episodeCards + found).distinctBy { it.url }
-        }
-        return episodeCards
+        val results = mutableListOf<SearchResponse>()
+        doc.select(".listepisodes a[href], div.bolumust a[href], .latest-episodes a[href], a[href*='-sezon-'][href*='-bolum']")
+            .forEach { it.toSeriesFromEpisode()?.let(results::add) }
+
+        // Parse each card/link, not the #list-series wrapper as one item.
+        val selectors = listOf("div#list-series-main", "div.single-item", "div#list-series a[href]",
+            ".list-series a[href]", ".alphabetical-category-wrapper a[href]", "div.incontent a[href]",
+            "div.cat-item", "div.series-item", "div.post", "div.search-result",
+            ".post-title a[href]", ".entry-title a[href]", "article a[href]")
+        selectors.forEach { selector -> doc.select(selector).forEach { it.toSeriesResult()?.let(results::add) } }
+        return results.distinctBy { it.url }
     }
 
     private fun pagedUrl(base: String, page: Int): String {
@@ -151,47 +139,89 @@ class DiziYou : MainAPI() {
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query)
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url, referer = "$mainUrl/").document
-        val title = doc.selectFirst("h1")?.text()?.trim()?.takeIf { it.isNotBlank() }
-            ?: doc.selectFirst("meta[property=og:title]")?.attr("content")?.trim()?.takeIf { it.isNotBlank() }
-            ?: return null
-        val poster = doc.selectFirst("div.category_image img")?.let { img ->
-            listOf("data-src", "data-lazy-src", "src").firstNotNullOfOrNull { key ->
-                img.attr(key).takeIf { it.isNotBlank() }
-            }?.let { fixUrlNull(it) }
-        } ?: doc.selectFirst("meta[property=og:image]")?.attr("content")?.takeIf { it.isNotBlank() }
-        val plot = doc.selectFirst("div.diziyou_desc")?.ownText()?.trim()?.takeIf { it.isNotBlank() }
-            ?: doc.selectFirst("meta[name=description]")?.attr("content")?.takeIf { it.isNotBlank() }
-        val year = Regex("\\b(19|20)\\d{2}\\b").find(doc.text())?.value?.toIntOrNull()
-        val tags = doc.select("div.genres a").map { it.text().trim() }.filter { it.isNotBlank() }
-
-        val episodes = doc.select("div.bolumust").mapNotNull { el ->
-            val anchor = el.closest("a[href]") ?: el.selectFirst("a[href]") ?: return@mapNotNull null
-            val episodeUrl = anchor.absHref() ?: return@mapNotNull null
-            val label = el.selectFirst("div.baslik")?.ownText()?.trim()
-                ?.ifBlank { el.selectFirst("div.baslik")?.text()?.trim().orEmpty() }.orEmpty()
-            val name = el.selectFirst("div.bolumismi")?.text()?.trim()
-                ?.replace(Regex("[()]"), "")?.trim()?.takeIf { it.isNotBlank() }
-                ?: label.ifBlank { anchor.text().trim() }
-            val numbers = parseEpisodeNumbers("$label $name $episodeUrl")
-            if (numbers.second == null && !episodeUrl.contains(Regex("(?i)-\\d+-sezon-\\d+-bolum"))) return@mapNotNull null
-            newEpisode(episodeUrl) {
-                this.name = name.ifBlank { "Bölüm ${numbers.second ?: ""}" }
-                season = numbers.first ?: 1
-                episode = numbers.second
-                posterUrl = el.selectFirst("img")?.let { img ->
-                    listOf("data-src", "src").firstNotNullOfOrNull { k -> img.attr(k).takeIf { it.isNotBlank() } }
-                        ?.let { fixUrlNull(it) }
-                }
+        // A latest-episode card must open its series, not expose the episode page as a series.
+        val canonical = seriesUrlFromEpisode(url, mainUrl)
+        var resolvedUrl = canonical ?: url
+        var activeDoc = runCatching { app.get(resolvedUrl, referer = "$mainUrl/").document }.getOrNull()
+        if (activeDoc == null || (canonical != null && extractEpisodes(activeDoc, resolvedUrl).isEmpty())) {
+            runCatching { app.get(url, referer = "$mainUrl/").document }.getOrNull()?.let {
+                activeDoc = it
+                resolvedUrl = url
             }
-        }.distinctBy { it.data }.sortedWith(compareBy({ it.season ?: 1 }, { it.episode ?: Int.MAX_VALUE }, { it.name }))
+        }
+        val page = activeDoc ?: return null
+        val episodes = extractEpisodes(page, resolvedUrl).ifEmpty {
+            if (isEpisodeUrl(url)) {
+                val nums = parseEpisodeNumbers(url)
+                listOf(newEpisode(url) {
+                    name = if (nums.first != null && nums.second != null) "${nums.first}. Sezon ${nums.second}. Bölüm" else "Bölüm"
+                    season = nums.first ?: 1
+                    episode = nums.second
+                })
+            } else emptyList()
+        }
 
-        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+        val rawTitle = page.selectFirst("h1")?.text()?.trim()?.takeIf(String::isNotBlank)
+            ?: page.selectFirst("meta[property=og:title]")?.attr("content")?.trim()?.takeIf(String::isNotBlank)
+            ?: slugTitle(resolvedUrl) ?: return null
+        val title = cleanSeriesTitle(rawTitle) ?: rawTitle
+        val poster = page.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")?.let { img ->
+            listOf("data-src", "data-lazy-src", "src").firstNotNullOfOrNull { img.attr(it).takeIf(String::isNotBlank) }?.let { fixUrlNull(it) }
+        } ?: page.selectFirst("meta[property=og:image]")?.attr("content")?.takeIf(String::isNotBlank)
+        val plot = page.selectFirst("div.diziyou_desc")?.text()?.trim()?.takeIf(String::isNotBlank)
+            ?: page.selectFirst("meta[name=description], meta[property=og:description]")?.attr("content")?.takeIf(String::isNotBlank)
+        val year = Regex("""\b(19|20)\d{2}\b""").find(page.text())?.value?.toIntOrNull()
+        val tags = page.select("div.genres a, a[href*='/kategori/'], a[href*='/tur/']")
+            .map { it.text().trim() }.filter(String::isNotBlank).distinct()
+
+        return newTvSeriesLoadResponse(title, canonical ?: resolvedUrl, TvType.TvSeries, episodes) {
             posterUrl = poster
             this.plot = plot
             this.year = year
             this.tags = tags
         }
+    }
+
+    private fun isEpisodeUrl(url: String): Boolean =
+        Regex("""-\d+-sezon-\d+-bolum/?$""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(runCatching { URI(url).path.orEmpty().trimEnd('/') }.getOrDefault(""))
+
+    private fun extractEpisodes(doc: Document, seriesUrl: String): List<Episode> {
+        val seriesPath = runCatching { URI(seriesUrl).path.orEmpty().trimEnd('/') }.getOrDefault("")
+        return doc.select("a[href]").mapNotNull { anchor ->
+            val href = anchor.absHref() ?: return@mapNotNull null
+            val parent = seriesUrlFromEpisode(href, mainUrl) ?: return@mapNotNull null
+            val parentPath = runCatching { URI(parent).path.orEmpty().trimEnd('/') }.getOrDefault("")
+            if (!parentPath.equals(seriesPath, ignoreCase = true)) return@mapNotNull null
+
+            val nums = parseEpisodeNumbers(href)
+            val visible = sequenceOf(anchor.selectFirst("div.baslik")?.ownText(),
+                anchor.selectFirst("div.baslik")?.text(), anchor.selectFirst("div.bolumismi")?.text(), anchor.text())
+                .filterNotNull().map { it.trim().replace(Regex("""\s+"""), " ") }
+                .firstOrNull { it.isNotBlank() && !isGenericEpisodeLabel(it) }.orEmpty()
+            val textNums = parseEpisodeNumbers(visible)
+            val seasonNo = nums.first ?: textNums.first ?: 1
+            val episodeNo = nums.second ?: textNums.second ?: return@mapNotNull null
+            val episodeName = visible
+                .replace(Regex("""(?i)^\s*\d+\.?\s*sezon\s*"""), "")
+                .replace(Regex("""(?i)^\s*\d+\.?\s*b[öo]l[üu]m\s*"""), "")
+                .takeIf { it.isNotBlank() && !isGenericEpisodeLabel(it) }
+                ?: "$seasonNo. Sezon $episodeNo. Bölüm"
+            newEpisode(href) {
+                name = episodeName
+                season = seasonNo
+                episode = episodeNo
+                posterUrl = anchor.posterUrl()
+            }
+        }.distinctBy { it.data }
+            .sortedWith(compareBy({ it.season ?: 1 }, { it.episode ?: Int.MAX_VALUE }, { it.name }))
+    }
+
+    private fun isGenericEpisodeLabel(value: String): Boolean {
+        val text = value.lowercase().replace(Regex("""\s+"""), " ").trim()
+        return text.isBlank() || text.contains("son eklenen bölümler") ||
+            text.contains("önceki bölüm") || text.contains("onceki bolum") ||
+            text == "dizi arşivi" || text == "oynat"
     }
 
     private fun playerId(doc: Document): String? {
@@ -356,3 +386,11 @@ internal fun parseEpisodeNumbers(label: String): Pair<Int?, Int?> {
         ?: Regex("(?i)(\\d+)-bolum").find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
     return season to episode
 }
+
+
+internal fun seriesTitleFromEpisodeUrl(episodeUrl: String, mainUrl: String = "https://www.diziyou.one"): String? =
+    seriesUrlFromEpisode(episodeUrl, mainUrl)?.let { url ->
+        URI(url).path.orEmpty().trimEnd('/').substringAfterLast('/')
+            .split('-', '_').filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } }
+    }
