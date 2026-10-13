@@ -214,8 +214,8 @@ class DiziYou : MainAPI() {
             if (!parentPath.equals(seriesPath, ignoreCase = true)) return@mapNotNull null
 
             val nums = parseEpisodeNumbers(href)
-            val visible = sequenceOf(anchor.selectFirst("div.baslik")?.ownText(),
-                anchor.selectFirst("div.baslik")?.text(), anchor.selectFirst("div.bolumismi")?.text(), anchor.text())
+            val visible = sequenceOf(anchor.selectFirst("div.bolumismi")?.text(),
+                anchor.selectFirst("div.baslik")?.ownText(), anchor.selectFirst("div.baslik")?.text(), anchor.text())
                 .filterNotNull().map { it.trim().replace(Regex("""\s+"""), " ") }
                 .firstOrNull { it.isNotBlank() && !isGenericEpisodeLabel(it) }.orEmpty()
             val textNums = parseEpisodeNumbers(visible)
