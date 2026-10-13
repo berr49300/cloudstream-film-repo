@@ -41,7 +41,8 @@ class DiziYou : MainAPI() {
             selectFirst(".cat-title-main")?.text(),
             selectFirst("h2, h3, h4, [class*=title]")?.text(),
             imageAlt,
-            attr("title")
+            attr("title"),
+            text()
         ).map { it.orEmpty().trim() }.firstOrNull { it.isNotBlank() }
             .orEmpty().replace(Regex("\\s+"), " ")
     }
@@ -53,8 +54,10 @@ class DiziYou : MainAPI() {
         val path = uri.path.orEmpty()
         if (path.isBlank() || path == "/" || path.startsWith("/wp-") ||
             path.contains("-sezon-") || path.contains("-bolum") ||
-            path in setOf("/genel/", "/hakkimizda/", "/iletisim/")) return false
-        return selectFirst("img") != null && resultTitle().isNotBlank()
+            path.startsWith("/kategori/") || path.startsWith("/category/") ||
+            path.startsWith("/tag/") || path.contains("/page/") ||
+            path.trimEnd('/') in setOf("/genel", "/hakkimizda", "/iletisim", "/dizi-arsivi")) return false
+        return resultTitle().isNotBlank()
     }
 
     private fun Element.toSeriesResult(): SearchResponse? {
@@ -97,6 +100,15 @@ class DiziYou : MainAPI() {
         val selectors = listOf(
             "div.incontent div#list-series",
             "div#list-series-main",
+            ".alphabetical-category-wrapper a[href]",
+            "div.cat-item",
+            "div.series-item",
+            "div.post",
+            "div.search-result",
+            ".list-series a[href]",
+            ".post-title a[href]",
+            ".entry-title a[href]",
+            "div#categorytitle",
             "div.cat-img-main",
             "article",
             ".site-content a[href]",
