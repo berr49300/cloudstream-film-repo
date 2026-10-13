@@ -87,4 +87,43 @@ class DiziYouParserTest {
         assertEquals(null, seriesUrlFromEpisode("https://example.com/show-1-sezon-1-bolum/"))
     }
 
+
+    @Test fun fileOnlyEpisodeNamesBecomeCleanSeasonAndEpisodeLabels() {
+        assertEquals(
+            "1. Sezon 1. Bölüm",
+            cleanDiziYouEpisodeName("1. (eps1.0_hellofriend.mov)", 1, 1)
+        )
+    }
+
+    @Test fun readableEpisodeTitleIsPreservedWithoutTheFilename() {
+        assertEquals(
+            "1. Sezon 1. Bölüm — Hello Friend",
+            cleanDiziYouEpisodeName("1. Hello Friend (eps1.0_hellofriend.mov)", 1, 1)
+        )
+    }
+
+    @Test fun selectedNativeSourceWinsOverOtherQualityCandidates() {
+        val doc = Jsoup.parse(
+            """<video>
+                <source id="diziyouSource" src="/episodes/91303/720p.m3u8">
+                <source src="/episodes/91303/1080p.m3u8">
+            </video>""",
+            "https://www.diziyou.one/player/91303.html"
+        )
+        assertEquals(
+            listOf("https://www.diziyou.one/episodes/91303/720p.m3u8"),
+            parseDiziYouMediaUrls(doc)
+        )
+    }
+
+    @Test fun playerScriptFallbackEmitsOnlyOneCandidate() {
+        val doc = Jsoup.parse(
+            """<script>
+                const a = "https://storage.diziyou.one/episodes/91303/720p.m3u8";
+                const b = "https://storage.diziyou.one/episodes/91303/1080p.m3u8";
+            </script>""",
+            "https://www.diziyou.one/player/91303.html"
+        )
+        assertEquals(1, parseDiziYouMediaUrls(doc).size)
+    }
 }
