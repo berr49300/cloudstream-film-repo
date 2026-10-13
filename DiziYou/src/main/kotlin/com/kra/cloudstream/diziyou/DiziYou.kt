@@ -87,6 +87,20 @@ class DiziYou : MainAPI() {
             .firstOrNull { !it.startsWith("data:", true) }
     }
 
+    private fun Element.detailPoster(): String? {
+        // The source site's explicit series-cover block is more reliable than og:image,
+        // which can be a theme/site-wide image on some WordPress pages.
+        val focused = selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")
+            ?.posterUrl()
+            ?: selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")
+                ?.parent()?.posterUrl()
+        if (!focused.isNullOrBlank()) return focused
+
+        return selectFirst("meta[property=og:image]")?.attr("content")
+            ?.takeIf(String::isNotBlank)?.let { fixUrlNull(it) }
+            ?.takeIf(::isLikelyPosterUrl)
+    }
+
     private fun isLikelyPosterUrl(url: String): Boolean {
         val lower = url.lowercase()
         return !listOf(
@@ -216,14 +230,7 @@ class DiziYou : MainAPI() {
 
             val poster = runCatching {
                 val detail = app.get(result.url, referer = "$mainUrl/").document
-                detail.selectFirst("meta[property=og:image]")?.attr("content")
-                    ?.takeIf { it.isNotBlank() }?.let { fixUrlNull(it) }
-                    ?.takeIf { isLikelyPosterUrl(it) }
-                    ?: detail.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")
-                        ?.posterUrl()
-                    ?: detail.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")
-                        ?.parent()?.posterUrl()
-                    ?: detail.selectFirst("body")?.posterUrl()
+                detail.detailPoster()
             }.getOrNull()
 
             if (!poster.isNullOrBlank() &&
@@ -239,7 +246,13 @@ class DiziYou : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = pagedUrl(request.data, page)
         val doc = app.get(url, referer = "$mainUrl/").document
-        val results = repairMissingPosters(cards(doc).take(60))
+        // Re-check a small leading window from the detail page: archive cards can have
+        // a non-empty but unrelated thumbnail URL that looks valid syntactically.
+        val results = repairMissingPosters(
+            cards(doc).take(60),
+            lookupLimit = 12,
+            replaceExisting = true
+        )
         return newHomePageResponse(request.name, results, results.isNotEmpty())
     }
 
@@ -292,11 +305,7 @@ class DiziYou : MainAPI() {
             ?: page.selectFirst("meta[property=og:title]")?.attr("content")?.trim()?.takeIf(String::isNotBlank)
             ?: slugTitle(resolvedUrl) ?: return null
         val title = cleanSeriesTitle(rawTitle) ?: rawTitle
-        val poster = page.selectFirst("meta[property=og:image]")?.attr("content")
-            ?.takeIf(String::isNotBlank)?.let { fixUrlNull(it) }
-            ?: page.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")?.posterUrl()
-            ?: page.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")?.parent()?.posterUrl()
-            ?: page.selectFirst("main, article, body")?.posterUrl()
+        val poster = page.detailPoster()
         val plot = page.selectFirst("div.diziyou_desc")?.text()?.trim()?.takeIf(String::isNotBlank)
             ?: page.selectFirst("meta[name=description], meta[property=og:description]")?.attr("content")?.takeIf(String::isNotBlank)
         val year = Regex("""\b(19|20)\d{2}\b""").find(page.text())?.value?.toIntOrNull()
