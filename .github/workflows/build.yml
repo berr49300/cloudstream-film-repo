@@ -153,7 +153,7 @@ jobs:
             find publish-input -type f -name '*.cs3' -exec cp {} publish/ \;
           fi
           count=$(find publish -maxdepth 1 -type f -name '*.cs3' | wc -l)
-          test "\${count}" -ge 1
+          test "${count}" -ge 1
           python - <<'PY'
           import json
           from pathlib import Path
