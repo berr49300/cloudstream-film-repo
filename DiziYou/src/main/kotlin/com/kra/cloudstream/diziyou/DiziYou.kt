@@ -50,7 +50,7 @@ class DiziYou : MainAPI() {
                 else if (key.endsWith("srcset")) {
                     raw.split(",").map { entry ->
                         val item = entry.trim()
-                        item.substringBefore(" ") to (Regex("""(\\d+)(?:w|x)""").find(item)
+                        item.substringBefore(" ") to (Regex("""(\d+)(?:w|x)""").find(item)
                             ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0)
                     }.maxByOrNull { it.second }?.first?.takeIf { it.isNotBlank() }
                 } else raw
