@@ -68,8 +68,37 @@ class DiziYou : MainAPI() {
             }
             value
         }
-        return (images + responsive.filterNotNull().filter(::isLikelyPosterUrl))
+        // Some DiziYou cards store artwork in CSS/background attributes instead of <img>.
+        val backgroundElements = (listOf(this) + select(
+            "[style*=background-image], [style*='background:'], [data-background], [data-bg], [data-thumb], [data-poster]"
+        )).distinct()
+        val backgrounds = backgroundElements.mapNotNull { element ->
+            val raw = diziYouBackgroundUrl(
+                element.attr("style"),
+                element.attr("data-background"),
+                element.attr("data-bg"),
+                element.attr("data-thumb"),
+                element.attr("data-poster")
+            ) ?: return@mapNotNull null
+            fixUrlNull(raw)?.takeIf(::isLikelyPosterUrl)
+        }
+
+        return (images + responsive.filterNotNull().filter(::isLikelyPosterUrl) + backgrounds)
             .firstOrNull { !it.startsWith("data:", true) }
+    }
+
+    private fun Element.detailPoster(): String? {
+        // The source site's explicit series-cover block is more reliable than og:image,
+        // which can be a theme/site-wide image on some WordPress pages.
+        val focused = selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")
+            ?.posterUrl()
+            ?: selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")
+                ?.parent()?.posterUrl()
+        if (!focused.isNullOrBlank()) return focused
+
+        return selectFirst("meta[property=og:image]")?.attr("content")
+            ?.takeIf(String::isNotBlank)?.let { fixUrlNull(it) }
+            ?.takeIf(::isLikelyPosterUrl)
     }
 
     private fun isLikelyPosterUrl(url: String): Boolean {
@@ -138,7 +167,8 @@ class DiziYou : MainAPI() {
         val title = sequenceOf(resultTitle(), anchor.attr("title"), anchor.selectFirst("img")?.attr("alt"),
             anchor.text(), slugTitle(href)).mapNotNull(::cleanSeriesTitle).firstOrNull() ?: return null
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-            posterUrl = this@toSeriesResult.posterUrl() ?: anchor.posterUrl()
+            // Prefer artwork inside the exact matched link; the card wrapper may contain other images.
+            posterUrl = preferDiziYouPoster(anchor.posterUrl(), this@toSeriesResult.posterUrl())
         }
     }
 
@@ -186,21 +216,26 @@ class DiziYou : MainAPI() {
         return if (parts.size == 2) "$paged?${parts[1]}" else paged
     }
 
-    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 24): List<SearchResponse> {
+    private suspend fun repairMissingPosters(
+        results: List<SearchResponse>,
+        lookupLimit: Int = 24,
+        replaceExisting: Boolean = false
+    ): List<SearchResponse> {
         var lookups = 0
         return results.map { result ->
-            if (!result.posterUrl.isNullOrBlank() || lookups >= lookupLimit) return@map result
+            val existing = result.posterUrl
+            val needsLookup = replaceExisting || existing.isNullOrBlank() || !isLikelyPosterUrl(existing)
+            if (!needsLookup || lookups >= lookupLimit) return@map result
             lookups += 1
+
             val poster = runCatching {
                 val detail = app.get(result.url, referer = "$mainUrl/").document
-                detail.selectFirst("meta[property=og:image]")?.attr("content")
-                    ?.takeIf { it.isNotBlank() && isLikelyPosterUrl(it) }?.let { fixUrlNull(it) }
-                    ?: detail.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")
-                        ?.posterUrl()
-                    ?: detail.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")
-                        ?.parent()?.posterUrl()
+                detail.detailPoster()
             }.getOrNull()
-            if (!poster.isNullOrBlank()) {
+
+            if (!poster.isNullOrBlank() &&
+                (replaceExisting || existing.isNullOrBlank() || !isLikelyPosterUrl(existing))
+            ) {
                 newTvSeriesSearchResponse(result.name, result.url, TvType.TvSeries) {
                     posterUrl = poster
                 }
@@ -211,7 +246,9 @@ class DiziYou : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = pagedUrl(request.data, page)
         val doc = app.get(url, referer = "$mainUrl/").document
-        val results = repairMissingPosters(cards(doc).take(60))
+        // Resolve missing/broken covers from the detail page, without refetching every
+        // valid card poster and slowing down the entire home page.
+        val results = repairMissingPosters(cards(doc).take(60), lookupLimit = 60)
         return newHomePageResponse(request.name, results, results.isNotEmpty())
     }
 
@@ -231,7 +268,8 @@ class DiziYou : MainAPI() {
                 cards(app.get("$mainUrl/page/2/?s=$encoded", referer = "$mainUrl/").document)
             }.getOrDefault(emptyList()).filter { matchesSearchQuery(it, query) }.distinctBy { it.url }
         }
-        return repairMissingPosters(relevant.take(30), lookupLimit = 24)
+        // On explicit searches, prefer canonical artwork from each result's detail-page metadata.
+        return repairMissingPosters(relevant.take(30), lookupLimit = 24, replaceExisting = true)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query)
@@ -263,11 +301,7 @@ class DiziYou : MainAPI() {
             ?: page.selectFirst("meta[property=og:title]")?.attr("content")?.trim()?.takeIf(String::isNotBlank)
             ?: slugTitle(resolvedUrl) ?: return null
         val title = cleanSeriesTitle(rawTitle) ?: rawTitle
-        val poster = page.selectFirst("meta[property=og:image]")?.attr("content")
-            ?.takeIf(String::isNotBlank)?.let { fixUrlNull(it) }
-            ?: page.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")?.posterUrl()
-            ?: page.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")?.parent()?.posterUrl()
-            ?: page.selectFirst("main, article, body")?.posterUrl()
+        val poster = page.detailPoster()
         val plot = page.selectFirst("div.diziyou_desc")?.text()?.trim()?.takeIf(String::isNotBlank)
             ?: page.selectFirst("meta[name=description], meta[property=og:description]")?.attr("content")?.takeIf(String::isNotBlank)
         val year = Regex("""\b(19|20)\d{2}\b""").find(page.text())?.value?.toIntOrNull()
@@ -352,6 +386,44 @@ class DiziYou : MainAPI() {
         }
     }
 
+    private suspend fun emitPlaylistSources(
+        playlistUrl: String,
+        label: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        // CloudStream's source chooser lists ExtractorLinks, not individual HLS renditions.
+        // Split only when the actual master lists independent video variants and does not
+        // depend on alternate audio groups; otherwise retain the original adaptive playlist.
+        val manifest = runCatching {
+            app.get(playlistUrl, referer = "$mainUrl/").text
+        }.getOrNull()
+        val variants = manifest?.let { parseDiziYouHlsVariants(playlistUrl, it) }.orEmpty()
+        val canSplit = manifest != null &&
+            !hasDiziYouAlternateAudio(manifest) &&
+            variants.map { it.url }.distinct().size > 1
+
+        if (canSplit) {
+            variants.distinctBy { it.url }.forEach { variant ->
+                callback(newExtractorLink(
+                    name,
+                    "$label • ${variant.quality}p",
+                    variant.url,
+                    ExtractorLinkType.M3U8
+                ) {
+                    referer = "$mainUrl/"
+                    quality = variant.quality
+                })
+            }
+            return true
+        }
+
+        callback(newExtractorLink(name, label, playlistUrl, ExtractorLinkType.M3U8) {
+            referer = "$mainUrl/"
+            quality = Qualities.Unknown.value
+        })
+        return true
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -380,18 +452,10 @@ class DiziYou : MainAPI() {
             // The original-language manifest is one source regardless of how many subtitle
             // options the page declares. If this episode is dub-only, do not expose a dead original.
             if (!trDub || trSub || enSub) {
-                callback(newExtractorLink(name, "DiziYou • Orijinal Dil", originalMaster, ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
+                emitted = emitPlaylistSources(originalMaster, "DiziYou • Orijinal Dil", callback) || emitted
             }
             if (trDub) {
-                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", dubMaster, ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
+                emitted = emitPlaylistSources(dubMaster, "DiziYou • Türkçe Dublaj", callback) || emitted
             }
 
             if (trSub) subtitleCallback(SubtitleFile("Türkçe Altyazı", "https://storage.diziyou.one/subtitles/$id/tr.vtt"))
@@ -446,6 +510,49 @@ class DiziYou : MainAPI() {
     }
 }
 
+
+internal fun preferDiziYouPoster(itemPoster: String?, cardPoster: String?): String? =
+    itemPoster?.takeIf(String::isNotBlank) ?: cardPoster?.takeIf(String::isNotBlank)
+
+internal fun diziYouBackgroundUrl(style: String, vararg fallbacks: String): String? {
+    val inline = Regex("""(?i)url\(\s*['"]?([^'")]+)['"]?\s*\)""")
+        .find(style)?.groupValues?.getOrNull(1)?.trim()
+    return inline?.takeIf(String::isNotBlank)
+        ?: fallbacks.firstOrNull(String::isNotBlank)?.trim()
+}
+
+internal data class DiziYouHlsVariant(val url: String, val quality: Int)
+
+internal fun parseDiziYouHlsVariants(playlistUrl: String, manifest: String): List<DiziYouHlsVariant> {
+    val base = runCatching { URI(playlistUrl) }.getOrNull() ?: return emptyList()
+    val lines = manifest.lineSequence().map(String::trim).toList()
+    val variants = mutableListOf<DiziYouHlsVariant>()
+
+    for (index in lines.indices) {
+        val line = lines[index]
+        if (!line.startsWith("#EXT-X-STREAM-INF:", ignoreCase = true)) continue
+        val attributes = line.substringAfter(':')
+        val variantPath = lines.drop(index + 1)
+            .firstOrNull { it.isNotBlank() && !it.startsWith("#") } ?: continue
+        val resolved = runCatching { base.resolve(variantPath).toString() }.getOrNull() ?: continue
+        val height = Regex("""(?i)(?:^|,)\s*RESOLUTION=\d+x(\d+)(?:,|$)""")
+            .find(attributes)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val quality = height ?: explicitQualityFromUrl(resolved)
+        if (quality > 0 && directMediaUrl(resolved)) {
+            variants += DiziYouHlsVariant(resolved, quality)
+        }
+    }
+
+    return variants.distinctBy { it.url }.sortedByDescending { it.quality }
+}
+
+internal fun hasDiziYouAlternateAudio(manifest: String): Boolean =
+    manifest.lineSequence().map(String::trim).any { line ->
+        (line.startsWith("#EXT-X-MEDIA:", ignoreCase = true) &&
+            Regex("""(?i)\bTYPE=AUDIO\b""").containsMatchIn(line)) ||
+        (line.startsWith("#EXT-X-STREAM-INF:", ignoreCase = true) &&
+            Regex("""(?i)(?:^|,)\s*AUDIO=""").containsMatchIn(line))
+    }
 
 internal fun matchesDiziYouSearchQuery(title: String, url: String, query: String): Boolean {
     fun normalize(value: String): String {
