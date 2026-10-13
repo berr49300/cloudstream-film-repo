@@ -181,20 +181,43 @@ class DiziYou : MainAPI() {
         return if (parts.size == 2) "$paged?${parts[1]}" else paged
     }
 
+    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 8): List<SearchResponse> {
+        var lookups = 0
+        return results.map { result ->
+            if (!result.posterUrl.isNullOrBlank() || lookups >= lookupLimit) return@map result
+            lookups += 1
+            val poster = runCatching {
+                val detail = app.get(result.url, referer = "$mainUrl/").document
+                detail.selectFirst("meta[property=og:image]")?.attr("content")
+                    ?.takeIf { it.isNotBlank() && isLikelyPosterUrl(it) }?.let { fixUrlNull(it) }
+                    ?: detail.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")
+                        ?.posterUrl()
+                    ?: detail.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")
+                        ?.parent()?.posterUrl()
+            }.getOrNull()
+            if (!poster.isNullOrBlank()) {
+                newTvSeriesSearchResponse(result.name, result.url, TvType.TvSeries) {
+                    posterUrl = poster
+                }
+            } else result
+        }
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = pagedUrl(request.data, page)
         val doc = app.get(url, referer = "$mainUrl/").document
-        val results = cards(doc).take(60)
+        val results = repairMissingPosters(cards(doc).take(60))
         return newHomePageResponse(request.name, results, results.isNotEmpty())
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
         val urls = listOf("$mainUrl/?s=$encoded", "$mainUrl/page/2/?s=$encoded")
-        return urls.flatMap { url ->
+        val results = urls.flatMap { url ->
             runCatching { cards(app.get(url, referer = "$mainUrl/").document) }
                 .getOrDefault(emptyList())
         }.distinctBy { it.url }.take(60)
+        return repairMissingPosters(results)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query)
