@@ -372,11 +372,13 @@ internal fun seriesUrlFromEpisode(
     mainUrl: String = "https://www.diziyou.one"
 ): String? {
     val uri = runCatching { URI(episodeUrl) }.getOrNull() ?: return null
-    if (!uri.host.equals(URI(mainUrl).host, ignoreCase = true)) return null
+    val expectedHost = runCatching { URI(mainUrl).host.orEmpty().removePrefix("www.") }.getOrDefault("")
+    val actualHost = uri.host.orEmpty().removePrefix("www.")
+    if (expectedHost.isBlank() || !actualHost.equals(expectedHost, ignoreCase = true)) return null
     val path = uri.path.orEmpty().trimEnd('/')
     val seriesPath = path.replace(Regex("""-(\d+)-sezon-(\d+)-bolum$""", RegexOption.IGNORE_CASE), "")
     if (seriesPath == path || seriesPath.isBlank() || seriesPath == "/") return null
-    return mainUrl + seriesPath + "/"
+    return mainUrl.trimEnd('/') + seriesPath + "/"
 }
 
 internal fun parseDiziYouSourceUrls(doc: Document): List<String> = buildList {
