@@ -67,7 +67,44 @@ class DiziYou : MainAPI() {
         }
     }
 
+    internal fun seriesUrlFromEpisode(episodeUrl: String): String? {
+        val uri = runCatching { URI(episodeUrl) }.getOrNull() ?: return null
+        if (!uri.host.equals(URI(mainUrl).host, ignoreCase = true)) return null
+        val path = uri.path.orEmpty().trimEnd('/')
+        val seriesPath = path.replace(Regex("""-(\d+)-sezon-(\d+)-bolum$""", RegexOption.IGNORE_CASE), "")
+        if (seriesPath == path || seriesPath.isBlank() || seriesPath == "/") return null
+        return "$mainUrl$seriesPath/"
+    }
+
+    private fun Element.toSeriesFromEpisode(): SearchResponse? {
+        val episodeUrl = absHref() ?: return null
+        val seriesUrl = seriesUrlFromEpisode(episodeUrl) ?: return null
+        val rawTitle = selectFirst("#dizi-ismi, .cat-title-main, [data-series-title]")?.text()
+            ?.trim()?.takeIf { it.isNotBlank() }
+            ?: selectFirst("img")?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
+            ?: attr("aria-label").trim().takeIf { it.isNotBlank() }
+            ?: attr("title").trim().takeIf { it.isNotBlank() }
+        val slugTitle = runCatching { URI(seriesUrl).path.orEmpty().trim('/') }
+            .getOrNull()?.substringAfterLast('/')?.replace('-', ' ')
+            ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        val title = (rawTitle ?: slugTitle).orEmpty()
+            .replace(Regex("""(?i)\s+\d+\.?\s*sezon.*$"""), "")
+            .replace(Regex("""(?i)\s+\d+\.?\s*b[öo]l[üu]m.*$"""), "")
+            .trim()
+        if (title.isBlank()) return null
+        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) {
+            posterUrl = this@toSeriesFromEpisode.posterUrl()
+        }
+    }
+
     private fun cards(doc: Document): List<SearchResponse> {
+        // The homepage/search may expose latest episode cards rather than series cards.
+        // Convert only URLs matching the site's explicit season/episode slug pattern.
+        val episodeCards = doc.select(".listepisodes a[href], div.bolumust a[href], .latest-episodes a[href]")
+            .mapNotNull { it.toSeriesFromEpisode() }
+            .distinctBy { it.url }
+        if (episodeCards.isNotEmpty()) return episodeCards
+
         val selectors = listOf(
             "div.incontent div#list-series",
             "div#list-series-main",
