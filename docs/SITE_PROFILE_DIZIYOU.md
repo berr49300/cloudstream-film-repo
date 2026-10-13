@@ -4,7 +4,7 @@
 **Site:** https://www.diziyou.one/  
 **Profile date:** 2026-10-13  
 **Changed provider:** `DiziYou/` only  
-**Live playback:** NOT YET VERIFIED on a real CloudStream client  
+**Live client evidence:** User confirmed the current v2 plugin is working in CloudStream, but only the first of five identically named Native sources appears to work; revision 3 needs retesting after CI/build.  
 **Live raw HTML:** Direct fetch from this research environment returned HTTP 502; this does not establish that the public site is offline.
 
 ## Comparative research
@@ -44,8 +44,11 @@ Repositories containing copies or older variants were treated as corroborating e
 - Filtered out archive, pagination, category, tag, and episode paths where a series page is expected.
 - Episode cards map to the parent series URL only when the season/episode slug matches the known pattern.
 - Series names are taken from series-title elements or the series slug; poster alt text such as “İngilizce Altyazılı” and “Türkçe Dublaj” is not accepted as a series title.
+- Poster resolution checks poster-specific containers before arbitrary card images, considers lazy-load attributes and `srcset`, prefers the largest declared `srcset` candidate, and rejects obvious placeholder/flag artwork. Detail pages also check Open Graph poster metadata before image fallbacks.
 - Opening an episode URL first resolves the parent series page. Episode extraction filters links by the same parent series path and derives season/episode numbers from the URL before using visible labels. Generic navigation captions such as “Son Eklenen Bölümler” and “Önceki Bölüm” are not exposed as episode names.
-- Player resolution continues to prefer media actually present in player HTML; the known storage pattern remains a fallback when the player ID is found.
+- Episode labels containing only site-internal file names such as `eps1.0_hellofriend.mov` are normalized to `1. Sezon 1. Bölüm`; a readable episode title is preserved after the normalized season/episode prefix when available.
+- Player resolution prioritizes the explicit `#diziyouSource` media element, then the first HTML5 video source, then one JavaScript-discovered media URL. It no longer emits every script/iframe candidate as an identically named “Native” stream, which previously created several dead or duplicate entries. The known storage path remains a single fallback when no player media source is found.
+- No quality ceiling is hardcoded. A URL with an explicit resolution gets that label; otherwise the link keeps unknown quality so the HLS player can use the variants published by its playlist. Whether any particular episode has 1080p or higher must be confirmed from its actual manifest, not inferred from the site’s general quality claims.
 - Added regression tests for slug-to-series mapping, a non-`www` episode hostname, title generation from an episode slug, and the `#diziyouSource` HLS source element.
 - No other provider module is changed. The pull request contains the DiziYou provider, its version manifest (`DiziYou/build.gradle.kts`), its parser tests, and this DiziYou-specific profile.
 
@@ -58,9 +61,9 @@ Repositories containing copies or older variants were treated as corroborating e
 | Plugin package / repository validation | PASS | GitHub Actions run #468 built `.cs3`, generated the plugin index, validated the repository, and uploaded the build artifact; publish job was correctly skipped for a PR |
 | Catalogue on a real CloudStream client | NOT TESTED | Live browser HTML unavailable in this environment |
 | Search accuracy | NOT TESTED against live responses | Current raw search response unavailable |
-| Series page / season / episode order | Parser repaired, still needs live client test | Slug-filtered fixture logic; no real device/session |
-| Player iframe and native media | PARTLY TESTED with fixtures | Actual live iframe and manifest response unavailable |
-| Video playback | NOT VERIFIED | No client playback session |
+| Series page / season / episode order | PARTLY CONFIRMED on v2 | User screenshot shows episode listing, but file-like labels need cleanup in v3 |
+| Player iframe and native media | PARTLY CONFIRMED on v2 | Five Native entries shown; user reports only the first works. v3 now prefers a single selected source |
+| Video playback | PARTLY CONFIRMED on v2 | User reports the first of five Native entries works; v3 source de-duplication still needs a client retest |
 | Turkish / English subtitles | NOT VERIFIED | Option markers and URL patterns supported; actual VTT responses unverified |
 | Pagination | Implemented from known URL pattern, live-unverified | No current raw paginated response |
 
