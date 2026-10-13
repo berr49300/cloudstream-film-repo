@@ -103,8 +103,6 @@ class DiziYou : MainAPI() {
         val episodeCards = doc.select(".listepisodes a[href], div.bolumust a[href], .latest-episodes a[href]")
             .mapNotNull { it.toSeriesFromEpisode() }
             .distinctBy { it.url }
-        if (episodeCards.isNotEmpty()) return episodeCards
-
         val selectors = listOf(
             "div.incontent div#list-series",
             "div#list-series-main",
@@ -118,9 +116,9 @@ class DiziYou : MainAPI() {
                 val card = if (el.tagName() == "a" && el.hasAttr("href")) el else el.selectFirst("a[href]") ?: el
                 card.toSeriesResult() ?: el.toSeriesResult()
             }.distinctBy { it.url }
-            if (found.isNotEmpty()) return found
+            if (found.isNotEmpty()) return (episodeCards + found).distinctBy { it.url }
         }
-        return emptyList()
+        return episodeCards
     }
 
     private fun pagedUrl(base: String, page: Int): String {
