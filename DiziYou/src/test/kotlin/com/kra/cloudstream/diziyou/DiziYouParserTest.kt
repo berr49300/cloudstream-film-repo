@@ -207,6 +207,27 @@ class DiziYouParserTest {
         )
     }
 
+    @Test fun selected720pRenditionRecoversOriginalMasterPlaylist() {
+        assertEquals(
+            "https://storage.diziyou.one/episodes/91303/play.m3u8" to "DiziYou • Orijinal Dil",
+            diziYouMasterPlaylistUrlFromMediaUrl("https://storage.diziyou.one/episodes/91303/720p.m3u8")
+        )
+    }
+
+    @Test fun selectedDubRenditionRecoversDubMasterPlaylist() {
+        assertEquals(
+            "https://storage.diziyou.one/episodes/91303_tr/play.m3u8" to "DiziYou • Türkçe Dublaj",
+            diziYouMasterPlaylistUrlFromMediaUrl("https://storage.diziyou.one/episodes/91303_tr/720p.m3u8")
+        )
+    }
+
+    @Test fun unrelatedMediaUrlDoesNotInventDiziYouMasterPlaylist() {
+        assertEquals(
+            null,
+            diziYouMasterPlaylistUrlFromMediaUrl("https://example.com/episodes/91303/720p.m3u8")
+        )
+    }
+
     @Test fun turkishDubGetsItsOwnMasterPlaylist() {
         assertEquals(
             "https://storage.diziyou.one/episodes/91303_tr/play.m3u8",
