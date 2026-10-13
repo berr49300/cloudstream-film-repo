@@ -67,18 +67,9 @@ class DiziYou : MainAPI() {
         }
     }
 
-    internal fun seriesUrlFromEpisode(episodeUrl: String): String? {
-        val uri = runCatching { URI(episodeUrl) }.getOrNull() ?: return null
-        if (!uri.host.equals(URI(mainUrl).host, ignoreCase = true)) return null
-        val path = uri.path.orEmpty().trimEnd('/')
-        val seriesPath = path.replace(Regex("""-(\d+)-sezon-(\d+)-bolum$""", RegexOption.IGNORE_CASE), "")
-        if (seriesPath == path || seriesPath.isBlank() || seriesPath == "/") return null
-        return "$mainUrl$seriesPath/"
-    }
-
     private fun Element.toSeriesFromEpisode(): SearchResponse? {
         val episodeUrl = absHref() ?: return null
-        val seriesUrl = seriesUrlFromEpisode(episodeUrl) ?: return null
+        val seriesUrl = seriesUrlFromEpisode(episodeUrl, mainUrl) ?: return null
         val rawTitle = selectFirst("#dizi-ismi, .cat-title-main, [data-series-title]")?.text()
             ?.trim()?.takeIf { it.isNotBlank() }
             ?: selectFirst("img")?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
@@ -207,17 +198,7 @@ class DiziYou : MainAPI() {
                 doc.html().contains(id, ignoreCase = true)
         }
 
-    internal fun sourceUrls(doc: Document): List<String> = buildList {
-        doc.select("video source[src], source[src], video[src], iframe[src], iframe[data-src]").forEach { el ->
-            val src = el.attr("data-src").ifBlank { el.attr("src") }.trim()
-            if (src.isNotBlank()) add(fixUrl(src))
-        }
-        // Player configs may store URLs as ordinary https://... or escaped https:\/\/...
-        Regex("""(?i)(https?:(?:\\?/){2}[^"'\s<>]+?\.(?:m3u8|mp4|mpd)(?:\?[^"'\s<>]*)?)""")
-            .findAll(doc.html()).forEach { match ->
-                add(match.value.replace("\\/", "/").replace("&amp;", "&"))
-            }
-    }.distinct()
+    private fun sourceUrls(doc: Document): List<String> = parseDiziYouSourceUrls(doc)
 
     private fun playerFrameUrl(doc: Document): String? {
         val frame = doc.selectFirst("iframe#diziyouPlayer, iframe[src*=player], iframe[data-src*=player]")
@@ -248,7 +229,7 @@ class DiziYou : MainAPI() {
         if (playerUrl != null) {
             runCatching {
                 val playerDoc = app.get(playerUrl, referer = data).document
-                sourceUrls(playerDoc).forEach { source ->
+                parseDiziYouSourceUrls(playerDoc).forEach { source ->
                     when {
                         source.contains(".m3u8", ignoreCase = true) -> {
                             callback(newExtractorLink(name, "DiziYou • Player", source, ExtractorLinkType.M3U8) {
@@ -290,7 +271,7 @@ class DiziYou : MainAPI() {
             val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
             val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
             val storage = "https://storage.diziyou.one"
-            if (!foundNativeMedia && html.contains("diziyouPlayer", ignoreCase = true)) {
+            if (!foundNativeMedia && playerUrl != null) {
                 callback(newExtractorLink(name, "DiziYou • Orijinal Dil", "$storage/episodes/$id/play.m3u8", ExtractorLinkType.M3U8) {
                     referer = "$mainUrl/"
                     quality = Qualities.Unknown.value
@@ -309,7 +290,7 @@ class DiziYou : MainAPI() {
         }
 
         // Some episode pages expose a usable embed directly instead of the named player.
-        sourceUrls(episodeDoc).forEach { source ->
+        parseDiziYouSourceUrls(episodeDoc).forEach { source ->
             if (source == playerUrl) return@forEach
             runCatching {
                 if (source.contains(".m3u8", ignoreCase = true)) {
@@ -329,6 +310,35 @@ class DiziYou : MainAPI() {
         return emitted
     }
 }
+
+
+internal fun seriesUrlFromEpisode(
+    episodeUrl: String,
+    mainUrl: String = "https://www.diziyou.one"
+): String? {
+    val uri = runCatching { URI(episodeUrl) }.getOrNull() ?: return null
+    if (!uri.host.equals(URI(mainUrl).host, ignoreCase = true)) return null
+    val path = uri.path.orEmpty().trimEnd('/')
+    val seriesPath = path.replace(Regex("""-(\d+)-sezon-(\d+)-bolum$""", RegexOption.IGNORE_CASE), "")
+    if (seriesPath == path || seriesPath.isBlank() || seriesPath == "/") return null
+    return mainUrl + seriesPath + "/"
+}
+
+internal fun parseDiziYouSourceUrls(doc: Document): List<String> = buildList {
+    doc.select("video source[src], source[src], video[src], iframe[src], iframe[data-src]").forEach { el ->
+        val key = if (el.attr("data-src").isNotBlank()) "data-src" else "src"
+        val raw = el.attr(key).trim()
+        if (raw.isNotBlank()) {
+            val absolute = el.absUrl(key)
+            add(absolute.takeIf { it.isNotBlank() } ?: if (raw.startsWith("http")) raw else "https://www.diziyou.one/" + raw.trimStart('/'))
+        }
+    }
+    // Player configs may store URLs as ordinary https://... or escaped https:\/\/...
+    Regex("""(?i)(https?:(?:\\?/){2}[^"'\s<>]+?\.(?:m3u8|mp4|mpd)(?:\?[^"'\s<>]*)?)""")
+        .findAll(doc.html()).forEach { match ->
+            add(match.value.replace("\\/", "/").replace("&amp;", "&"))
+        }
+}.distinct()
 
 internal fun parseEpisodeNumbers(label: String): Pair<Int?, Int?> {
     val season = Regex("(?i)(\\d+)\\.\\s*sezon").find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
