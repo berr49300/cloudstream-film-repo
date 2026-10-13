@@ -215,26 +215,8 @@ class DiziYou : MainAPI() {
         return newHomePageResponse(request.name, results, results.isNotEmpty())
     }
 
-    private fun normalizeSearchText(value: String): String {
-        val normalized = Normalizer.normalize(
-            value.lowercase().replace('ı', 'i'),
-            Normalizer.Form.NFD
-        ).replace(Regex("""\p{M}+"""), "")
-        return normalized.replace(Regex("""[^a-z0-9]+"""), " ").trim()
-    }
-
-    private fun matchesSearchQuery(result: SearchResponse, query: String): Boolean {
-        val wanted = normalizeSearchText(query).split(Regex("""\s+""")).filter { it.length >= 2 }.distinct()
-        if (wanted.isEmpty()) return false
-        val title = normalizeSearchText(result.name)
-        val slug = normalizeSearchText(runCatching {
-            URI(result.url).path.orEmpty().trimEnd('/').substringAfterLast('/')
-        }.getOrDefault(""))
-        val searchable = (title + " " + slug).split(Regex("""\s+""")).filter(String::isNotBlank).toSet()
-        // Require every meaningful query term to occur in the title or its URL slug.
-        // This prevents broad page selectors from leaking unrelated home/archive rows into search.
-        return wanted.all { it in searchable }
-    }
+    private fun matchesSearchQuery(result: SearchResponse, query: String): Boolean =
+        matchesDiziYouSearchQuery(result.name, result.url, query)
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
@@ -464,6 +446,25 @@ class DiziYou : MainAPI() {
     }
 }
 
+
+internal fun matchesDiziYouSearchQuery(title: String, url: String, query: String): Boolean {
+    fun normalize(value: String): String {
+        val normalized = Normalizer.normalize(
+            value.lowercase().replace('ı', 'i'),
+            Normalizer.Form.NFD
+        ).replace(Regex("""\p{M}+"""), "")
+        return normalized.replace(Regex("""[^a-z0-9]+"""), " ").trim()
+    }
+
+    val wanted = normalize(query).split(Regex("""\s+""")).filter { it.length >= 2 }.distinct()
+    if (wanted.isEmpty()) return false
+    val slug = normalize(runCatching {
+        URI(url).path.orEmpty().trimEnd('/').substringAfterLast('/')
+    }.getOrDefault(""))
+    val searchable = (normalize(title) + " " + slug)
+        .split(Regex("""\s+""")).filter(String::isNotBlank).toSet()
+    return wanted.all { it in searchable }
+}
 
 internal fun hasDiziYouOption(doc: Document, vararg ids: String): Boolean =
     ids.any { id ->
