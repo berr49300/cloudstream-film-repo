@@ -47,16 +47,24 @@ class DiziYou : MainAPI() {
             val values = attributes.mapNotNull { key ->
                 val raw = img.attr(key).trim()
                 if (raw.isBlank() || raw.startsWith("data:image", true)) null
-                else if (key.endsWith("srcset")) raw.split(",").map { it.trim().substringBefore(" ") }
-                    .firstOrNull { it.isNotBlank() }
-                else raw
+                else if (key.endsWith("srcset")) {
+                    raw.split(",").map { entry ->
+                        val item = entry.trim()
+                        item.substringBefore(" ") to (Regex("""(\\d+)(?:w|x)""").find(item)
+                            ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0)
+                    }.maxByOrNull { it.second }?.first?.takeIf { it.isNotBlank() }
+                } else raw
             }
+            val languageBadge = alt in setOf(
+                "dublaj", "türkçe dublaj", "turkce dublaj", "altyazılı", "altyazili",
+                "ingilizce altyazılı", "ingilizce altyazili", "english subtitle", "tr", "en"
+            ) || img.classNames().any { it.lowercase() in setOf("flag", "language-flag", "lang-flag") }
             val poster = values.firstOrNull { value ->
                 val lower = value.lowercase()
-                !listOf("placeholder", "no-image", "noimage", "default-poster", "transparent", "blank.gif", "loading.svg")
-                    .any(lower::contains) &&
-                    !listOf("turkce dublaj", "türkçe dublaj", "altyazılı", "altyazili", "english subtitle")
-                        .any(alt::contains)
+                !listOf(
+                    "placeholder", "no-image", "noimage", "default-poster", "transparent",
+                    "blank.gif", "loading.svg", "bayrak", "/flags/", "flag-icon", "turkish-flag"
+                ).any(lower::contains) && !languageBadge
             }?.let { fixUrlNull(it) }
             if (poster != null && !poster.startsWith("data:", true)) return poster
         }
