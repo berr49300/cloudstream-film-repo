@@ -2,9 +2,10 @@
 
 **Status:** COMPARATIVE REVIEW APPLIED; LIVE CONTRACT PARTLY BLOCKED  
 **Site:** https://www.diziyou.one/  
-**Profile date:** 2026-10-12  
+**Profile date:** 2026-10-13  
 **Provider implementation:** CREATED in `DiziYou/`  
-**Build/package:** PASS in GitHub Actions run 38271563419 (commit 1f8398ca4a9858a3b50de2c39e1855ee5e66bcc5)  
+**Previous baseline build/package:** PASS in GitHub Actions run 38271563419 (commit 1f8398ca4a9858a3b50de2c39e1855ee5e66bcc5)  
+**Current comparison branch CI:** PENDING for latest changes  
 **CloudStream playback:** NOT TESTED  
 **Live raw HTML/player contract:** BLOCKED in this research environment (502 on direct fetch)
 
@@ -20,7 +21,7 @@ These indexed results confirm visible catalogue and episode information, but the
 
 ## Provider implementation
 
-The current Kotlin module implements a conservative HTML-based catalogue/search/detail adapter and delegates discovered iframe/source URLs to CloudStream's standard extractor. Episode labels now parse both season and episode numbers from text such as `2. Sezon 3. Bölüm`.
+The current Kotlin module implements a conservative HTML-based catalogue/search/detail adapter and delegates discovered iframe/source URLs to CloudStream's standard extractor. Episode labels parse both season and episode numbers from text such as `2. Sezon 3. Bölüm`. Latest episode cards are mapped back to a parent series only when the slug matches the site's explicit season/episode pattern.
 
 The implementation still uses broad fallback selectors because the live raw DOM was not retrievable. These selectors are hypotheses/fallbacks, not confirmed site contracts.
 
@@ -43,6 +44,8 @@ These are corroborated prior-art patterns, **not live-verified current endpoints
 
 - Latest-episode cards are mapped back to a series URL only when the URL matches the explicit `-{season}-sezon-{episode}-bolum` pattern; this prevents episode links from being mistaken for series pages.
 - Player iframe URL is resolved from `src` or lazy `data-src`, even if the iframe uses a different host/path than expected.
+- Source parsing is factored into top-level helpers so parser unit tests do not instantiate `MainAPI`; relative iframe URLs resolve against the document base URI.
+- The storage HLS fallback is keyed off a discovered player URL rather than the literal `diziyouPlayer` text appearing in HTML.
 - Player HTML is inspected for ordinary and JavaScript-escaped `.m3u8`, `.mp4`, and `.mpd` URLs before using a constructed fallback.
 - Regression tests cover plain/escaped HLS URL extraction and episode-to-series URL mapping.
 - Language variants remain available when a native HLS URL is also found.
@@ -52,9 +55,9 @@ These are corroborated prior-art patterns, **not live-verified current endpoints
 
 | Capability | Status | Evidence |
 |---|---|---|
-| Kotlin compile / plugin package | PASS | Actions run 38271563419 |
+| Kotlin compile / plugin package | PENDING for current branch | Previous baseline passed in Actions run 38271563419; current branch run queued |
 | Existing module/unit tests before this change | PASS | Actions run 38271563419 |
-| Season/episode parser regression tests | Added/CI pending | Comparison branch adds URL extraction regression coverage |
+| Season/episode parser regression tests | Added/CI pending | Current branch covers escaped HLS URLs, relative iframe URLs, and episode-to-series mapping without provider instantiation |
 | Homepage catalogue in live CloudStream | NOT TESTED | No real device/session |
 | Search accuracy | NOT TESTED | Raw response inaccessible here |
 | Detail metadata and episode mapping | PARTLY TESTED | Indexed text evidence only; no raw DOM fixture |
