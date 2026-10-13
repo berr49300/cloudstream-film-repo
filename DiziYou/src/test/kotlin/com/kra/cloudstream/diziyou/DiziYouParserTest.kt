@@ -24,7 +24,7 @@ class DiziYouParserTest {
             const second = "https:\/\/storage.diziyou.one/episodes/124/play.m3u8";
         </script>"""
         val doc = Jsoup.parse(html, "https://www.diziyou.one/")
-        val urls = DiziYou().sourceUrls(doc).filter { it.contains(".m3u8", ignoreCase = true) }.toSet()
+        val urls = parseDiziYouSourceUrls(doc).filter { it.contains(".m3u8", ignoreCase = true) }.toSet()
         assertEquals(
             setOf(
                 "https://storage.diziyou.one/episodes/123/play.m3u8",
@@ -41,17 +41,21 @@ class DiziYouParserTest {
         )
         val frame = doc.selectFirst("iframe#diziyouPlayer")!!
         assertEquals("/player/91303.html", frame.attr("data-src"))
+        assertEquals(
+            listOf("https://www.diziyou.one/player/91303.html"),
+            parseDiziYouSourceUrls(doc)
+        )
     }
 
     @Test fun episodeSlugMapsBackToSeriesUrl() {
         assertEquals(
             "https://www.diziyou.one/sold-out-on-you/",
-            DiziYou().seriesUrlFromEpisode("https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/")
+            seriesUrlFromEpisode("https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/")
         )
     }
 
     @Test fun unrelatedUrlIsNotMappedToSeries() {
-        assertEquals(null, DiziYou().seriesUrlFromEpisode("https://example.com/show-1-sezon-1-bolum/"))
+        assertEquals(null, seriesUrlFromEpisode("https://example.com/show-1-sezon-1-bolum/"))
     }
 
 }
