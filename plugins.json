@@ -15,7 +15,7 @@
         ],
         "version": 8,
         "internalName": "DDizi",
-        "description": "DDizi v8 kaynak tanılama, sezon sayfaları ve YouTube kalite yedeği",
+        "description": "DDizi v8 kaynak tan\u0131lama, sezon sayfalar\u0131 ve YouTube kalite yede\u011fi",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DDizi.cs3",
         "name": "DDizi"
     },
@@ -35,16 +35,16 @@
         ],
         "version": 4,
         "internalName": "Dizilla",
-        "description": "Dizilla sağlayıcısı — test sürümü; katalog ve altyazı doğrulaması sürüyor",
+        "description": "Dizilla sa\u011flay\u0131c\u0131s\u0131 \u2014 test s\u00fcr\u00fcm\u00fc; katalog ve altyaz\u0131 do\u011frulamas\u0131 s\u00fcr\u00fcyor",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/Dizilla.cs3",
         "name": "Dizilla"
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=diziyou.one",
-        "fileHash": "sha256-b1a7ba2498f8f14e43ddafef81690a39b4dd0d76157783dadf053262d48eac1e",
+        "fileHash": "sha256-0bb7a0376d309a3f35985efdef9ad97199763253d9edb2042793b0531d9a58f9",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 42696,
+        "fileSize": 43815,
         "status": 1,
         "language": "tr",
         "authors": [
@@ -53,9 +53,9 @@
         "tvTypes": [
             "TvSeries"
         ],
-        "version": 3,
+        "version": 4,
         "internalName": "DiziYou",
-        "description": "DiziYou katalog, sezon/bölüm ve oynatıcı düzeltmeleri",
+        "description": "DiziYou katalog, sezon/b\u00f6l\u00fcm ve oynat\u0131c\u0131 d\u00fczeltmeleri",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/DiziYou.cs3",
         "name": "DiziYou"
     },
@@ -76,7 +76,7 @@
         ],
         "version": 29,
         "internalName": "FilmMakinesi",
-        "description": "FilmMakinesi ve sadeleştirilmiş CloseLoad/Rapid çözücüsü",
+        "description": "FilmMakinesi ve sadele\u015ftirilmi\u015f CloseLoad/Rapid \u00e7\u00f6z\u00fcc\u00fcs\u00fc",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FilmMakinesi.cs3",
         "name": "FilmMakinesi"
     },
@@ -96,7 +96,7 @@
         ],
         "version": 7,
         "internalName": "FullHDFilmizlesene",
-        "description": "FullHDFilmizlesene bağımsız Kotlin sağlayıcısı",
+        "description": "FullHDFilmizlesene ba\u011f\u0131ms\u0131z Kotlin sa\u011flay\u0131c\u0131s\u0131",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/FullHDFilmizlesene.cs3",
         "name": "FullHDFilmizlesene"
     }
