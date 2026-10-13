@@ -476,6 +476,46 @@ class DiziYou : MainAPI() {
 }
 
 
+internal fun diziYouBackgroundUrl(style: String, vararg fallbacks: String): String? {
+    val inline = Regex("""(?i)url\(\s*['"]?([^'")]+)['"]?\s*\)""")
+        .find(style)?.groupValues?.getOrNull(1)?.trim()
+    return inline?.takeIf(String::isNotBlank)
+        ?: fallbacks.firstOrNull(String::isNotBlank)?.trim()
+}
+
+internal data class DiziYouHlsVariant(val url: String, val quality: Int)
+
+internal fun parseDiziYouHlsVariants(playlistUrl: String, manifest: String): List<DiziYouHlsVariant> {
+    val base = runCatching { URI(playlistUrl) }.getOrNull() ?: return emptyList()
+    val lines = manifest.lineSequence().map(String::trim).toList()
+    val variants = mutableListOf<DiziYouHlsVariant>()
+
+    for (index in lines.indices) {
+        val line = lines[index]
+        if (!line.startsWith("#EXT-X-STREAM-INF:", ignoreCase = true)) continue
+        val attributes = line.substringAfter(':')
+        val variantPath = lines.drop(index + 1)
+            .firstOrNull { it.isNotBlank() && !it.startsWith("#") } ?: continue
+        val resolved = runCatching { base.resolve(variantPath).toString() }.getOrNull() ?: continue
+        val height = Regex("""(?i)(?:^|,)\s*RESOLUTION=\d+x(\d+)(?:,|$)""")
+            .find(attributes)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val quality = height ?: explicitQualityFromUrl(resolved)
+        if (quality > 0 && directMediaUrl(resolved)) {
+            variants += DiziYouHlsVariant(resolved, quality)
+        }
+    }
+
+    return variants.distinctBy { it.url }.sortedByDescending { it.quality }
+}
+
+internal fun hasDiziYouAlternateAudio(manifest: String): Boolean =
+    manifest.lineSequence().any { line ->
+        (line.startsWith("#EXT-X-MEDIA:", ignoreCase = true) &&
+            Regex("""(?i)\bTYPE=AUDIO\b""").containsMatchIn(line)) ||
+        (line.startsWith("#EXT-X-STREAM-INF:", ignoreCase = true) &&
+            Regex("""(?i)(?:^|,)\s*AUDIO=""").containsMatchIn(line))
+    }
+
 internal fun matchesDiziYouSearchQuery(title: String, url: String, query: String): Boolean {
     fun normalize(value: String): String {
         val normalized = Normalizer.normalize(
