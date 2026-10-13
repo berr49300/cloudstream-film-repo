@@ -267,6 +267,16 @@ class DiziYou : MainAPI() {
         return src.takeIf { it.isNotBlank() }?.let { fixUrl(it) }
     }
 
+    private fun directMediaType(url: String): ExtractorLinkType? {
+        val path = runCatching { URI(url).path.orEmpty() }.getOrDefault(url).lowercase()
+        return when {
+            path.endsWith(".m3u8") -> ExtractorLinkType.M3U8
+            path.endsWith(".mpd") -> ExtractorLinkType.DASH
+            path.endsWith(".mp4") || path.endsWith(".m4v") -> ExtractorLinkType.VIDEO
+            else -> null
+        }
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -289,24 +299,16 @@ class DiziYou : MainAPI() {
             runCatching {
                 val playerDoc = app.get(playerUrl, referer = data).document
                 parseDiziYouSourceUrls(playerDoc).forEach { source ->
-                    when {
-                        source.contains(".m3u8", ignoreCase = true) -> {
-                            callback(newExtractorLink(name, "DiziYou • Player", source, ExtractorLinkType.M3U8) {
-                                referer = playerUrl
-                                quality = Qualities.Unknown.value
-                            })
-                            emitted = true
-                            foundNativeMedia = true
-                        }
-                        source.contains(".mp4", ignoreCase = true) || source.contains(".mpd", ignoreCase = true) -> {
-                            runCatching {
-                                loadExtractor(source, playerUrl, subtitleCallback, { link ->
-                                    callback(link)
-                                    emitted = true
-                                })
-                            }
-                        }
-                        else -> runCatching {
+                    val mediaType = directMediaType(source)
+                    if (mediaType != null) {
+                        callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
+                            referer = playerUrl
+                            quality = Qualities.Unknown.value
+                        })
+                        emitted = true
+                        foundNativeMedia = true
+                    } else {
+                        runCatching {
                             loadExtractor(source, playerUrl, subtitleCallback, { link ->
                                 callback(link)
                                 emitted = true
@@ -351,8 +353,9 @@ class DiziYou : MainAPI() {
         parseDiziYouSourceUrls(episodeDoc).forEach { source ->
             if (source == playerUrl) return@forEach
             runCatching {
-                if (source.contains(".m3u8", ignoreCase = true)) {
-                    callback(newExtractorLink(name, "DiziYou • Video", source, ExtractorLinkType.M3U8) {
+                val mediaType = directMediaType(source)
+                if (mediaType != null) {
+                    callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
                         referer = data
                         quality = Qualities.Unknown.value
                     })
