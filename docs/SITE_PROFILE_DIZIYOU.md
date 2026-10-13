@@ -44,8 +44,11 @@ Repositories containing copies or older variants were treated as corroborating e
 - Filtered out archive, pagination, category, tag, and episode paths where a series page is expected.
 - Episode cards map to the parent series URL only when the season/episode slug matches the known pattern.
 - Series names are taken from series-title elements or the series slug; poster alt text such as “İngilizce Altyazılı” and “Türkçe Dublaj” is not accepted as a series title.
+- Poster resolution checks poster-specific containers before arbitrary card images, considers lazy-load attributes and `srcset`, prefers the largest declared `srcset` candidate, and rejects obvious placeholder/flag artwork. Detail pages also check Open Graph poster metadata before image fallbacks.
 - Opening an episode URL first resolves the parent series page. Episode extraction filters links by the same parent series path and derives season/episode numbers from the URL before using visible labels. Generic navigation captions such as “Son Eklenen Bölümler” and “Önceki Bölüm” are not exposed as episode names.
-- Player resolution continues to prefer media actually present in player HTML; the known storage pattern remains a fallback when the player ID is found.
+- Episode labels containing only site-internal file names such as `eps1.0_hellofriend.mov` are normalized to `1. Sezon 1. Bölüm`; a readable episode title is preserved after the normalized season/episode prefix when available.
+- Player resolution prioritizes the explicit `#diziyouSource` media element, then the first HTML5 video source, then one JavaScript-discovered media URL. It no longer emits every script/iframe candidate as an identically named “Native” stream, which previously created several dead or duplicate entries. The known storage path remains a single fallback when no player media source is found.
+- No quality ceiling is hardcoded. A URL with an explicit resolution gets that label; otherwise the link keeps unknown quality so the HLS player can use the variants published by its playlist. Whether any particular episode has 1080p or higher must be confirmed from its actual manifest, not inferred from the site’s general quality claims.
 - Added regression tests for slug-to-series mapping, a non-`www` episode hostname, title generation from an episode slug, and the `#diziyouSource` HLS source element.
 - No other provider module is changed. The pull request contains the DiziYou provider, its version manifest (`DiziYou/build.gradle.kts`), its parser tests, and this DiziYou-specific profile.
 
