@@ -120,10 +120,13 @@ class DiziYou : MainAPI() {
             .forEach { it.toSeriesFromEpisode()?.let(results::add) }
 
         // Parse each card/link, not the #list-series wrapper as one item.
-        val selectors = listOf("div#list-series-main", "div.single-item", "div#list-series a[href]",
-            ".list-series a[href]", ".alphabetical-category-wrapper a[href]", "div.incontent a[href]",
-            "div.cat-item", "div.series-item", "div.post", "div.search-result",
-            ".post-title a[href]", ".entry-title a[href]", "article a[href]")
+        val selectors = listOf(
+            "div#list-series-main", "div#list-series-main a[href]", "div.single-item", "div.single-item a[href]",
+            "div#list-series a[href]", ".list-series a[href]", ".alphabetical-category-wrapper a[href]",
+            "div.incontent a[href]", "div.cat-item", "div.cat-item a[href]", "div.series-item",
+            "div.series-item a[href]", "div.post", "div.post a[href]", "div.search-result",
+            "div.search-result a[href]", ".post-title a[href]", ".entry-title a[href]", "article a[href]"
+        )
         selectors.forEach { selector -> doc.select(selector).forEach { it.toSeriesResult()?.let(results::add) } }
         return results.distinctBy { it.url }
     }
