@@ -551,7 +551,7 @@ internal fun parseDiziYouHlsVariants(playlistUrl: String, manifest: String): Lis
 }
 
 internal fun hasDiziYouAlternateAudio(manifest: String): Boolean =
-    manifest.lineSequence().any { line ->
+    manifest.lineSequence().map(String::trim).any { line ->
         (line.startsWith("#EXT-X-MEDIA:", ignoreCase = true) &&
             Regex("""(?i)\bTYPE=AUDIO\b""").containsMatchIn(line)) ||
         (line.startsWith("#EXT-X-STREAM-INF:", ignoreCase = true) &&
