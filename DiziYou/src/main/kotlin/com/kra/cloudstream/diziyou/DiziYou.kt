@@ -70,7 +70,7 @@ class DiziYou : MainAPI() {
         }
         // Some DiziYou cards store artwork in CSS/background attributes instead of <img>.
         val backgroundElements = (listOf(this) + select(
-            "[style*=background-image], [style*=background:], [data-background], [data-bg], [data-thumb], [data-poster]"
+            "[style*=background-image], [style*='background:'], [data-background], [data-bg], [data-thumb], [data-poster]"
         )).distinct()
         val backgrounds = backgroundElements.mapNotNull { element ->
             val raw = diziYouBackgroundUrl(
