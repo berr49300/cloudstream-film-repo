@@ -242,21 +242,21 @@ class DiziYou : MainAPI() {
 
         // Compatibility fallback for the known DiziYou storage layout. Only advertise
         // language variants when the episode page actually declares those options.
-        if (!foundNativeMedia && !id.isNullOrBlank()) {
+        if (!id.isNullOrBlank()) {
             val html = episodeDoc.html()
             val trSub = hasOption(episodeDoc, "turkceAltyazili", "turkceAltyaziliOption")
             val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
             val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
             val storage = "https://storage.diziyou.one"
-            if (trSub || enSub || trDub || html.contains("diziyouPlayer", ignoreCase = true)) {
+            if (!foundNativeMedia && html.contains("diziyouPlayer", ignoreCase = true)) {
                 callback(newExtractorLink(name, "DiziYou • Orijinal Dil", "$storage/episodes/$id/play.m3u8", ExtractorLinkType.M3U8) {
                     referer = "$mainUrl/"
                     quality = Qualities.Unknown.value
                 })
                 emitted = true
-                if (trSub) subtitleCallback(SubtitleFile("Türkçe", "$storage/subtitles/$id/tr.vtt"))
-                if (enSub) subtitleCallback(SubtitleFile("İngilizce", "$storage/subtitles/$id/en.vtt"))
             }
+            if (trSub) subtitleCallback(SubtitleFile("Türkçe", "$storage/subtitles/$id/tr.vtt"))
+            if (enSub) subtitleCallback(SubtitleFile("İngilizce", "$storage/subtitles/$id/en.vtt"))
             if (trDub) {
                 callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", "$storage/episodes/\${id}_tr/play.m3u8", ExtractorLinkType.M3U8) {
                     referer = "$mainUrl/"
