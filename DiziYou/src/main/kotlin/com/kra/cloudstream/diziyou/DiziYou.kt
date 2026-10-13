@@ -30,46 +30,54 @@ class DiziYou : MainAPI() {
         fixUrlNull(attr("href"))?.takeIf { it.startsWith("http") }
 
     private fun Element.posterUrl(): String? {
-        // A card may contain a language badge/flag before the real poster.
+        fun largestSrcSet(raw: String): String? = raw.split(",").map { entry ->
+            val item = entry.trim()
+            item.substringBefore(" ") to (Regex("""(\d+)(?:w|x)""").find(item)
+                ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0)
+        }.maxByOrNull { it.second }?.first?.takeIf { it.isNotBlank() }
+
+        // Responsive <picture> artwork can be different from the placeholder in <img src>.
+        val responsive = select("picture source[data-srcset], picture source[srcset]")
+            .mapNotNull { source ->
+                val raw = source.attr("data-srcset").ifBlank { source.attr("srcset") }
+                largestSrcSet(raw)?.let { fixUrlNull(it) }
+            }
         val preferred = listOf(
             "div#categorytitle img", "div.category_image img", "div.cat-img-main img",
             ".series-poster img", ".afis img", ".poster img", ".cover img",
             "img.poster", "img.series-poster"
         ).flatMap { select(it) }
         val candidates = (preferred + select("img")).distinct()
-        for (img in candidates) {
+        val posterAttributes = listOf(
+            "data-poster", "data-image", "data-original", "data-lazy-src", "data-src",
+            "data-lazyload", "data-lazy", "data-original-src", "data-srcset",
+            "srcset", "src"
+        )
+        val images = candidates.mapNotNull { img ->
             val alt = img.attr("alt").ifBlank { img.attr("title") }.lowercase()
-            val attributes = listOf(
-                "data-poster", "data-original", "data-lazy-src", "data-src",
-                "data-lazyload", "data-lazy", "data-original-src", "data-srcset",
-                "srcset", "src"
-            )
-            val values = attributes.mapNotNull { key ->
-                val raw = img.attr(key).trim()
-                if (raw.isBlank() || raw.startsWith("data:image", true)) null
-                else if (key.endsWith("srcset")) {
-                    raw.split(",").map { entry ->
-                        val item = entry.trim()
-                        item.substringBefore(" ") to (Regex("""(\d+)(?:w|x)""").find(item)
-                            ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0)
-                    }.maxByOrNull { it.second }?.first?.takeIf { it.isNotBlank() }
-                } else raw
-            }
             val languageBadge = alt in setOf(
                 "dublaj", "türkçe dublaj", "turkce dublaj", "altyazılı", "altyazili",
                 "ingilizce altyazılı", "ingilizce altyazili", "english subtitle", "tr", "en"
             ) || img.classNames().any { it.lowercase() in setOf("flag", "language-flag", "lang-flag") }
-            val poster = values.firstOrNull { value ->
-                val lower = value.lowercase()
-                !listOf(
-                    "placeholder", "no-image", "noimage", "default-poster", "transparent",
-                    "blank.gif", "loading.svg", "bayrak", "/flags/", "flag-icon", "turkish-flag"
-                ).any(lower::contains) && !languageBadge
-            }?.let { fixUrlNull(it) }
-            if (poster != null && !poster.startsWith("data:", true)) return poster
+            val value = posterAttributes.firstNotNullOfOrNull { key ->
+                val raw = img.attr(key).trim()
+                if (raw.isBlank() || raw.startsWith("data:image", true)) null
+                else if (key.endsWith("srcset")) largestSrcSet(raw) else raw
+            }?.takeUnless { languageBadge }?.let { fixUrlNull(it) }
+            value?.takeIf { isLikelyPosterUrl(it) }
         }
-        return null
+        return (responsive.filterNotNull().filter(::isLikelyPosterUrl) + images)
+            .firstOrNull { !it.startsWith("data:", true) }
     }
+
+    private fun isLikelyPosterUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return !listOf(
+            "placeholder", "no-image", "noimage", "default-poster", "transparent",
+            "blank.gif", "loading.svg", "bayrak", "/flags/", "flag-icon", "turkish-flag"
+        ).any(lower::contains)
+    }
+
     private fun isSeriesPath(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val expected = runCatching { URI(mainUrl).host.orEmpty().removePrefix("www.") }.getOrDefault("")
@@ -420,7 +428,7 @@ internal fun seriesUrlFromEpisode(
 }
 
 private fun explicitQualityFromUrl(url: String): Int {
-    return Regex("""(?i)(2160|1440|1080|720|576|540|480|360)p?""")
+    return Regex("""(?i)(2160|1440|1080|720|576|540|480|360)p\b""")
         .find(url)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: Qualities.Unknown.value
 }
 
