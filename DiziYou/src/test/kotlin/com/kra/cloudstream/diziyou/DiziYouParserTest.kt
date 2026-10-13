@@ -18,4 +18,29 @@ class DiziYouParserTest {
         assertEquals(1 to 1, parseEpisodeNumbers("https://www.diziyou.one/sold-out-on-you-1-sezon-1-bolum/"))
     }
 
+    @Test fun playerSourceParserFindsPlainAndEscapedHlsUrls() {
+        val html = """<script>
+            const first = "https://storage.diziyou.one/episodes/123/play.m3u8";
+            const second = "https:\\/\\/storage.diziyou.one/episodes/124/play.m3u8";
+        </script>"""
+        val doc = Jsoup.parse(html, "https://www.diziyou.one/")
+        val urls = DiziYou().sourceUrls(doc).filter { it.contains(".m3u8", ignoreCase = true) }.toSet()
+        assertEquals(
+            setOf(
+                "https://storage.diziyou.one/episodes/123/play.m3u8",
+                "https://storage.diziyou.one/episodes/124/play.m3u8"
+            ),
+            urls
+        )
+    }
+
+    @Test fun playerIframeUrlCanBeResolvedFromDataSrc() {
+        val doc = Jsoup.parse(
+            """<iframe id="diziyouPlayer" data-src="/player/91303.html"></iframe>""",
+            "https://www.diziyou.one/"
+        )
+        val frame = doc.selectFirst("iframe#diziyouPlayer")!!
+        assertEquals("/player/91303.html", frame.attr("data-src"))
+    }
+
 }
