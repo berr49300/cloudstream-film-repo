@@ -44,7 +44,7 @@ class DiziYou : MainAPI() {
         if (expected.isBlank() || !host.equals(expected, ignoreCase = true)) return false
         val path = uri.path.orEmpty().trimEnd('/')
         if (path.isBlank() || path == "/" ||
-            Regex("""-\\d+-sezon-\\d+-bolum$""", RegexOption.IGNORE_CASE).containsMatchIn(path)) return false
+            Regex("""-\d+-sezon-\d+-bolum$""", RegexOption.IGNORE_CASE).containsMatchIn(path)) return false
         return !path.startsWith("/wp-", true) &&
             !path.startsWith("/kategori/", true) &&
             !path.startsWith("/category/", true) &&
@@ -388,7 +388,7 @@ internal fun seriesUrlFromEpisode(
 }
 
 internal fun parseDiziYouSourceUrls(doc: Document): List<String> = buildList {
-    doc.select("video source[src], source[src], video[src], iframe[src], iframe[data-src]").forEach { el ->
+    doc.select("video source[src], video source[data-src], source[src], source[data-src], video[src], video[data-src], #diziyouSource[src], #diziyouSource[data-src], iframe[src], iframe[data-src]").forEach { el ->
         val key = if (el.attr("data-src").isNotBlank()) "data-src" else "src"
         val raw = el.attr(key).trim()
         if (raw.isNotBlank()) {
