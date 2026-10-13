@@ -186,7 +186,7 @@ class DiziYou : MainAPI() {
         return if (parts.size == 2) "$paged?${parts[1]}" else paged
     }
 
-    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 8): List<SearchResponse> {
+    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 24): List<SearchResponse> {
         var lookups = 0
         return results.map { result ->
             if (!result.posterUrl.isNullOrBlank() || lookups >= lookupLimit) return@map result
@@ -349,9 +349,7 @@ class DiziYou : MainAPI() {
     }
 
     private fun hasOption(doc: Document, vararg ids: String): Boolean =
-        ids.any { id ->
-            doc.selectFirst("span.diziyouOption#$id, .diziyouOption#$id, [data-id=$id]") != null
-        }
+        hasDiziYouOption(doc, *ids)
 
 
     private fun playerFrameUrl(doc: Document): String? {
@@ -466,6 +464,11 @@ class DiziYou : MainAPI() {
     }
 }
 
+
+internal fun hasDiziYouOption(doc: Document, vararg ids: String): Boolean =
+    ids.any { id ->
+        doc.selectFirst("span.diziyouOption#$id, .diziyouOption#$id, [data-id=$id]") != null
+    }
 
 internal fun diziYouMasterPlaylistUrl(itemId: String, dubbed: Boolean = false): String {
     require(Regex("""^[a-zA-Z0-9_-]+$""").matches(itemId)) { "Invalid DiziYou player ID" }
