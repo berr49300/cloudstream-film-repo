@@ -137,6 +137,16 @@ class DiziYouParserTest {
         )
     }
 
+    @Test fun backgroundImageSelectorsAcceptBackgroundShorthand() {
+        val doc = Jsoup.parse(
+            """<div style="background: url('/poster.jpg')"></div>"""
+        )
+        assertEquals(
+            1,
+            doc.select("[style*=background-image], [style*='background:'], [data-background], [data-bg], [data-thumb], [data-poster]").size
+        )
+    }
+
     @Test fun posterCanBeReadFromCssBackgroundImage() {
         assertEquals(
             "https://cdn.example/posters/altered-carbon.jpg",
