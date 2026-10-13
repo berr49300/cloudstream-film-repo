@@ -603,7 +603,7 @@ internal fun diziYouMasterPlaylistUrlFromMediaUrl(mediaUrl: String): Pair<String
     val uri = runCatching { URI(mediaUrl) }.getOrNull() ?: return null
     if (!uri.host.equals("storage.diziyou.one", ignoreCase = true)) return null
     val match = Regex(
-        """^/episodes/([a-zA-Z0-9_-]+)/(?:play|(?:360|480|540|576|720|1080|1440|2160)p)\\.m3u8$""",
+        """^/episodes/([a-zA-Z0-9_-]+)/(?:play|(?:360|480|540|576|720|1080|1440|2160)p)\.m3u8$""",
         RegexOption.IGNORE_CASE
     ).matchEntire(uri.path.orEmpty()) ?: return null
     val folder = match.groupValues[1]
