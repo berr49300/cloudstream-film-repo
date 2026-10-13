@@ -381,6 +381,44 @@ class DiziYou : MainAPI() {
         }
     }
 
+    private suspend fun emitPlaylistSources(
+        playlistUrl: String,
+        label: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        // CloudStream's source chooser lists ExtractorLinks, not individual HLS renditions.
+        // Split only when the actual master lists independent video variants and does not
+        // depend on alternate audio groups; otherwise retain the original adaptive playlist.
+        val manifest = runCatching {
+            app.get(playlistUrl, referer = "$mainUrl/").text
+        }.getOrNull()
+        val variants = manifest?.let { parseDiziYouHlsVariants(playlistUrl, it) }.orEmpty()
+        val canSplit = manifest != null &&
+            !hasDiziYouAlternateAudio(manifest) &&
+            variants.map { it.url }.distinct().size > 1
+
+        if (canSplit) {
+            variants.distinctBy { it.url }.forEach { variant ->
+                callback(newExtractorLink(
+                    name,
+                    "$label • ${variant.quality}p",
+                    variant.url,
+                    ExtractorLinkType.M3U8
+                ) {
+                    referer = "$mainUrl/"
+                    quality = variant.quality
+                })
+            }
+            return true
+        }
+
+        callback(newExtractorLink(name, label, playlistUrl, ExtractorLinkType.M3U8) {
+            referer = "$mainUrl/"
+            quality = Qualities.Unknown.value
+        })
+        return true
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -409,18 +447,10 @@ class DiziYou : MainAPI() {
             // The original-language manifest is one source regardless of how many subtitle
             // options the page declares. If this episode is dub-only, do not expose a dead original.
             if (!trDub || trSub || enSub) {
-                callback(newExtractorLink(name, "DiziYou • Orijinal Dil", originalMaster, ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
+                emitted = emitPlaylistSources(originalMaster, "DiziYou • Orijinal Dil", callback) || emitted
             }
             if (trDub) {
-                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", dubMaster, ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
+                emitted = emitPlaylistSources(dubMaster, "DiziYou • Türkçe Dublaj", callback) || emitted
             }
 
             if (trSub) subtitleCallback(SubtitleFile("Türkçe Altyazı", "https://storage.diziyou.one/subtitles/$id/tr.vtt"))
