@@ -246,13 +246,9 @@ class DiziYou : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = pagedUrl(request.data, page)
         val doc = app.get(url, referer = "$mainUrl/").document
-        // Re-check a small leading window from the detail page: archive cards can have
-        // a non-empty but unrelated thumbnail URL that looks valid syntactically.
-        val results = repairMissingPosters(
-            cards(doc).take(60),
-            lookupLimit = 12,
-            replaceExisting = true
-        )
+        // Resolve missing/broken covers from the detail page, without refetching every
+        // valid card poster and slowing down the entire home page.
+        val results = repairMissingPosters(cards(doc).take(60), lookupLimit = 60)
         return newHomePageResponse(request.name, results, results.isNotEmpty())
     }
 
