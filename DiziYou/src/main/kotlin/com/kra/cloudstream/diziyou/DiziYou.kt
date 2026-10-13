@@ -178,7 +178,7 @@ class DiziYou : MainAPI() {
             if (src.isNotBlank()) add(fixUrl(src))
         }
         // Player configs may store URLs as ordinary https://... or escaped https:\/\/...
-        Regex("""(?i)(https?:\\?/\\?/[^"'\s<>]+?\.(?:m3u8|mp4|mpd)(?:\?[^"'\s<>]*)?)""")
+        Regex("""(?i)(https?:(?:\\?/){2}[^"'\s<>]+?\.(?:m3u8|mp4|mpd)(?:\?[^"'\s<>]*)?)""")
             .findAll(doc.html()).forEach { match ->
                 add(match.value.replace("\\/", "/").replace("&amp;", "&"))
             }
@@ -258,7 +258,7 @@ class DiziYou : MainAPI() {
             if (trSub) subtitleCallback(SubtitleFile("Türkçe", "$storage/subtitles/$id/tr.vtt"))
             if (enSub) subtitleCallback(SubtitleFile("İngilizce", "$storage/subtitles/$id/en.vtt"))
             if (trDub) {
-                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", "$storage/episodes/\${id}_tr/play.m3u8", ExtractorLinkType.M3U8) {
+                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", "$storage/episodes/${id}_tr/play.m3u8", ExtractorLinkType.M3U8) {
                     referer = "$mainUrl/"
                     quality = Qualities.Unknown.value
                 })
