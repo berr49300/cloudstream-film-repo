@@ -59,12 +59,13 @@ class DiziYou : MainAPI() {
                 "dublaj", "türkçe dublaj", "turkce dublaj", "altyazılı", "altyazili",
                 "ingilizce altyazılı", "ingilizce altyazili", "english subtitle", "tr", "en"
             ) || img.classNames().any { it.lowercase() in setOf("flag", "language-flag", "lang-flag") }
-            val value = posterAttributes.firstNotNullOfOrNull { key ->
+            val value = if (languageBadge) null else posterAttributes.firstNotNullOfOrNull { key ->
                 val raw = img.attr(key).trim()
-                if (raw.isBlank() || raw.startsWith("data:image", true)) null
-                else if (key.endsWith("srcset")) largestSrcSet(raw) else raw
-            }?.takeUnless { languageBadge }?.let { fixUrlNull(it) }
-            value?.takeIf { isLikelyPosterUrl(it) }
+                val candidate = if (raw.isBlank() || raw.startsWith("data:image", true)) null
+                    else if (key.endsWith("srcset")) largestSrcSet(raw) else raw
+                candidate?.let { fixUrlNull(it) }?.takeIf { isLikelyPosterUrl(it) }
+            }
+            value
         }
         return (responsive.filterNotNull().filter(::isLikelyPosterUrl) + images)
             .firstOrNull { !it.startsWith("data:", true) }
