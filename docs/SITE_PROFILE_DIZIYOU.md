@@ -1,6 +1,6 @@
 # DiziYou — Site Discovery Profile
 
-**Status:** Parser and catalogue repair applied; latest CI validation in progress  
+**Status:** Parser/catalogue repair and version 2 package built; CI passed on code commit `f23c7de065278ce6ad22463a93510997bc7f6dc3`  
 **Site:** https://www.diziyou.one/  
 **Profile date:** 2026-10-13  
 **Changed provider:** `DiziYou/` only  
@@ -47,15 +47,15 @@ Repositories containing copies or older variants were treated as corroborating e
 - Opening an episode URL first resolves the parent series page. Episode extraction filters links by the same parent series path and derives season/episode numbers from the URL before using visible labels. Generic navigation captions such as “Son Eklenen Bölümler” and “Önceki Bölüm” are not exposed as episode names.
 - Player resolution continues to prefer media actually present in player HTML; the known storage pattern remains a fallback when the player ID is found.
 - Added regression tests for slug-to-series mapping, a non-`www` episode hostname, title generation from an episode slug, and the `#diziyouSource` HLS source element.
-- No other provider module is changed. The pull request contains only the DiziYou provider, its parser tests, and this DiziYou-specific profile.
+- No other provider module is changed. The pull request contains the DiziYou provider, its version manifest (`DiziYou/build.gradle.kts`), its parser tests, and this DiziYou-specific profile.
 
 ## Verification matrix
 
 | Capability | Status | Evidence / limitation |
 |---|---|---|
-| Kotlin compile | CI running for latest repair | See the PR's latest Actions run |
-| Parser regression tests | Added; latest CI pending | Slug mapping, titles, lazy iframe, plain/escaped HLS and source element fixtures |
-| Plugin package / repository validation | CI running for latest repair | Workflow builds .cs3 artifacts but does not publish for a PR |
+| Kotlin compile | PASS | GitHub Actions run #468; provider tests and package build passed |
+| Parser regression tests | PASS | GitHub Actions run #468; slug mapping, titles, lazy iframe, plain/escaped HLS and source element fixtures |
+| Plugin package / repository validation | PASS | GitHub Actions run #468 built `.cs3`, generated the plugin index, validated the repository, and uploaded the build artifact; publish job was correctly skipped for a PR |
 | Catalogue on a real CloudStream client | NOT TESTED | Live browser HTML unavailable in this environment |
 | Search accuracy | NOT TESTED against live responses | Current raw search response unavailable |
 | Series page / season / episode order | Parser repaired, still needs live client test | Slug-filtered fixture logic; no real device/session |
