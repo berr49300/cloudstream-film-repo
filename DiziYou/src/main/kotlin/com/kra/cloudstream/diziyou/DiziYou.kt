@@ -202,21 +202,33 @@ class DiziYou : MainAPI() {
         return if (parts.size == 2) "$paged?${parts[1]}" else paged
     }
 
-    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 24): List<SearchResponse> {
+    private suspend fun repairMissingPosters(
+        results: List<SearchResponse>,
+        lookupLimit: Int = 24,
+        replaceExisting: Boolean = false
+    ): List<SearchResponse> {
         var lookups = 0
         return results.map { result ->
-            if (!result.posterUrl.isNullOrBlank() || lookups >= lookupLimit) return@map result
+            val existing = result.posterUrl
+            val needsLookup = replaceExisting || existing.isNullOrBlank() || !isLikelyPosterUrl(existing)
+            if (!needsLookup || lookups >= lookupLimit) return@map result
             lookups += 1
+
             val poster = runCatching {
                 val detail = app.get(result.url, referer = "$mainUrl/").document
                 detail.selectFirst("meta[property=og:image]")?.attr("content")
-                    ?.takeIf { it.isNotBlank() && isLikelyPosterUrl(it) }?.let { fixUrlNull(it) }
+                    ?.takeIf { it.isNotBlank() }?.let { fixUrlNull(it) }
+                    ?.takeIf { isLikelyPosterUrl(it) }
                     ?: detail.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")
                         ?.posterUrl()
                     ?: detail.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")
                         ?.parent()?.posterUrl()
+                    ?: detail.selectFirst("body")?.posterUrl()
             }.getOrNull()
-            if (!poster.isNullOrBlank()) {
+
+            if (!poster.isNullOrBlank() &&
+                (replaceExisting || existing.isNullOrBlank() || !isLikelyPosterUrl(existing))
+            ) {
                 newTvSeriesSearchResponse(result.name, result.url, TvType.TvSeries) {
                     posterUrl = poster
                 }
