@@ -30,13 +30,38 @@ class DiziYou : MainAPI() {
         fixUrlNull(attr("href"))?.takeIf { it.startsWith("http") }
 
     private fun Element.posterUrl(): String? {
-        val img = selectFirst("img") ?: return null
-        return listOf("data-src", "data-lazy-src", "data-original", "src")
-            .firstNotNullOfOrNull { key ->
-                img.attr(key).trim().takeIf { it.isNotBlank() && !it.startsWith("data:image", true) }
+        // A card may contain a language badge/flag before the real poster.
+        val preferred = listOf(
+            "div#categorytitle img", "div.category_image img", "div.cat-img-main img",
+            ".series-poster img", ".afis img", ".poster img", ".cover img",
+            "img.poster", "img.series-poster"
+        ).flatMap { select(it) }
+        val candidates = (preferred + select("img")).distinct()
+        for (img in candidates) {
+            val alt = img.attr("alt").ifBlank { img.attr("title") }.lowercase()
+            val attributes = listOf(
+                "data-poster", "data-original", "data-lazy-src", "data-src",
+                "data-lazyload", "data-lazy", "data-original-src", "data-srcset",
+                "srcset", "src"
+            )
+            val values = attributes.mapNotNull { key ->
+                val raw = img.attr(key).trim()
+                if (raw.isBlank() || raw.startsWith("data:image", true)) null
+                else if (key.endsWith("srcset")) raw.split(",").map { it.trim().substringBefore(" ") }
+                    .firstOrNull { it.isNotBlank() }
+                else raw
+            }
+            val poster = values.firstOrNull { value ->
+                val lower = value.lowercase()
+                !listOf("placeholder", "no-image", "noimage", "default-poster", "transparent", "blank.gif", "loading.svg")
+                    .any(lower::contains) &&
+                    !listOf("turkce dublaj", "türkçe dublaj", "altyazılı", "altyazili", "english subtitle")
+                        .any(alt::contains)
             }?.let { fixUrlNull(it) }
+            if (poster != null && !poster.startsWith("data:", true)) return poster
+        }
+        return null
     }
-
     private fun isSeriesPath(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val expected = runCatching { URI(mainUrl).host.orEmpty().removePrefix("www.") }.getOrDefault("")
@@ -184,9 +209,11 @@ class DiziYou : MainAPI() {
             ?: page.selectFirst("meta[property=og:title]")?.attr("content")?.trim()?.takeIf(String::isNotBlank)
             ?: slugTitle(resolvedUrl) ?: return null
         val title = cleanSeriesTitle(rawTitle) ?: rawTitle
-        val poster = page.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")?.let { img ->
-            listOf("data-src", "data-lazy-src", "src").firstNotNullOfOrNull { img.attr(it).takeIf(String::isNotBlank) }?.let { fixUrlNull(it) }
-        } ?: page.selectFirst("meta[property=og:image]")?.attr("content")?.takeIf(String::isNotBlank)
+        val poster = page.selectFirst("meta[property=og:image]")?.attr("content")
+            ?.takeIf(String::isNotBlank)?.let { fixUrlNull(it) }
+            ?: page.selectFirst("div.category_image, div.cat-img-main, .series-poster, .afis, .poster")?.posterUrl()
+            ?: page.selectFirst("div.category_image img, div.cat-img-main img, .series-poster img")?.parent()?.posterUrl()
+            ?: page.selectFirst("main, article, body")?.posterUrl()
         val plot = page.selectFirst("div.diziyou_desc")?.text()?.trim()?.takeIf(String::isNotBlank)
             ?: page.selectFirst("meta[name=description], meta[property=og:description]")?.attr("content")?.takeIf(String::isNotBlank)
         val year = Regex("""\b(19|20)\d{2}\b""").find(page.text())?.value?.toIntOrNull()
@@ -221,11 +248,7 @@ class DiziYou : MainAPI() {
             val textNums = parseEpisodeNumbers(visible)
             val seasonNo = nums.first ?: textNums.first ?: 1
             val episodeNo = nums.second ?: textNums.second ?: return@mapNotNull null
-            val episodeName = visible
-                .replace(Regex("""(?i)^\s*\d+\.?\s*sezon\s*"""), "")
-                .replace(Regex("""(?i)^\s*\d+\.?\s*b[öo]l[üu]m\s*"""), "")
-                .takeIf { it.isNotBlank() && !isGenericEpisodeLabel(it) }
-                ?: "$seasonNo. Sezon $episodeNo. Bölüm"
+            val episodeName = cleanDiziYouEpisodeName(visible, seasonNo, episodeNo)
             newEpisode(href) {
                 name = episodeName
                 season = seasonNo
@@ -298,22 +321,19 @@ class DiziYou : MainAPI() {
         if (playerUrl != null) {
             runCatching {
                 val playerDoc = app.get(playerUrl, referer = data).document
-                parseDiziYouSourceUrls(playerDoc).forEach { source ->
+                // Prefer the one source actually selected by the player. Treating every URL
+                // found in scripts/iframes as independent media creates duplicate dead links.
+                parseDiziYouMediaUrls(playerDoc).firstOrNull()?.let { source ->
                     val mediaType = directMediaType(source)
                     if (mediaType != null) {
-                        callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
+                        val quality = explicitQualityFromUrl(source)
+                        val qualityLabel = if (quality > 0) " • ${quality}p" else ""
+                        callback(newExtractorLink(name, "DiziYou • Native$qualityLabel", source, mediaType) {
                             referer = playerUrl
-                            quality = Qualities.Unknown.value
+                            this.quality = if (quality > 0) quality else Qualities.Unknown.value
                         })
                         emitted = true
                         foundNativeMedia = true
-                    } else {
-                        runCatching {
-                            loadExtractor(source, playerUrl, subtitleCallback, { link ->
-                                callback(link)
-                                emitted = true
-                            })
-                        }
                     }
                 }
                 playerDoc.select("track[src], track[data-src]").forEach { track ->
@@ -350,21 +370,25 @@ class DiziYou : MainAPI() {
         }
 
         // Some episode pages expose a usable embed directly instead of the named player.
-        parseDiziYouSourceUrls(episodeDoc).forEach { source ->
-            if (source == playerUrl) return@forEach
-            runCatching {
-                val mediaType = directMediaType(source)
-                if (mediaType != null) {
-                    callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
-                        referer = data
-                        quality = Qualities.Unknown.value
-                    })
-                    emitted = true
-                } else {
-                    loadExtractor(source, data, subtitleCallback, { link ->
-                        callback(link)
+        // If a named player exists, do not parse its iframe a second time from the episode page.
+        if (playerUrl == null) {
+            parseDiziYouSourceUrls(episodeDoc).firstOrNull()?.let { source ->
+                runCatching {
+                    val mediaType = directMediaType(source)
+                    if (mediaType != null) {
+                        val quality = explicitQualityFromUrl(source)
+                        val qualityLabel = if (quality > 0) " • ${quality}p" else ""
+                        callback(newExtractorLink(name, "DiziYou • Native$qualityLabel", source, mediaType) {
+                            referer = data
+                            this.quality = if (quality > 0) quality else Qualities.Unknown.value
+                        })
                         emitted = true
-                    })
+                    } else {
+                        loadExtractor(source, data, subtitleCallback, { link ->
+                            callback(link)
+                            emitted = true
+                        })
+                    }
                 }
             }
         }
@@ -387,6 +411,49 @@ internal fun seriesUrlFromEpisode(
     return mainUrl.trimEnd('/') + seriesPath + "/"
 }
 
+private fun explicitQualityFromUrl(url: String): Int {
+    return Regex("""(?i)(2160|1440|1080|720|576|540|480|360)p?""")
+        .find(url)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: Qualities.Unknown.value
+}
+
+private fun directMediaUrl(url: String): Boolean {
+    val path = runCatching { URI(url).path.orEmpty() }.getOrDefault(url).lowercase()
+    return path.endsWith(".m3u8") || path.endsWith(".mpd") ||
+        path.endsWith(".mp4") || path.endsWith(".m4v")
+}
+
+/**
+ * Prefer the specifically selected #diziyouSource, then actual HTML5 source elements,
+ * and only then a single URL discovered in player JavaScript. Never emit all guessed URLs.
+ */
+internal fun parseDiziYouMediaUrls(doc: Document): List<String> {
+    fun mediaUrl(el: Element): String? {
+        val key = if (el.attr("data-src").isNotBlank()) "data-src" else "src"
+        val raw = el.attr(key).trim()
+        if (raw.isBlank() || raw.startsWith("data:", true)) return null
+        val absolute = el.absUrl(key)
+        val value = absolute.takeIf { it.isNotBlank() }
+            ?: if (raw.startsWith("http", true)) raw else "https://www.diziyou.one/" + raw.trimStart('/')
+        return value.takeIf(::directMediaUrl)
+    }
+
+    val chosen = doc.select("#diziyouSource[src], #diziyouSource[data-src]")
+        .mapNotNull(::mediaUrl).distinct()
+    if (chosen.isNotEmpty()) return chosen.take(1)
+
+    val html5 = doc.select("video source[src], video source[data-src], video[src], video[data-src]")
+        .mapNotNull(::mediaUrl).distinct()
+    if (html5.isNotEmpty()) return html5.take(1)
+
+    val fromScript = Regex("""(?i)(https?:(?:\\?/){2}[^"'\s<>]+?\.(?:m3u8|mp4|m4v|mpd)(?:\?[^"'\s<>]*)?)""")
+        .findAll(doc.html())
+        .map { it.value.replace("\\/", "/").replace("&amp;", "&") }
+        .filter(::directMediaUrl)
+        .distinct()
+        .toList()
+    return fromScript.take(1)
+}
+
 internal fun parseDiziYouSourceUrls(doc: Document): List<String> = buildList {
     doc.select("video source[src], video source[data-src], source[src], source[data-src], video[src], video[data-src], #diziyouSource[src], #diziyouSource[data-src], iframe[src], iframe[data-src]").forEach { el ->
         val key = if (el.attr("data-src").isNotBlank()) "data-src" else "src"
@@ -396,12 +463,31 @@ internal fun parseDiziYouSourceUrls(doc: Document): List<String> = buildList {
             add(absolute.takeIf { it.isNotBlank() } ?: if (raw.startsWith("http")) raw else "https://www.diziyou.one/" + raw.trimStart('/'))
         }
     }
-    // Player configs may store URLs as ordinary https://... or escaped https:\/\/...
-    Regex("""(?i)(https?:(?:\\?/){2}[^"'\s<>]+?\.(?:m3u8|mp4|mpd)(?:\?[^"'\s<>]*)?)""")
+    Regex("""(?i)(https?:(?:\\?/){2}[^"'\s<>]+?\.(?:m3u8|mp4|m4v|mpd)(?:\?[^"'\s<>]*)?)""")
         .findAll(doc.html()).forEach { match ->
             add(match.value.replace("\\/", "/").replace("&amp;", "&"))
         }
 }.distinct()
+
+internal fun cleanDiziYouEpisodeName(label: String, season: Int, episode: Int): String {
+    var candidate = label.trim().replace(Regex("""\s+"""), " ")
+    // Older pages often show only a filename, e.g. "(eps1.0_hellofriend.mov)".
+    candidate = candidate
+        .replace(Regex("""(?i)\(?\s*eps\d+(?:[._-]\d+)?[_-][a-z0-9_-]+\.(?:mov|mpeg|mp4|mkv|wmv|asf|flv|avi|qt|m4v)\s*\)?"""), " ")
+        .replace(Regex("""(?i)\(?\s*[a-z0-9_-]+\.(?:mov|mpeg|mp4|mkv|wmv|asf|flv|avi|qt|m4v)\s*\)?"""), " ")
+        .replace(Regex("""(?i)^\s*\d+\.?\s*sezon\s*"""), "")
+        .replace(Regex("""(?i)^\s*\d+\.?\s*b[öo]l[üu]m\s*"""), "")
+        .replace(Regex("""^\s*\d+\s*[.)-]\s*"""), "")
+        .replace(Regex("""[()\[\]]"""), " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim(' ', '-', '|', ':', '.', '•')
+    val generic = "$season. Sezon $episode. Bölüm"
+    if (candidate.isBlank() || candidate.equals("oynat", true) ||
+        candidate.contains("son eklenen bölümler", true) ||
+        candidate.contains("önceki bölüm", true) || candidate.contains("onceki bolum", true)
+    ) return generic
+    return "$generic — $candidate"
+}
 
 internal fun parseEpisodeNumbers(label: String): Pair<Int?, Int?> {
     val season = Regex("(?i)(\\d+)\\.\\s*sezon").find(label)?.groupValues?.getOrNull(1)?.toIntOrNull()
