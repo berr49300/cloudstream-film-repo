@@ -6,6 +6,7 @@ import org.jsoup.nodes.Element
 import org.jsoup.nodes.Document
 import java.net.URI
 import java.net.URLEncoder
+import java.text.Normalizer
 
 class DiziYou : MainAPI() {
     override var mainUrl = "https://www.diziyou.one"
@@ -67,7 +68,7 @@ class DiziYou : MainAPI() {
             }
             value
         }
-        return (responsive.filterNotNull().filter(::isLikelyPosterUrl) + images)
+        return (images + responsive.filterNotNull().filter(::isLikelyPosterUrl))
             .firstOrNull { !it.startsWith("data:", true) }
     }
 
@@ -163,11 +164,15 @@ class DiziYou : MainAPI() {
 
         // Parse each card/link, not the #list-series wrapper as one item.
         val selectors = listOf(
-            "div#list-series-main", "div#list-series-main a[href]", "div.single-item", "div.single-item a[href]",
-            "div#list-series a[href]", ".list-series a[href]", ".alphabetical-category-wrapper a[href]",
-            "div.incontent a[href]", "div.cat-item", "div.cat-item a[href]", "div.series-item",
-            "div.series-item a[href]", "div.post", "div.post a[href]", "div.search-result",
-            "div.search-result a[href]", ".post-title a[href]", ".entry-title a[href]", "article a[href]"
+            // Only actual cards or their individual links. Never parse #list-series-main itself:
+            // it is a whole list wrapper, and its first image/title can be assigned to unrelated items.
+            "div.single-item", "div.single-item a[href]",
+            "div#list-series-main a[href]", "div#list-series a[href]", ".list-series a[href]",
+            ".alphabetical-category-wrapper a[href]", "div.incontent .cat-item", "div.incontent a[href]",
+            "div.cat-item", "div.cat-item a[href]", "div.series-item", "div.series-item a[href]",
+            "div.post", "div.post a[href]", "div.search-result", "div.search-result a[href]",
+            ".post-title a[href]", ".entry-title a[href]", "article a[href]"
+
         )
         selectors.forEach { selector -> doc.select(selector).forEach { it.toSeriesResult()?.let(results::add) } }
         return results.distinctBy { it.url }
@@ -181,7 +186,7 @@ class DiziYou : MainAPI() {
         return if (parts.size == 2) "$paged?${parts[1]}" else paged
     }
 
-    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 8): List<SearchResponse> {
+    private suspend fun repairMissingPosters(results: List<SearchResponse>, lookupLimit: Int = 24): List<SearchResponse> {
         var lookups = 0
         return results.map { result ->
             if (!result.posterUrl.isNullOrBlank() || lookups >= lookupLimit) return@map result
@@ -210,14 +215,23 @@ class DiziYou : MainAPI() {
         return newHomePageResponse(request.name, results, results.isNotEmpty())
     }
 
+    private fun matchesSearchQuery(result: SearchResponse, query: String): Boolean =
+        matchesDiziYouSearchQuery(result.name, result.url, query)
+
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val urls = listOf("$mainUrl/?s=$encoded", "$mainUrl/page/2/?s=$encoded")
-        val results = urls.flatMap { url ->
-            runCatching { cards(app.get(url, referer = "$mainUrl/").document) }
-                .getOrDefault(emptyList())
-        }.distinctBy { it.url }.take(60)
-        return repairMissingPosters(results)
+        val firstPage = runCatching {
+            cards(app.get("$mainUrl/?s=$encoded", referer = "$mainUrl/").document)
+        }.getOrDefault(emptyList())
+        var relevant = firstPage.filter { matchesSearchQuery(it, query) }.distinctBy { it.url }
+
+        // Only request page 2 if page 1 gave no relevant result, and still apply the same filter.
+        if (relevant.isEmpty()) {
+            relevant = runCatching {
+                cards(app.get("$mainUrl/page/2/?s=$encoded", referer = "$mainUrl/").document)
+            }.getOrDefault(emptyList()).filter { matchesSearchQuery(it, query) }.distinctBy { it.url }
+        }
+        return repairMissingPosters(relevant.take(30), lookupLimit = 24)
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query)
@@ -317,10 +331,8 @@ class DiziYou : MainAPI() {
     }
 
     private fun hasOption(doc: Document, vararg ids: String): Boolean =
-        ids.any { id ->
-            doc.selectFirst("#$id, [id=$id], [data-id=$id], [class~=$id]") != null ||
-                doc.html().contains(id, ignoreCase = true)
-        }
+        hasDiziYouOption(doc, *ids)
+
 
     private fun playerFrameUrl(doc: Document): String? {
         val frame = doc.selectFirst("iframe#diziyouPlayer, iframe[src*=player], iframe[data-src*=player]")
@@ -354,73 +366,71 @@ class DiziYou : MainAPI() {
         } ?: playerId(episodeDoc)
 
         var emitted = false
-        var foundNativeMedia = false
+        val trSub = hasOption(episodeDoc, "turkceAltyazili", "turkceAltyaziliOption")
+        val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
+        val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
 
-        // Prefer URLs actually exposed by the player page; do not rely on a guessed URL
-        // when the live player provides a concrete source.
+        // Give ExoPlayer the HLS MASTER playlist, not a single child rendition such as 720p.m3u8.
+        // The master playlist advertises its own 1080p/720p/480p variants and any alternate
+        // audio groups, so the player's quality/audio-track controls can display them natively.
+        if (!id.isNullOrBlank()) {
+            val originalMaster = diziYouMasterPlaylistUrl(id, dubbed = false)
+            val dubMaster = diziYouMasterPlaylistUrl(id, dubbed = true)
+
+            // The original-language manifest is one source regardless of how many subtitle
+            // options the page declares. If this episode is dub-only, do not expose a dead original.
+            if (!trDub || trSub || enSub) {
+                callback(newExtractorLink(name, "DiziYou • Orijinal Dil", originalMaster, ExtractorLinkType.M3U8) {
+                    referer = "$mainUrl/"
+                    quality = Qualities.Unknown.value
+                })
+                emitted = true
+            }
+            if (trDub) {
+                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", dubMaster, ExtractorLinkType.M3U8) {
+                    referer = "$mainUrl/"
+                    quality = Qualities.Unknown.value
+                })
+                emitted = true
+            }
+
+            if (trSub) subtitleCallback(SubtitleFile("Türkçe Altyazı", "https://storage.diziyou.one/subtitles/$id/tr.vtt"))
+            if (enSub) subtitleCallback(SubtitleFile("İngilizce Altyazı", "https://storage.diziyou.one/subtitles/$id/en.vtt"))
+        }
+
+        // Keep subtitles declared by the actual player page and support alternate embeds only
+        // when this episode did not expose the known DiziYou storage item ID.
         if (playerUrl != null) {
             runCatching {
                 val playerDoc = app.get(playerUrl, referer = data).document
-                // Prefer the one source actually selected by the player. Treating every URL
-                // found in scripts/iframes as independent media creates duplicate dead links.
-                parseDiziYouMediaUrls(playerDoc).firstOrNull()?.let { source ->
-                    val mediaType = directMediaType(source)
-                    if (mediaType != null) {
-                        val quality = explicitQualityFromUrl(source)
-                        val qualityLabel = if (quality > 0) " • ${quality}p" else ""
-                        callback(newExtractorLink(name, "DiziYou • Native$qualityLabel", source, mediaType) {
-                            referer = playerUrl
-                            this.quality = if (quality > 0) quality else Qualities.Unknown.value
-                        })
-                        emitted = true
-                        foundNativeMedia = true
-                    }
-                }
                 playerDoc.select("track[src], track[data-src]").forEach { track ->
                     val src = track.attr("src").ifBlank { track.attr("data-src") }
                     val lang = track.attr("srclang").ifBlank { track.attr("label") }.ifBlank { "Altyazı" }
                     if (src.isNotBlank()) subtitleCallback(SubtitleFile(lang, fixUrl(src)))
                 }
+                if (id.isNullOrBlank()) {
+                    parseDiziYouMediaUrls(playerDoc).firstOrNull()?.let { source ->
+                        val mediaType = directMediaType(source)
+                        if (mediaType != null) {
+                            callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
+                                referer = playerUrl
+                                quality = Qualities.Unknown.value
+                            })
+                            emitted = true
+                        }
+                    }
+                }
             }
         }
 
-        // Compatibility fallback for the known DiziYou storage layout. Only advertise
-        // language variants when the episode page actually declares those options.
-        if (!id.isNullOrBlank()) {
-            val trSub = hasOption(episodeDoc, "turkceAltyazili", "turkceAltyaziliOption")
-            val enSub = hasOption(episodeDoc, "ingilizceAltyazili", "ingilizceAltyaziliOption")
-            val trDub = hasOption(episodeDoc, "turkceDublaj", "turkceDublajOption")
-            val storage = "https://storage.diziyou.one"
-            if (!foundNativeMedia) {
-                callback(newExtractorLink(name, "DiziYou • Orijinal Dil", "$storage/episodes/$id/play.m3u8", ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
-            }
-            if (trSub) subtitleCallback(SubtitleFile("Türkçe", "$storage/subtitles/$id/tr.vtt"))
-            if (enSub) subtitleCallback(SubtitleFile("İngilizce", "$storage/subtitles/$id/en.vtt"))
-            if (trDub) {
-                callback(newExtractorLink(name, "DiziYou • Türkçe Dublaj", "$storage/episodes/${id}_tr/play.m3u8", ExtractorLinkType.M3U8) {
-                    referer = "$mainUrl/"
-                    quality = Qualities.Unknown.value
-                })
-                emitted = true
-            }
-        }
-
-        // Some episode pages expose a usable embed directly instead of the named player.
-        // If a named player exists, do not parse its iframe a second time from the episode page.
-        if (playerUrl == null) {
+        if (id.isNullOrBlank() && playerUrl == null) {
             parseDiziYouSourceUrls(episodeDoc).firstOrNull()?.let { source ->
                 runCatching {
                     val mediaType = directMediaType(source)
                     if (mediaType != null) {
-                        val quality = explicitQualityFromUrl(source)
-                        val qualityLabel = if (quality > 0) " • ${quality}p" else ""
-                        callback(newExtractorLink(name, "DiziYou • Native$qualityLabel", source, mediaType) {
+                        callback(newExtractorLink(name, "DiziYou • Native", source, mediaType) {
                             referer = data
-                            this.quality = if (quality > 0) quality else Qualities.Unknown.value
+                            quality = Qualities.Unknown.value
                         })
                         emitted = true
                     } else {
@@ -436,6 +446,36 @@ class DiziYou : MainAPI() {
     }
 }
 
+
+internal fun matchesDiziYouSearchQuery(title: String, url: String, query: String): Boolean {
+    fun normalize(value: String): String {
+        val normalized = Normalizer.normalize(
+            value.lowercase().replace('ı', 'i'),
+            Normalizer.Form.NFD
+        ).replace(Regex("""\p{M}+"""), "")
+        return normalized.replace(Regex("""[^a-z0-9]+"""), " ").trim()
+    }
+
+    val wanted = normalize(query).split(Regex("""\s+""")).filter { it.length >= 2 }.distinct()
+    if (wanted.isEmpty()) return false
+    val slug = normalize(runCatching {
+        URI(url).path.orEmpty().trimEnd('/').substringAfterLast('/')
+    }.getOrDefault(""))
+    val searchable = (normalize(title) + " " + slug)
+        .split(Regex("""\s+""")).filter(String::isNotBlank).toSet()
+    return wanted.all { it in searchable }
+}
+
+internal fun hasDiziYouOption(doc: Document, vararg ids: String): Boolean =
+    ids.any { id ->
+        doc.selectFirst("span.diziyouOption#$id, .diziyouOption#$id, [data-id=$id]") != null
+    }
+
+internal fun diziYouMasterPlaylistUrl(itemId: String, dubbed: Boolean = false): String {
+    require(Regex("""^[a-zA-Z0-9_-]+$""").matches(itemId)) { "Invalid DiziYou player ID" }
+    val variant = if (dubbed) "${itemId}_tr" else itemId
+    return "https://storage.diziyou.one/episodes/${variant}/play.m3u8"
+}
 
 internal fun seriesUrlFromEpisode(
     episodeUrl: String,
