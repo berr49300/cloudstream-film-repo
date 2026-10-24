@@ -160,3 +160,19 @@ If the current WebteIzle alternative list says Pixel and its response provides n
 ### Native CloudStream extractor compatibility check
 
 The framework source tree currently includes native extractor implementations for VidMoly (`vidmoly.net`, `.to`, `.me`, `.biz`), Filemoon (`.to`, `.in`, `.sx`), OK.ru and PixelDrain (`pixeldrain.com`, `pixeldrain.dev`). This is a source-code compatibility check, not a live-site or playback check. Host aliases in the label classifier were narrowed to match those known extractor variants; other domains remain unverified until an actual current embed URL and registered extractor are confirmed.
+
+
+### Resolver 40 — observed hex-encoded media URL
+
+A separate `40 • KnownHexEncodedPayloadResolver` now handles a specific encoding present in public WebteIzle provider references: strings composed of byte escapes such as `\\x68\\x74...` or the equivalent contiguous hex bytes. It scans only observed `file/src/url` value positions and PlayerJS-style `v=` parameters, then accepts the result only when it decodes to an absolute HTTP(S) URL whose path has a known media extension (HLS/DASH/MP4/etc.). It does not create a hostname from an ID, run JavaScript, or attempt general obfuscation decoding. YouTube URLs are filtered at the common candidate ingress and after extractor output.
+
+A further implementation correction: AJAX embed-fragment relative paths are now resolved against `/ajax/dataEmbed.asp` on WebteIzle, rather than incorrectly resolving them against the original film detail URL.
+
+### Current diagnostic inventory
+
+- IDs 01–37: original broad diagnostic bank, each method remains separately observable.
+- ID 38: known VidMoly/Filemoon/OK.ru function-call templates from public references (hypothesis pending live response).
+- ID 39: Pixel label/function signal only; no host template fabricated.
+- ID 40: byte-hex encoded direct media URL decoding, limited to observed player config/query positions and recognized media extensions.
+
+This additional static extraction is covered by sanitized unit fixtures. Live player responses, generated source HTTP responses, and actual playback are still NOT TESTED.
