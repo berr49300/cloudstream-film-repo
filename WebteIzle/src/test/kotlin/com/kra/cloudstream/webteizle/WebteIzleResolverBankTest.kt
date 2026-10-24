@@ -99,4 +99,67 @@ class WebteIzleResolverBankTest {
         assertTrue(signed.candidates.any { it.url.contains("token=do-not-log") })
         assertTrue(!signed.reason.contains("do-not-log"))
     }
+
+    @Test
+    fun youtubeTrailersAndBehindTheScenesLinksAreNeverCandidates() {
+        val html = """
+            <html><head>
+              <script>
+                const trailer = {"file":"https://www.youtube.com/watch?v=trailer123"};
+                const shortLink = "https://youtu.be/behindthescenes";
+              </script>
+            </head><body>
+              <iframe src="https://www.youtube-nocookie.com/embed/clip123"></iframe>
+              <video src="https://r1---sn.googlevideo.com/videoplayback?id=example"></video>
+            </body></html>
+        """.trimIndent()
+
+        val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/hakkinda/sample")
+
+        assertTrue(attempts.all { attempt ->
+            attempt.candidates.none { WebteIzleResolverBank.isYouTubeUrl(it.url) }
+        })
+        assertTrue(attempts.first { it.resolverId == 7 }.candidates.isEmpty())
+        assertTrue(attempts.first { it.resolverId == 15 }.candidates.isEmpty())
+        assertTrue(attempts.first { it.resolverId == 17 }.candidates.isEmpty())
+        assertTrue(attempts.first { it.resolverId == 36 }.candidates.isEmpty())
+    }
+
+    @Test
+    fun knownPlayerFamiliesAreRecognizedEvenWithoutMediaFileExtensions() {
+        val html = """
+            <html><body>
+              <div data-url="https://vidmoly.to/v/episode-123"></div>
+              <div data-file="https://filemoon.sx/e/episode-123"></div>
+              <iframe src="https://pixeldrain.com/u/episode123"></iframe>
+              <iframe src="https://ok.ru/videoembed/123456"></iframe>
+            </body></html>
+        """.trimIndent()
+
+        val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/hakkinda/sample")
+        val urls = attempts.flatMap { it.candidates }.map { it.url }
+
+        assertTrue(urls.contains("https://vidmoly.to/v/episode-123"))
+        assertTrue(urls.contains("https://filemoon.sx/e/episode-123"))
+        assertTrue(urls.contains("https://pixeldrain.com/u/episode123"))
+        assertTrue(urls.contains("https://ok.ru/videoembed/123456"))
+        assertEquals("VidMoly", WebteIzleResolverBank.playerFamily("https://www.vidmoly.to/v/episode-123"))
+        assertEquals("Filemoon", WebteIzleResolverBank.playerFamily("https://filemoon.sx/e/episode-123"))
+        assertEquals("PixelDrain", WebteIzleResolverBank.playerFamily("https://pixeldrain.com/u/episode123"))
+        assertEquals("OK.ru", WebteIzleResolverBank.playerFamily("https://ok.ru/videoembed/123456"))
+        assertEquals(null, WebteIzleResolverBank.playerFamily("https://filemoon.sx.example.org/e/episode-123"))
+    }
+
+    @Test
+    fun cloudflareChallengeIsDiagnosedWithoutTreatingItAsMoviePage() {
+        val challenge = """
+            <html><head><title>Just a moment...</title></head>
+            <body><div id="challenge-platform">Checking your browser</div></body></html>
+        """.trimIndent()
+        val normal = """<html><body><h1>Example film</h1><video src="/media/movie.m3u8"></video></body></html>"""
+
+        assertTrue(WebteIzleResolverBank.isAccessChallenge(challenge))
+        assertTrue(!WebteIzleResolverBank.isAccessChallenge(normal))
+    }
+
 }
