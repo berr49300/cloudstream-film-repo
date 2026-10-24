@@ -145,7 +145,11 @@ class WebteIzle : MainAPI() {
                                 fetchedIframePages.size < maxNestedPlayerPages
                             ) {
                                 fetchedIframePages += candidate.url
-                                val childHtml = runCatching { app.get(candidate.url, referer = data).text }.getOrNull()
+                                val childHtml = try {
+                                    app.get(candidate.url, referer = data).text
+                                } catch (_: Exception) {
+                                    null
+                                }
                                 if (childHtml.isNullOrBlank()) {
                                     android.util.Log.d(
                                         "WebteIzleResolver",
@@ -196,7 +200,11 @@ class WebteIzle : MainAPI() {
                                 fetchedManifestUrls.size < maxManifests
                             ) {
                                 fetchedManifestUrls += candidate.url
-                                val manifest = runCatching { app.get(candidate.url, referer = data).text }.getOrNull()
+                                val manifest = try {
+                                    app.get(candidate.url, referer = data).text
+                                } catch (_: Exception) {
+                                    null
+                                }
                                 val validManifest = when (extension) {
                                     "m3u8" -> manifest?.contains("#EXTM3U") == true
                                     "mpd" -> manifest?.contains("<MPD", ignoreCase = true) == true
@@ -226,10 +234,12 @@ class WebteIzle : MainAPI() {
                                 headCheckedMediaUrls.size < maxMediaHeadChecks
                             ) {
                                 headCheckedMediaUrls += candidate.url
-                                val contentType = runCatching {
+                                val contentType = try {
                                     val headers = app.head(candidate.url, referer = data).headers
                                     headers["Content-Type"] ?: headers["content-type"]
-                                }.getOrNull()
+                                } catch (_: Exception) {
+                                    null
+                                }
                                 val responseStatus = if (contentType.isNullOrBlank()) {
                                     "NOT TESTED — HEAD failed or Content-Type unavailable"
                                 } else {
