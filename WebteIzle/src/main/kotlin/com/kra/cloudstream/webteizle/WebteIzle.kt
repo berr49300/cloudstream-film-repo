@@ -387,26 +387,27 @@ class WebteIzle : MainAPI() {
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
                     data = mapOf("filmid" to filmId, "dil" to langId, "s" to "", "b" to "", "bot" to "0")
                 )
-                val parsed = response.parsedSafe<AlternativesResponse>()
-                if (parsed == null) {
-                    val body = runCatching { response.text }.getOrNull().orEmpty()
-                    if (reportAccessChallenge("dataAlternatif3.asp", body)) {
-                        emptyList()
-                    } else {
+                // Read the body once so a challenge HTML page can be identified before JSON parsing.
+                val body = response.text
+                if (reportAccessChallenge("dataAlternatif3.asp", body)) {
+                    emptyList()
+                } else {
+                    val parsed = AppUtils.tryParseJson<AlternativesResponse>(body)
+                    if (parsed == null) {
                         android.util.Log.w(
                             "WebteIzleResolver",
                             "19 ObservedAjaxResolver: NOT TESTED — alternatives response was not parseable; current payload shape/status is unknown."
                         )
                         emptyList()
+                    } else {
+                        if (parsed.data.isEmpty()) {
+                            android.util.Log.d(
+                                "WebteIzleResolver",
+                                "19 ObservedAjaxResolver: NOT TESTED — parsed response contained no alternatives; an empty list does not prove the film has no source."
+                            )
+                        }
+                        parsed.data
                     }
-                } else {
-                    if (parsed.data.isEmpty()) {
-                        android.util.Log.d(
-                            "WebteIzleResolver",
-                            "19 ObservedAjaxResolver: NOT TESTED — parsed response contained no alternatives; an empty list does not prove the film has no source."
-                        )
-                    }
-                    parsed.data
                 }
             } catch (e: Exception) {
                 android.util.Log.w(
