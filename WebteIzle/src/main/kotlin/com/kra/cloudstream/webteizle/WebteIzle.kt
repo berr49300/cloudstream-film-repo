@@ -152,6 +152,10 @@ class WebteIzle : MainAPI() {
         // URL. Keep one entry per resolver ID / candidate URL / kind so IDs remain testable
         // without repeating one source several times under the same method.
         val seenCandidateKeys = linkedSetOf<String>()
+
+        fun candidateReferer(candidate: WebteIzleResolverCandidate): String =
+            candidate.sourcePageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: data
+
         val maxNestedPlayerPages = 8
         val maxManifests = 8
         val maxMediaHeadChecks = 8
@@ -209,6 +213,54 @@ class WebteIzle : MainAPI() {
                                     "WebteIzleResolver",
                                     "$id ${attempt.resolverName}: NO_MEDIA_LINK — extractor did not return a media link for $playerLabel."
                                 )
+                                // VidMoly exposes a plain JWPlayer file field in many embeds.
+                                // If the native extractor returned no link, try a separate non-JS
+                                // fallback. If the normal request gets a challenge, report BLOCKED.
+                                if (family == "VidMoly") {
+                                    val playerHtml = try {
+                                        app.get(
+                                            candidate.url,
+                                            headers = mapOf("Sec-Fetch-Dest" to "iframe"),
+                                            referer = "$mainUrl/"
+                                        ).text
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                    when {
+                                        playerHtml.isNullOrBlank() -> android.util.Log.d(
+                                            "WebteIzleResolver",
+                                            "41 VidMolyMasterPlaylistResolver: NOT TESTED — embed response unavailable."
+                                        )
+                                        WebteIzleResolverBank.isAccessChallenge(playerHtml) -> android.util.Log.w(
+                                            "WebteIzleResolver",
+                                            "41 VidMolyMasterPlaylistResolver: BLOCKED — VidMoly returned a Cloudflare/CAPTCHA challenge; no bypass attempted."
+                                        )
+                                        else -> {
+                                            val master = WebteIzleResolverBank.extractVidMolyMasterPlaylist(playerHtml)
+                                            if (master == null) {
+                                                android.util.Log.d(
+                                                    "WebteIzleResolver",
+                                                    "41 VidMolyMasterPlaylistResolver: NOT FOUND — no absolute .m3u8 file field in the embed response."
+                                                )
+                                            } else {
+                                                val playerReferer = runCatching {
+                                                    val uri = java.net.URI(candidate.url)
+                                                    "${uri.scheme}://${uri.authority}/"
+                                                }.getOrDefault("$mainUrl/")
+                                                callback(newExtractorLink(
+                                                    source = "41 • VidMolyMasterPlaylistResolver",
+                                                    name = "41 • VidMolyMasterPlaylistResolver • $langName • VidMoly • HLS • Aday • $qualityLabel",
+                                                    url = master,
+                                                    type = ExtractorLinkType.M3U8
+                                                ) {
+                                                    referer = playerReferer
+                                                    quality = fallbackQuality?.takeIf { it > 0 } ?: getQualityFromName(master)
+                                                })
+                                                emitted = true
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             for (link in extractedLinks) {
                                 if (WebteIzleResolverBank.isYouTubeUrl(link.url)) {
@@ -240,7 +292,7 @@ class WebteIzle : MainAPI() {
                             ) {
                                 fetchedIframePages += candidate.url
                                 val childHtml = try {
-                                    app.get(candidate.url, referer = data).text
+                                    app.get(candidate.url, referer = candidateReferer(candidate)).text
                                 } catch (_: Exception) {
                                     null
                                 }
@@ -260,7 +312,8 @@ class WebteIzle : MainAPI() {
                                     val nestedAttempts = WebteIzleResolverBank.inspect(
                                         html = childHtml,
                                         baseUrl = candidate.url,
-                                        nestedIframeUrls = nestedUrls
+                                        nestedIframeUrls = nestedUrls,
+                                        refererUrl = candidate.url
                                     )
                                     emitAttempts(
                                         attempts = nestedAttempts,
@@ -287,7 +340,7 @@ class WebteIzle : MainAPI() {
                                 url = candidate.url,
                                 type = mediaType
                             ) {
-                                referer = data
+                                referer = candidateReferer(candidate)
                                 this.quality = quality
                             })
                             emitted = true
@@ -318,7 +371,8 @@ class WebteIzle : MainAPI() {
                                 if (!manifest.isNullOrBlank() && validManifest) {
                                     val manifestAttempts = WebteIzleResolverBank.inspect(
                                         html = manifest,
-                                        baseUrl = candidate.url
+                                        baseUrl = candidate.url,
+                                        refererUrl = candidateReferer(candidate)
                                     )
                                     emitAttempts(
                                         attempts = manifestAttempts,
@@ -334,7 +388,7 @@ class WebteIzle : MainAPI() {
                             ) {
                                 headCheckedMediaUrls += candidate.url
                                 val contentType = try {
-                                    val headers = app.head(candidate.url, referer = data).headers
+                                    val headers = app.head(candidate.url, referer = candidateReferer(candidate)).headers
                                     headers["Content-Type"] ?: headers["content-type"]
                                 } catch (_: Exception) {
                                     null
@@ -438,7 +492,8 @@ class WebteIzle : MainAPI() {
                     // using the film detail URL here can mis-resolve relative iframe paths.
                     baseUrl = "$mainUrl/ajax/dataEmbed.asp",
                     observedAjaxResponse = true,
-                    hintedPlayerName = alternative.baslik
+                    hintedPlayerName = alternative.baslik,
+                    refererUrl = data
                 )
                 emitAttempts(attempts, langName, alternative.kalitesi)
             }
