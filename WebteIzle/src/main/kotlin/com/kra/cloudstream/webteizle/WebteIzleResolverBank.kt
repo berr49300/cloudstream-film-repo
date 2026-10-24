@@ -103,7 +103,6 @@ internal object WebteIzleResolverBank {
     private val knownPlayerConfigRegex = Regex(
         """(?i)\b(vidmoly|filemoon|okru)\s*\(\s*['"]([A-Za-z0-9_-]{3,256})['"]\s*,\s*['"]"""
     )
-    private val hexEscapeRegex = Regex("""(?i)\\x([0-9a-f]{2})""")
     private val repeatedHexEscapesRegex = Regex("""(?i)^(?:\\x[0-9a-f]{2}){8,}$""")
     private val plainHexPayloadRegex = Regex("""(?i)^[0-9a-f]{40,}$""")
     private val mediaExtensions = setOf("m3u8", "mpd", "mp4", "m4v", "webm", "mkv", "avi", "mov")
