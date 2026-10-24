@@ -27,7 +27,7 @@
 
 - The provider and resolver scanner are isolated under `WebteIzle/`; no existing provider or shared code was edited.
 - `WebteIzlePlugin.kt` is the `@CloudstreamPlugin` entry point. This was missing in the first draft and caused the initial CI failure.
-- `WebteIzleResolverBank.kt` contains a 37-ID diagnostic matrix. Methods that find the same URL intentionally keep separate IDs; this early stage does not deduplicate across resolver methods.
+- `WebteIzleResolverBank.kt` contains the original 37 resolver methods plus IDs 38–41 for observed player configurations, Pixel diagnostics, known hex payloads and a VidMoly HLS fallback. Each method remains separately named; exact duplicates within a method are suppressed.
 - A candidate appearing in CloudStream means only that a URL was found and routed to a media link or extractor. It does not prove HTTP validity or playback.
 - Each scan logs resolver ID, name, status and reason without logging full candidate URLs or query strings. Candidate names are also exposed to CloudStream for manual comparison.
 - Evidence-dependent methods are not falsely marked as executed: JavaScript runtime execution is explicitly not applicable to the static scanner; nested iframe fetch, redirect/header comparisons, browser network capture and user-supplied evidence still need separate testing.
