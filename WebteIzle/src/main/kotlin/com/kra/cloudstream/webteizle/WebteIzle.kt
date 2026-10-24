@@ -3,10 +3,12 @@ package com.kra.cloudstream.webteizle
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import java.net.URLEncoder
 
 /** Initial adapter; see docs/sites/WEBTEIZLE.md for unverified live-site assumptions. */
 class WebteIzle : MainAPI() {
+    private val alternativesMapper by lazy { jacksonObjectMapper() }
     override var mainUrl = "https://webteizle.info"
     override var name = "WebteIzle"
     override var lang = "tr"
@@ -540,7 +542,9 @@ class WebteIzle : MainAPI() {
                 if (reportAccessChallenge("dataAlternatif3.asp", body)) {
                     emptyList()
                 } else {
-                    val parsed = AppUtils.tryParseJson<AlternativesResponse>(body)
+                    val parsed = runCatching {
+                        alternativesMapper.readValue(body, AlternativesResponse::class.java)
+                    }.getOrNull()
                     if (parsed == null) {
                         android.util.Log.w(
                             "WebteIzleResolver",
