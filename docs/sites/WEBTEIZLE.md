@@ -134,3 +134,16 @@ Recognizing a host means the URL is routed to its extractor; it is not evidence 
 - **NOT TESTED:** HTTP response/manifest validity for emitted media, real playback, audio track and subtitle rendering.
 - If Cloudflare denies the normal request, report `BLOCKED` and use sanitized, user-authorized network evidence for diagnosis; do not try to defeat the challenge.
 - Do not label any source `MANUAL_PLAY_SUCCESS` until a real film (not a trailer) is confirmed playing on the user's device.
+
+
+### Resolver 38 — observed player-function configuration
+
+A new test method, `38 • KnownPlayerEmbedConfigResolver`, examines the current `dataEmbed.asp` response's inline script for the player-function shape `vidmoly('id', ...)`, `filemoon('id', ...)`, or `okru('id', ...)`. If observed, it emits candidates using the public-reference URL templates below; it never derives an ID from a film title or invents a source without the function pattern.
+
+- VidMoly: `https://vidmoly.net/embed-{id}.html` and `https://vidmoly.to/embed-{id}.html` are both retained because public reference implementations differ on the host.
+- Filemoon: `https://filemoon.sx/e/{id}`.
+- OK.ru: `https://odnoklassniki.ru/videoembed/{id}`.
+
+**Status: HYPOTHESIS until confirmed against a current sanitized `dataEmbed.asp` response.** The pattern and host templates were cross-checked against public CloudStream provider implementations: [burak-ayd/cloudstream-repo — WebteIzle](https://github.com/burak-ayd/cloudstream-repo/blob/master/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt) and [ByNoNe/Kekik-cloudstream — WebteIzle](https://github.com/ByNoNe/Kekik-cloudstream/blob/master/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt). Both repositories declare GPL-3.0. This implementation uses the observed protocol/template as prior-art evidence rather than copying their provider implementation; the repo remains separately implemented.
+
+The public references also use a Cloudflare challenge helper. This implementation intentionally does **not** import or invoke that helper: if the ordinary CloudStream request receives a challenge, it records `BLOCKED` and needs an authorized sanitized response capture to continue diagnosis. Resolver 38 and successful compilation are not proof that the generated embed pages resolve or play.
