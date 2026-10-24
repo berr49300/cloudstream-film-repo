@@ -79,7 +79,8 @@ internal object WebteIzleResolverBank {
         Definition(34, "SessionDependentSourceDiagnostic"),
         Definition(35, "AlternateAudioAndSubtitleResolver"),
         Definition(36, "GenericExtractorFallback"),
-        Definition(37, "ManualNetworkEvidenceResolver")
+        Definition(37, "ManualNetworkEvidenceResolver"),
+        Definition(38, "KnownPlayerEmbedConfigResolver")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -94,6 +95,11 @@ internal object WebteIzleResolverBank {
     )
     private val obfuscationRegex = Regex(
         """(?i)(?:\batob\s*\(|\bfromCharCode\b|\bdc_hello\b|\bdc_[a-z0-9_]+\s*\(|\b_0x[0-9a-f]+\b)"""
+    )
+    // Function-call shape observed in public WebteIzle provider references. The resulting
+    // embed URL templates are hypotheses until confirmed against current site payloads.
+    private val knownPlayerConfigRegex = Regex(
+        """(?i)\b(vidmoly|filemoon|okru)\s*\(\s*['"]([A-Za-z0-9_-]{3,256})['"]\s*,\s*['"]"""
     )
 
     private val youtubeHostRoots = setOf(
@@ -305,6 +311,45 @@ internal object WebteIzleResolverBank {
         // 14 — record obfuscation signatures; no guessed decoding or domain synthesis.
         if (scripts.any { obfuscationRegex.containsMatchIn(it) }) {
             signal(14, "Obfuscation marker detected; no site-specific transform is proven.")
+        }
+
+        // 38 — recover the player family and content ID from an observed legacy player function.
+        // These templates come from public CloudStream provider references, not from bypassing
+        // Cloudflare or from arbitrary ID-to-URL guessing. Both observed VidMoly host variants
+        // are retained as separate test candidates because old references disagree on the host.
+        scripts.forEach { body ->
+            knownPlayerConfigRegex.findAll(body).forEach { match ->
+                val family = match.groupValues[1].lowercase()
+                val playerId = match.groupValues[2]
+                when (family) {
+                    "vidmoly" -> {
+                        add(
+                            38,
+                            "https://vidmoly.net/embed-$playerId.html",
+                            "observed vidmoly(id, ...) call; .net template hypothesis from public provider reference",
+                            WebteIzleCandidateKind.PLAYER
+                        )
+                        add(
+                            38,
+                            "https://vidmoly.to/embed-$playerId.html",
+                            "observed vidmoly(id, ...) call; .to template hypothesis from another public provider reference",
+                            WebteIzleCandidateKind.PLAYER
+                        )
+                    }
+                    "filemoon" -> add(
+                        38,
+                        "https://filemoon.sx/e/$playerId",
+                        "observed filemoon(id, ...) call; /e/id template hypothesis from public provider reference",
+                        WebteIzleCandidateKind.PLAYER
+                    )
+                    "okru" -> add(
+                        38,
+                        "https://odnoklassniki.ru/videoembed/$playerId",
+                        "observed okru(id, ...) call; videoembed template hypothesis from public provider reference",
+                        WebteIzleCandidateKind.PLAYER
+                    )
+                }
+            }
         }
 
         // 15 — direct iframe discovery.
