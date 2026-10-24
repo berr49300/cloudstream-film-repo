@@ -126,10 +126,77 @@ class WebteIzle : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(data: String, isCasting: Boolean,
+    /**
+     * Resolve the movie-detail page to its actual playback route before asking for sources.
+     * The site's /hakkinda/<slug> page contains language/watch links, while button#wip and the
+     * alternative-player AJAX chain live on /izle/altyazi/<slug> or /izle/dublaj/<slug>.
+     */
+    private fun normalizePlaybackPageUrl(raw: String): String? {
+        val absolute = fixUrlNull(raw) ?: return null
+        val uri = runCatching { java.net.URI(absolute) }.getOrNull() ?: return null
+        val host = uri.host ?: return null
+        val expectedHost = runCatching { java.net.URI(mainUrl).host }.getOrNull() ?: return null
+        if (!host.equals(expectedHost, ignoreCase = true)) return null
+        if (!uri.path.contains("/izle/altyazi/", ignoreCase = true) &&
+            !uri.path.contains("/izle/dublaj/", ignoreCase = true)
+        ) return null
+        return absolute
+    }
+
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val rootPage = try {
+            app.get(data).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — initial page request failed (\${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return false
+        }
+        if (reportAccessChallenge("loadLinks root page", rootPage.html())) return false
+
+        val watchPages = linkedSetOf<String>()
+        if (data.contains("/izle/altyazi/", ignoreCase = true) ||
+            data.contains("/izle/dublaj/", ignoreCase = true)
+        ) {
+            normalizePlaybackPageUrl(data)?.let(watchPages::add)
+        }
+        // Links on the /hakkinda page are the source of truth; do not guess a slug or URL.
+        rootPage.select("a[href*=/izle/altyazi/], a[href*=/izle/dublaj/]").forEach { anchor ->
+            normalizePlaybackPageUrl(anchor.attr("href"))?.let(watchPages::add)
+        }
+
+        if (watchPages.isEmpty()) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "19 ObservedAjaxResolver: NOT TESTED — no /izle/altyazi/ or /izle/dublaj/ link was present on the loaded page; refusing to treat a detail page or trailer as the movie stream."
+            )
+            return false
+        }
+
+        var emitted = false
+        // A film can have one or both language routes. Bound work and avoid processing the same route twice.
+        watchPages.take(6).forEach { watchUrl ->
+            emitted = loadLinksForWatchPage(
+                data = watchUrl,
+                refererPage = data,
+                isCasting = isCasting,
+                subtitleCallback = subtitleCallback,
+                callback = callback
+            ) || emitted
+        }
+        return emitted
+    }
+
+    private suspend fun loadLinksForWatchPage(data: String, refererPage: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val page = try {
-            app.get(data).document
+            app.get(data, referer = refererPage).document
         } catch (e: Exception) {
             android.util.Log.w(
                 "WebteIzleResolver",
@@ -140,9 +207,18 @@ class WebteIzle : MainAPI() {
         val pageHtml = page.html()
         val accessChallenge = reportAccessChallenge("loadLinks", pageHtml)
         val filmId = page.selectFirst("button#wip")?.attr("data-id")?.takeIf { it.isNotBlank() }
-        val languages = buildList {
-            if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
-            if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
+        val routeLanguage = when {
+            data.contains("/izle/dublaj/", ignoreCase = true) -> "0" to "Dublaj"
+            data.contains("/izle/altyazi/", ignoreCase = true) -> "1" to "Altyazı"
+            else -> null
+        }
+        val languages = if (routeLanguage != null) {
+            listOf(routeLanguage)
+        } else {
+            buildList {
+                if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
+                if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
+            }
         }
         var emitted = false
         val fetchedIframePages = linkedSetOf<String>()
@@ -361,7 +437,7 @@ class WebteIzle : MainAPI() {
                             ) {
                                 fetchedManifestUrls += candidate.url
                                 val manifest = try {
-                                    app.get(candidate.url, referer = data).text
+                                    app.get(candidate.url, referer = candidateReferer(candidate)).text
                                 } catch (_: Exception) {
                                     null
                                 }
@@ -446,7 +522,12 @@ class WebteIzle : MainAPI() {
             val alternatives = try {
                 val response = app.post(
                     "$mainUrl/ajax/dataAlternatif3.asp",
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Origin" to mainUrl,
+                        "Referer" to data
+                    ),
                     data = mapOf("filmid" to filmId, "dil" to langId, "s" to "", "b" to "", "bot" to "0")
                 )
                 // Read the body once so a challenge HTML page can be identified before JSON parsing.
@@ -482,7 +563,12 @@ class WebteIzle : MainAPI() {
                 val embed = try {
                     app.post(
                         "$mainUrl/ajax/dataEmbed.asp",
-                        headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
+                        headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Origin" to mainUrl,
+                        "Referer" to data
+                    ),
                         data = mapOf("id" to alternative.id.toString())
                     ).document
                 } catch (e: Exception) {
