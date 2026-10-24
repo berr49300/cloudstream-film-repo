@@ -82,18 +82,18 @@ internal object WebteIzleResolverBank {
         Definition(37, "ManualNetworkEvidenceResolver")
     )
 
-    private val urlRegex = Regex("""(?i)https?://[^\\s"'<>\\\\]+""")
+    private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
     private val keyUrlRegex = Regex(
-        """(?is)["']?(?:file|src|url|source|contentUrl|embedUrl|hls|manifest)["']?\\s*:\\s*["']([^"']+)["']"""
+        """(?is)["']?(?:file|src|url|source|contentUrl|embedUrl|hls|manifest)["']?\s*:\s*["']([^"']+)["']"""
     )
     private val variableUrlRegex = Regex(
-        """(?is)\\b(?:var|let|const)\\s+[A-Za-z_$][\\w$]*\\s*=\\s*["'](https?://[^"']+)["']"""
+        """(?is)\b(?:var|let|const)\s+[A-Za-z_$][\w$]*\s*=\s*["'](https?://[^"']+)["']"""
     )
     private val packerRegex = Regex(
-        """(?is)eval\\s*\\(\\s*function\\s*\\(\\s*p\\s*,\\s*a\\s*,\\s*c\\s*,\\s*k\\s*,\\s*e\\s*,\\s*d"""
+        """(?is)eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d"""
     )
     private val obfuscationRegex = Regex(
-        """(?i)(?:\\batob\\s*\\(|\\bfromCharCode\\b|\\bdc_hello\\b|\\bdc_[a-z0-9_]+\\s*\\(|\\b_0x[0-9a-f]+\\b)"""
+        """(?i)(?:\batob\s*\(|\bfromCharCode\b|\bdc_hello\b|\bdc_[a-z0-9_]+\s*\(|\b_0x[0-9a-f]+\b)"""
     )
 
     fun inspect(
@@ -168,9 +168,9 @@ internal object WebteIzleResolverBank {
         // 04 — only media-related JSON-LD fields; a page's canonical "url" is not enough.
         document.select("script[type=application/ld+json]").forEach { script ->
             val body = script.data().ifBlank { script.html() }
-            Regex("""(?is)["'](?:contentUrl|embedUrl)["']\\s*:\\s*["']([^"']+)["']""")
+            Regex("""(?is)["'](?:contentUrl|embedUrl)["']\s*:\s*["']([^"']+)["']""")
                 .findAll(body).forEach { add(4, it.groupValues[1], "JSON-LD media field") }
-            Regex("""(?is)["']url["']\\s*:\\s*["'](https?://[^"']+)["']""")
+            Regex("""(?is)["']url["']\s*:\s*["'](https?://[^"']+)["']""")
                 .findAll(body).forEach {
                     val value = it.groupValues[1]
                     if (looksLikeMediaOrPlayer(value)) add(4, value, "JSON-LD url field with media/player shape")
@@ -238,7 +238,7 @@ internal object WebteIzleResolverBank {
         }
 
         // 13 — decode only values explicitly passed to atob(), and only emit URL-shaped results.
-        Regex("""(?is)\\batob\\s*\\(\\s*["']([A-Za-z0-9+/=]{12,})["']\\s*\\)""")
+        Regex("""(?is)\batob\s*\(\s*["']([A-Za-z0-9+/=]{12,})["']\s*\)""")
             .findAll(html).forEach { match ->
                 val decoded = runCatching {
                     String(Base64.getDecoder().decode(match.groupValues[1]), Charsets.UTF_8)
@@ -270,11 +270,11 @@ internal object WebteIzleResolverBank {
         playerUrls.forEach { add(17, it, "player candidate handed to loadExtractor", WebteIzleCandidateKind.PLAYER) }
 
         // 18/19/20 — endpoint shape is evidence for investigation, not a playable media URL.
-        if (scripts.any { Regex("""(?i)(/api/|axios\\.|fetch\\s*\\()""").containsMatchIn(it) }) {
+        if (scripts.any { Regex("""(?i)(/api/|axios\.|fetch\s*\()""").containsMatchIn(it) }) {
             signal(18, "REST-like/API call marker found; live request/response schema not inferred here.")
         }
         if (observedAjaxResponse || scripts.any {
-                Regex("""(?i)(XMLHttpRequest|/ajax/|\\.asp(?:\\?|['"]|$))""").containsMatchIn(it)
+                Regex("""(?i)(XMLHttpRequest|/ajax/|\.asp(?:\?|['"]|$))""").containsMatchIn(it)
             }) {
             signal(19, if (observedAjaxResponse) {
                 "Provider received a response from an AJAX endpoint; its payload was processed separately."
@@ -321,17 +321,17 @@ internal object WebteIzleResolverBank {
         }
 
         // 28 — segments are diagnostic signals, not standalone full-video links.
-        if (html.contains("#EXTM3U") && Regex("""(?i)(\\.ts|\\.m4s)(?:[?#]|$)""").containsMatchIn(html)) {
+        if (html.contains("#EXTM3U") && Regex("""(?i)(\.ts|\.m4s)(?:[?#]|$)""").containsMatchIn(html)) {
             signal(28, "Playlist segment references found; individual TS/M4S segments are not emitted as full videos.")
         }
 
         explicitStatuses[29] = WebteIzleProbeStatus.NOT_TESTED to
             "Requires user/browser developer-tools network evidence; none was supplied to this static scan."
 
-        if (Regex("""(?i)blob:[^"'\\s<>]+""").containsMatchIn(html)) {
+        if (Regex("""(?i)blob:[^"'\s<>]+""").containsMatchIn(html)) {
             signal(30, "blob: URL marker found; trace the underlying MediaSource/network stream instead.")
         }
-        if (Regex("""(?i)(navigator\\.serviceWorker|serviceWorker\\.register)""").containsMatchIn(html)) {
+        if (Regex("""(?i)(navigator\.serviceWorker|serviceWorker\.register)""").containsMatchIn(html)) {
             signal(31, "Service Worker marker found; CloudStream is not assumed to provide browser SW context.")
         }
 
@@ -361,7 +361,7 @@ internal object WebteIzleResolverBank {
             }
             add(35, raw, "subtitle/track attribute", WebteIzleCandidateKind.SUBTITLE, lang)
         }
-        Regex("""(?is)#EXT-X-MEDIA:[^\\r\\n]*(?:TYPE=SUBTITLES|TYPE=AUDIO)[^\\r\\n]*URI=["']([^"']+)["']""")
+        Regex("""(?is)#EXT-X-MEDIA:[^\r\n]*(?:TYPE=SUBTITLES|TYPE=AUDIO)[^\r\n]*URI=["']([^"']+)["']""")
             .findAll(html).forEach {
                 val line = it.value
                 val lang = Regex("""(?i)LANGUAGE=["']([^"']+)["']""").find(line)?.groupValues?.get(1)
