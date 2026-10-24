@@ -88,6 +88,63 @@ class WebteIzle : MainAPI() {
             if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
         }
         var emitted = false
+
+        suspend fun emitAttempts(
+            attempts: List<WebteIzleResolverAttempt>,
+            langName: String,
+            fallbackQuality: Int? = null
+        ) {
+            attempts.forEach { attempt ->
+                // IDs/statuses are logged without URLs, tokens, or player query strings.
+                android.util.Log.d(
+                    "WebteIzleResolver",
+                    "${attempt.resolverId.toString().padStart(2, '0')} ${attempt.resolverName}: ${attempt.status} — ${attempt.reason}"
+                )
+                for (candidate in attempt.candidates) {
+                    val id = attempt.resolverId.toString().padStart(2, '0')
+                    val baseLabel = "$id • ${attempt.resolverName} • $langName"
+                    when (candidate.kind) {
+                        WebteIzleCandidateKind.PLAYER -> {
+                            val host = runCatching { java.net.URI(candidate.url).host }.getOrNull() ?: "unknown-player"
+                            val routeLabel = if (attempt.resolverId == 17) baseLabel
+                                else "$baseLabel → 17 • ExtractorRegistryResolver"
+                            val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
+                            loadExtractor(candidate.url, data, subtitleCallback) { link ->
+                                callback(ExtractorLink(
+                                    source = routeLabel + " • " + host,
+                                    name = routeLabel + " • " + host + " • " + qualityLabel,
+                                    url = link.url,
+                                    referer = link.referer,
+                                    quality = link.quality,
+                                    headers = link.headers,
+                                    extractorData = link.extractorData,
+                                    type = link.type
+                                ))
+                                emitted = true
+                            }
+                        }
+                        WebteIzleCandidateKind.MEDIA -> {
+                            val quality = fallbackQuality ?: getQualityFromName(candidate.url)
+                            callback(ExtractorLink(
+                                source = baseLabel,
+                                name = "$baseLabel • ${candidate.url.substringBefore('?').substringAfterLast('.').ifBlank { "media" }} • ${quality}p",
+                                url = candidate.url,
+                                referer = data,
+                                quality = quality
+                            ))
+                            emitted = true
+                        }
+                        WebteIzleCandidateKind.SUBTITLE -> {
+                            subtitleCallback(SubtitleFile(candidate.language ?: "Altyazı", candidate.url))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Inspect the detail document too; a direct source must not depend on AJAX succeeding.
+        emitAttempts(WebteIzleResolverBank.inspect(page.html(), data), "Sayfa")
+
         for ((langId, langName) in languages) {
             val alternatives = runCatching {
                 app.post("$mainUrl/ajax/dataAlternatif3.asp",
@@ -101,17 +158,12 @@ class WebteIzle : MainAPI() {
                         headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
                         data = mapOf("id" to alternative.id.toString())).document
                 }.getOrNull() ?: continue
-                val iframe = fixUrlNull(embed.selectFirst("iframe")?.attr("src")) ?: continue
-                val host = runCatching { java.net.URI(iframe).host }.getOrNull() ?: "unknown-player"
-                loadExtractor(iframe, data, subtitleCallback) { link ->
-                    callback(ExtractorLink(
-                        source = "WebteIzle $langName • $host",
-                        name = "WebteIzle $langName • $host • " + (alternative.kalitesi?.toString() ?: "?") + "p",
-                        url = link.url, referer = link.referer, quality = link.quality,
-                        headers = link.headers, extractorData = link.extractorData, type = link.type
-                    ))
-                    emitted = true
-                }
+                val attempts = WebteIzleResolverBank.inspect(
+                    html = embed.html(),
+                    baseUrl = data,
+                    observedAjaxResponse = true
+                )
+                emitAttempts(attempts, langName, alternative.kalitesi)
             }
         }
         return emitted
