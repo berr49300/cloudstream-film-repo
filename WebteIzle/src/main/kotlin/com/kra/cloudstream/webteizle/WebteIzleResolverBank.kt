@@ -145,7 +145,7 @@ internal object WebteIzleResolverBank {
     /** Detects visible access challenges; detection is diagnostic, never a bypass. */
     internal fun isAccessChallenge(html: String): Boolean =
         Regex(
-            """(?is)(cf-chl-|challenge-platform|/cdn-cgi/challenge-platform|verify you are human|just a moment\.\.\.|checking your browser|attention required!\s*\|\s*cloudflare|captcha)"""
+            """(?is)(cf-chl-|challenge-platform|/cdn-cgi/challenge-platform|verify you are human|just a moment\.\.\.|checking your browser|attention required!\s*\|\s*cloudflare|captcha|access denied|login required|error 1020|error 1015)"""
         ).containsMatchIn(html)
 
     fun inspect(
