@@ -122,18 +122,18 @@ class WebteIzle : MainAPI() {
                                 else "$baseLabel → 17 • ExtractorRegistryResolver"
                             val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
                             loadExtractor(candidate.url, data, subtitleCallback) { link ->
-                                callback(newExtractorLink(
+                                // Keep the extractor's returned URL/type/headers while adding a
+                                // resolver label; explicitly pass type to avoid the legacy isM3u8 overload.
+                                callback(ExtractorLink(
                                     source = routeLabel + " • " + host,
                                     name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
                                     url = link.url,
+                                    referer = link.referer,
+                                    quality = link.quality,
+                                    headers = link.headers,
+                                    extractorData = link.extractorData,
                                     type = link.type
-                                ) {
-                                    referer = link.referer
-                                    quality = link.quality
-                                    headers = link.headers
-                                    extractorData = link.extractorData
-                                    audioTracks = link.audioTracks
-                                })
+                                ))
                                 emitted = true
                             }
 
