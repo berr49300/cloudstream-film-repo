@@ -100,7 +100,8 @@ internal object WebteIzleResolverBank {
         html: String,
         baseUrl: String,
         observedAjaxResponse: Boolean = false,
-        manualNetworkEvidence: List<String> = emptyList()
+        manualNetworkEvidence: List<String> = emptyList(),
+        nestedIframeUrls: List<String>? = null
     ): List<WebteIzleResolverAttempt> {
         val document = Jsoup.parse(html, baseUrl)
         val scripts = document.select("script").map { it.data().ifBlank { it.html() } }
@@ -259,9 +260,19 @@ internal object WebteIzleResolverBank {
             add(15, value, "iframe src/data-src", WebteIzleCandidateKind.PLAYER)
         }
 
-        // 16 — nested iframe requests require a separately fetched child document.
-        explicitStatuses[16] = WebteIzleProbeStatus.NOT_TESTED to
-            "A child iframe must be fetched separately with bounded depth; the current document alone cannot prove its chain."
+        // 16 — these URLs may only be supplied after a parent iframe was fetched separately.
+        if (nestedIframeUrls == null) {
+            explicitStatuses[16] = WebteIzleProbeStatus.NOT_TESTED to
+                "A child iframe must be fetched separately with bounded depth; the current document alone cannot prove its chain."
+        } else {
+            nestedIframeUrls.forEach {
+                add(16, it, "iframe discovered in a separately fetched child-player document", WebteIzleCandidateKind.PLAYER)
+            }
+            if (nestedIframeUrls.isEmpty()) {
+                explicitStatuses[16] = WebteIzleProbeStatus.NOT_FOUND to
+                    "One child-player document was fetched; it contained no nested iframe URL."
+            }
+        }
 
         // 17 — an iframe/player candidate is routed through CloudStream's extractor registry.
         val playerUrls = candidates.values.flatten()
@@ -397,6 +408,18 @@ internal object WebteIzleResolverBank {
             }
             WebteIzleResolverAttempt(definition.id, definition.name, status, reason, found)
         }
+    }
+
+
+    /** Extract iframe URLs from one explicitly fetched child page (caller enforces depth/cycle limits). */
+    fun findIframeUrls(html: String, baseUrl: String): List<String> {
+        val doc = Jsoup.parse(html, baseUrl)
+        return doc.select("iframe[src], iframe[data-src]")
+            .mapNotNull { element ->
+                val raw = element.attr("src").ifBlank { element.attr("data-src") }
+                normalizeUrl(raw, baseUrl)
+            }
+            .distinct()
     }
 
     private fun normalizeUrl(raw: String?, baseUrl: String): String? {
