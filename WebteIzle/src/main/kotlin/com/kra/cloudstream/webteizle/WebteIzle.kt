@@ -433,7 +433,9 @@ class WebteIzle : MainAPI() {
                 if (reportAccessChallenge("dataEmbed.asp", embedHtml)) continue
                 val attempts = WebteIzleResolverBank.inspect(
                     html = embedHtml,
-                    baseUrl = data,
+                    // AJAX embed fragments use the site's origin as their relative-URL base;
+                    // using the film detail URL here can mis-resolve relative iframe paths.
+                    baseUrl = "$mainUrl/ajax/dataEmbed.asp",
                     observedAjaxResponse = true,
                     hintedPlayerName = alternative.baslik
                 )
