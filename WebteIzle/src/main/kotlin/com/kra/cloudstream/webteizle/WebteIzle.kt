@@ -154,7 +154,7 @@ class WebteIzle : MainAPI() {
         } catch (e: Exception) {
             android.util.Log.w(
                 "WebteIzleResolver",
-                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — initial page request failed (\${e.javaClass.simpleName}); no bypass attempted."
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — initial page request failed (${e.javaClass.simpleName}); no bypass attempted."
             )
             return false
         }
