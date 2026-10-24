@@ -85,7 +85,23 @@ class WebteIzle : MainAPI() {
 
     override suspend fun loadLinks(data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val page = app.get(data).document
+        val page = try {
+            app.get(data).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — detail request failed (${e.javaClass.simpleName}); access controls are not bypassed."
+            )
+            return false
+        }
+        val pageHtml = page.html()
+        val accessChallenge = WebteIzleResolverBank.isAccessChallenge(pageHtml)
+        if (accessChallenge) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED — Cloudflare/CAPTCHA challenge HTML detected; no bypass attempted."
+            )
+        }
         val filmId = page.selectFirst("button#wip")?.attr("data-id")?.takeIf { it.isNotBlank() }
         val languages = buildList {
             if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
@@ -95,6 +111,10 @@ class WebteIzle : MainAPI() {
         val fetchedIframePages = linkedSetOf<String>()
         val fetchedManifestUrls = linkedSetOf<String>()
         val headCheckedMediaUrls = linkedSetOf<String>()
+        // Multiple AJAX language tabs or overlapping scanner passes may contain the exact same
+        // URL. Keep one entry per resolver ID / candidate URL / kind so IDs remain testable
+        // without repeating one source several times under the same method.
+        val seenCandidateKeys = linkedSetOf<String>()
         val maxNestedPlayerPages = 8
         val maxManifests = 8
         val maxMediaHeadChecks = 8
@@ -114,26 +134,49 @@ class WebteIzle : MainAPI() {
                 )
                 for (candidate in attempt.candidates) {
                     val id = attempt.resolverId.toString().padStart(2, '0')
+                    val candidateKey = "$id|${candidate.kind}|${candidate.url}|${candidate.language.orEmpty()}"
+                    if (!seenCandidateKeys.add(candidateKey)) {
+                        android.util.Log.d(
+                            "WebteIzleResolver",
+                            "$id ${attempt.resolverName}: DUPLICATE_SUPPRESSED — same candidate URL already processed for this resolver."
+                        )
+                        continue
+                    }
                     val baseLabel = "$id • ${attempt.resolverName} • $langName"
                     when (candidate.kind) {
                         WebteIzleCandidateKind.PLAYER -> {
                             val host = runCatching { java.net.URI(candidate.url).host }.getOrNull() ?: "unknown-player"
                             val routeLabel = if (attempt.resolverId == 17) baseLabel
                                 else "$baseLabel → 17 • ExtractorRegistryResolver"
+                            val family = WebteIzleResolverBank.playerFamily(candidate.url)
+                            val playerLabel = family?.let { "$it ($host)" } ?: host
                             val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
                             // loadExtractor's callback is non-suspending, while this provider's
                             // callback is suspend. Collect extractor results first, then emit them
                             // from the surrounding suspend function.
                             val extractedLinks = mutableListOf<ExtractorLink>()
-                            loadExtractor(candidate.url, data, subtitleCallback) { link ->
-                                // This callback is non-suspending: only collect the already-built
-                                // extractor link here. Provider callbacks run after extraction returns.
-                                extractedLinks += link
+                            try {
+                                loadExtractor(candidate.url, data, subtitleCallback) { link ->
+                                    // This callback is non-suspending: only collect the already-built
+                                    // extractor link here. Provider callbacks run after extraction returns.
+                                    extractedLinks += link
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: EXTRACTOR_ERROR — ${e.javaClass.simpleName}; URL/query omitted."
+                                )
+                            }
+                            if (extractedLinks.isEmpty()) {
+                                android.util.Log.d(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: NO_MEDIA_LINK — extractor did not return a media link for $playerLabel."
+                                )
                             }
                             for (link in extractedLinks) {
                                 callback(newExtractorLink(
-                                    source = routeLabel + " • " + host,
-                                    name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
+                                    source = routeLabel + " • " + playerLabel,
+                                    name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
                                     url = link.url,
                                     type = link.type
                                 ) {
@@ -161,6 +204,11 @@ class WebteIzle : MainAPI() {
                                     android.util.Log.d(
                                         "WebteIzleResolver",
                                         "16 NestedIframeResolver: NOT TESTED — child player response unavailable"
+                                    )
+                                } else if (WebteIzleResolverBank.isAccessChallenge(childHtml)) {
+                                    android.util.Log.w(
+                                        "WebteIzleResolver",
+                                        "34 SessionDependentSourceDiagnostic: BLOCKED — child player returned Cloudflare/CAPTCHA challenge HTML; no bypass attempted."
                                     )
                                 } else {
                                     val nestedUrls = WebteIzleResolverBank.findIframeUrls(childHtml, candidate.url)
@@ -267,12 +315,16 @@ class WebteIzle : MainAPI() {
         }
 
         // Inspect the detail document too; a direct source must not depend on AJAX succeeding.
-        emitAttempts(WebteIzleResolverBank.inspect(page.html(), data), "Sayfa")
+        emitAttempts(WebteIzleResolverBank.inspect(pageHtml, data), "Sayfa")
 
         if (filmId == null) {
             android.util.Log.d(
                 "WebteIzleResolver",
-                "19 ObservedAjaxResolver: NOT TESTED — button#wip/data-id was absent; direct-page candidates were still scanned"
+                if (accessChallenge) {
+                    "34 SessionDependentSourceDiagnostic: BLOCKED — Cloudflare/CAPTCHA response has no movie ID; direct-page scan only, no bypass attempted."
+                } else {
+                    "19 ObservedAjaxResolver: NOT TESTED — button#wip/data-id was absent; direct-page candidates were still scanned."
+                }
             )
             return emitted
         }
