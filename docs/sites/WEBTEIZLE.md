@@ -176,3 +176,16 @@ A further implementation correction: AJAX embed-fragment relative paths are now 
 - ID 40: byte-hex encoded direct media URL decoding, limited to observed player config/query positions and recognized media extensions.
 
 This additional static extraction is covered by sanitized unit fixtures. Live player responses, generated source HTTP responses, and actual playback are still NOT TESTED.
+
+
+### Resolver 41 — VidMoly master playlist fallback
+
+**Evidence-backed addition:** a public Webteİzle provider implementation in [falsisdev/anthology — src/webteizle/index.js](https://github.com/falsisdev/anthology/blob/main/src/webteizle/index.js) documents the normal source path `dataAlternatif3.asp → dataEmbed.asp → vidmoly embed → JWPlayer file: ...master.m3u8`. It also explicitly skips player alternatives labelled `pixel` and `netu` rather than pretending they resolve. This is current public prior-art evidence for the route shape, not proof that every current WebteIzle title behaves the same way.
+
+A new `41 • VidMolyMasterPlaylistResolver` runs only when the standard CloudStream extractor returns no non-YouTube media link for a recognized VidMoly player. It performs an ordinary player-page GET, detects Cloudflare/CAPTCHA challenge HTML and stops with **BLOCKED**, then parses only an absolute `.m3u8` value from the observed JWPlayer `file:` field. It does not run the page's JavaScript or guess CDN URLs. Duplicate master URLs are emitted once by this fallback.
+
+The media callback now preserves the page that supplied the candidate as its referer context. The AJAX embed parser still resolves relative iframe URLs against `/ajax/dataEmbed.asp` while keeping the film detail page as the referring page.
+
+### Pixel source evidence update
+
+A separately maintained public Webteİzle provider explicitly returns no stream for source labels `pixel` and `netu`; therefore this implementation does not invent a host pattern for Pixel. The resolver 39 signal is the deliberate result until a current, sanitized `dataEmbed.asp` response demonstrates a real Pixel iframe or public media URL. If the actual player response presents a Cloudflare/Turnstile challenge, the result remains **BLOCKED** rather than attempting a challenge bypass.
