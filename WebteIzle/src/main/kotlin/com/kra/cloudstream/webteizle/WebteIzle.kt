@@ -152,6 +152,7 @@ class WebteIzle : MainAPI() {
         // URL. Keep one entry per resolver ID / candidate URL / kind so IDs remain testable
         // without repeating one source several times under the same method.
         val seenCandidateKeys = linkedSetOf<String>()
+        val emittedVidMolyMasters = linkedSetOf<String>()
 
         fun candidateReferer(candidate: WebteIzleResolverCandidate): String =
             candidate.sourcePageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: data
@@ -242,7 +243,7 @@ class WebteIzle : MainAPI() {
                                                     "WebteIzleResolver",
                                                     "41 VidMolyMasterPlaylistResolver: NOT FOUND — no absolute .m3u8 file field in the embed response."
                                                 )
-                                            } else {
+                                            } else if (emittedVidMolyMasters.add(master)) {
                                                 val playerReferer = runCatching {
                                                     val uri = java.net.URI(candidate.url)
                                                     "${uri.scheme}://${uri.authority}/"
@@ -257,6 +258,11 @@ class WebteIzle : MainAPI() {
                                                     quality = fallbackQuality?.takeIf { it > 0 } ?: getQualityFromName(master)
                                                 })
                                                 emitted = true
+                                            } else {
+                                                android.util.Log.d(
+                                                    "WebteIzleResolver",
+                                                    "41 VidMolyMasterPlaylistResolver: DUPLICATE_SUPPRESSED — same master URL already emitted."
+                                                )
                                             }
                                         }
                                     }
