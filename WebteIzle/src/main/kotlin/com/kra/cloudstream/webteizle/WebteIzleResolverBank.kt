@@ -81,7 +81,8 @@ internal object WebteIzleResolverBank {
         Definition(36, "GenericExtractorFallback"),
         Definition(37, "ManualNetworkEvidenceResolver"),
         Definition(38, "KnownPlayerEmbedConfigResolver"),
-        Definition(39, "PixelPlayerConfigDiagnostic")
+        Definition(39, "PixelPlayerConfigDiagnostic"),
+        Definition(40, "KnownHexEncodedPayloadResolver")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -102,6 +103,30 @@ internal object WebteIzleResolverBank {
     private val knownPlayerConfigRegex = Regex(
         """(?i)\b(vidmoly|filemoon|okru)\s*\(\s*['"]([A-Za-z0-9_-]{3,256})['"]\s*,\s*['"]"""
     )
+    private val hexEscapeRegex = Regex("""(?i)\\x([0-9a-f]{2})""")
+    private val repeatedHexEscapesRegex = Regex("""(?i)^(?:\\x[0-9a-f]{2}){8,}$""")
+    private val plainHexPayloadRegex = Regex("""(?i)^[0-9a-f]{40,}$""")
+    private val mediaExtensions = setOf("m3u8", "mpd", "mp4", "m4v", "webm", "mkv", "avi", "mov")
+
+    /**
+     * Decode only the observed WebteIzle/PlayerJS-style \\xNN byte sequence (or its
+     * contiguous hex-byte equivalent). Return only absolute HTTP(S) URLs; never guess a host.
+     */
+    internal fun decodeKnownHexUrl(raw: String): String? {
+        val value = raw.trim()
+        val hex = when {
+            repeatedHexEscapesRegex.matches(value) ->
+                value.replace(Regex("""(?i)\\x"""), "")
+            plainHexPayloadRegex.matches(value) && value.length % 2 == 0 -> value
+            else -> return null
+        }
+        val decoded = runCatching {
+            val bytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            bytes.toString(Charsets.UTF_8)
+        }.getOrNull()?.trim() ?: return null
+        if (!(decoded.startsWith("https://", true) || decoded.startsWith("http://", true))) return null
+        return decoded.takeIf { runCatching { URI(it).host?.isNotBlank() == true }.getOrDefault(false) }
+    }
 
     private val youtubeHostRoots = setOf(
         "youtube.com", "youtu.be", "youtube-nocookie.com",
@@ -361,6 +386,27 @@ internal object WebteIzleResolverBank {
                 39,
                 "Pixel player hint observed, but no verified URL template/host mapping is known; no URL synthesized. Inspect the actual embed response; Cloudflare/Turnstile, if present, remains BLOCKED."
             )
+        }
+
+        // 40 — known hex encoding seen in legacy WebteIzle/PlayerJS-style player payloads.
+        // The decoder accepts only byte-pair sequences that produce an absolute HTTP(S)
+        // URL with a media-file extension. It does not execute scripts or invent a host.
+        val hexValuePatterns = listOf(
+            Regex("""(?is)\b(?:file|src|url)\s*[:=]\s*["']([^"']{24,})["']"""),
+            Regex("""(?is)[?&]v=([^&#"'\s]+)""")
+        )
+        hexValuePatterns.forEach { pattern ->
+            pattern.findAll(normalizedHtml).forEach { match ->
+                val decodedUrl = decodeKnownHexUrl(match.groupValues[1]) ?: return@forEach
+                if (extension(decodedUrl) in mediaExtensions) {
+                    add(
+                        40,
+                        decodedUrl,
+                        "URL decoded from an observed \\xNN/hex payload in a player config or v= parameter",
+                        WebteIzleCandidateKind.MEDIA
+                    )
+                }
+            }
         }
 
         // 15 — direct iframe discovery.
