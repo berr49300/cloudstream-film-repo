@@ -126,7 +126,12 @@ class WebteIzle : MainAPI() {
                             // from the surrounding suspend function.
                             val extractedLinks = mutableListOf<ExtractorLink>()
                             loadExtractor(candidate.url, data, subtitleCallback) { link ->
-                                extractedLinks += newExtractorLink(
+                                // This callback is non-suspending: only collect the already-built
+                                // extractor link here. Provider callbacks run after extraction returns.
+                                extractedLinks += link
+                            }
+                            for (link in extractedLinks) {
+                                callback(newExtractorLink(
                                     source = routeLabel + " • " + host,
                                     name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
                                     url = link.url,
@@ -136,10 +141,7 @@ class WebteIzle : MainAPI() {
                                     quality = link.quality
                                     headers = link.headers
                                     extractorData = link.extractorData
-                                }
-                            }
-                            for (extractedLink in extractedLinks) {
-                                callback(extractedLink)
+                                })
                                 emitted = true
                             }
 
