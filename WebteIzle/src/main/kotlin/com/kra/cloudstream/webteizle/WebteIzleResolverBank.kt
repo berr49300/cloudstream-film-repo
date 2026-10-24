@@ -117,7 +117,6 @@ internal object WebteIzleResolverBank {
         "filemoon.sx" to "Filemoon",
         "filemoon.in" to "Filemoon",
         "pixeldrain.com" to "PixelDrain",
-        "pixeldra.in" to "PixelDrain",
         "pixeldrain.dev" to "PixelDrain",
         "ok.ru" to "OK.ru",
         "odnoklassniki.ru" to "OK.ru"
