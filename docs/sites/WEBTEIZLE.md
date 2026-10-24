@@ -140,7 +140,7 @@ Recognizing a host means the URL is routed to its extractor; it is not evidence 
 
 A new test method, `38 • KnownPlayerEmbedConfigResolver`, examines the current `dataEmbed.asp` response's inline script for the player-function shape `vidmoly('id', ...)`, `filemoon('id', ...)`, or `okru('id', ...)`. If observed, it emits candidates using the public-reference URL templates below; it never derives an ID from a film title or invents a source without the function pattern.
 
-- VidMoly: `https://vidmoly.net/embed-{id}.html` and `https://vidmoly.to/embed-{id}.html` are both retained because public reference implementations differ on the host.
+- VidMoly: `https://vidmoly.net/embed-{id}.html`, `https://vidmoly.to/embed-{id}.html`, and `https://vidmoly.biz/embed-{id}.html` are retained because public reference implementations differ on the host; a maintained provider uses `.biz`.
 - Filemoon: `https://filemoon.sx/e/{id}`.
 - OK.ru: `https://odnoklassniki.ru/videoembed/{id}`.
 
