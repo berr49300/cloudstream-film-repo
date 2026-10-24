@@ -575,7 +575,7 @@ internal object WebteIzleResolverBank {
      */
     internal fun extractVidMolyMasterPlaylist(html: String): String? {
         val normalized = normalizeEscapes(html)
-        val raw = Regex("""(?is)\\bfile\\s*:\\s*['"]([^'"]+\\.m3u8[^'"]*)['"]""")
+        val raw = Regex("""(?is)\bfile\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
             .find(normalized)?.groupValues?.get(1) ?: return null
         val value = raw.trim()
         if (isYouTubeUrl(value)) return null
