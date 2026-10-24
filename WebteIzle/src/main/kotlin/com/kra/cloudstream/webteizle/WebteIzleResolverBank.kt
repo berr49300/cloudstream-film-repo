@@ -363,6 +363,12 @@ internal object WebteIzleResolverBank {
                             "observed vidmoly(id, ...) call; .to template hypothesis from another public provider reference",
                             WebteIzleCandidateKind.PLAYER
                         )
+                        add(
+                            38,
+                            "https://vidmoly.biz/embed-$playerId.html",
+                            "observed vidmoly(id, ...) call; .biz template hypothesis from a maintained public WebteIzle provider reference",
+                            WebteIzleCandidateKind.PLAYER
+                        )
                     }
                     "filemoon" -> add(
                         38,
