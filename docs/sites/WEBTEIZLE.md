@@ -147,3 +147,16 @@ A new test method, `38 • KnownPlayerEmbedConfigResolver`, examines the current
 **Status: HYPOTHESIS until confirmed against a current sanitized `dataEmbed.asp` response.** The pattern and host templates were cross-checked against public CloudStream provider implementations: [burak-ayd/cloudstream-repo — WebteIzle](https://github.com/burak-ayd/cloudstream-repo/blob/master/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt) and [ByNoNe/Kekik-cloudstream — WebteIzle](https://github.com/ByNoNe/Kekik-cloudstream/blob/master/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt). Both repositories declare GPL-3.0. This implementation uses the observed protocol/template as prior-art evidence rather than copying their provider implementation; the repo remains separately implemented.
 
 The public references also use a Cloudflare challenge helper. This implementation intentionally does **not** import or invoke that helper: if the ordinary CloudStream request receives a challenge, it records `BLOCKED` and needs an authorized sanitized response capture to continue diagnosis. Resolver 38 and successful compilation are not proof that the generated embed pages resolve or play.
+
+
+### Resolver 39 — Pixel host diagnostic (host template intentionally unknown)
+
+The source API's `baslik` field is now passed into the resolver scan. If the returned player label mentions `Pixel`, or the response contains a `pixel(...)` player-function marker, `39 • PixelPlayerConfigDiagnostic` reports the observed signal. It does **not** synthesize an embed URL because no current WebteIzle Pixel domain/URL template has been confirmed from the actual `dataEmbed.asp` payload.
+
+**Terminology warning:** Pixel and PixelDrain are not assumed to be the same service. The CloudStream framework has a native `PixelDrain` extractor for `pixeldrain.com` / `pixeldrain.dev`; those URLs are recognized as **PixelDrain** only. A separate project for a different Turkish site reports a player named “Pixel” blocked by Cloudflare Turnstile, but that is not proof that WebteIzle uses the same host or restriction. See [Batuhan4/sezonlukdizi-stremio](https://github.com/Batuhan4/sezonlukdizi-stremio); this is external context only, not evidence of WebteIzle's exact Pixel embed.
+
+If the current WebteIzle alternative list says Pixel and its response provides no iframe/host URL or verified mapping, status remains **NOT TESTED / UNKNOWN**. If its actual page returns a Cloudflare/Turnstile challenge, status is **BLOCKED**; no challenge solver is added.
+
+### Native CloudStream extractor compatibility check
+
+The framework source tree currently includes native extractor implementations for VidMoly (`vidmoly.net`, `.to`, `.me`, `.biz`), Filemoon (`.to`, `.in`, `.sx`), OK.ru and PixelDrain (`pixeldrain.com`, `pixeldrain.dev`). This is a source-code compatibility check, not a live-site or playback check. Host aliases in the label classifier were narrowed to match those known extractor variants; other domains remain unverified until an actual current embed URL and registered extractor are confirmed.
