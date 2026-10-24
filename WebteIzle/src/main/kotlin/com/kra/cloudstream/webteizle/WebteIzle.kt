@@ -211,6 +211,13 @@ class WebteIzle : MainAPI() {
                                 )
                             }
                             for (link in extractedLinks) {
+                                if (WebteIzleResolverBank.isYouTubeUrl(link.url)) {
+                                    android.util.Log.w(
+                                        "WebteIzleResolver",
+                                        "$id ${attempt.resolverName}: YOUTUBE_MEDIA_SUPPRESSED — extractor returned a YouTube/Google video URL; not published as a film source."
+                                    )
+                                    continue
+                                }
                                 callback(newExtractorLink(
                                     source = routeLabel + " • " + playerLabel,
                                     name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
