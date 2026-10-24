@@ -166,10 +166,14 @@ class WebteIzle : MainAPI() {
         ) {
             normalizePlaybackPageUrl(data)?.let(watchPages::add)
         }
-        // Links on the /hakkinda page are the source of truth; do not guess a slug or URL.
-        rootPage.select("a[href*=/izle/altyazi/], a[href*=/izle/dublaj/]").forEach { anchor ->
-            normalizePlaybackPageUrl(anchor.attr("href"))?.let(watchPages::add)
-        }
+        // Links on the /hakkinda page are the source of truth; only same-site playback routes qualify.
+        watchPages.addAll(
+            WebteIzleResolverBank.findPlaybackPageUrls(
+                html = rootPage.html(),
+                baseUrl = data,
+                siteBaseUrl = mainUrl
+            )
+        )
 
         if (watchPages.isEmpty()) {
             android.util.Log.w(
@@ -206,6 +210,7 @@ class WebteIzle : MainAPI() {
         }
         val pageHtml = page.html()
         val accessChallenge = reportAccessChallenge("loadLinks", pageHtml)
+        if (accessChallenge) return false
         val filmId = page.selectFirst("button#wip")?.attr("data-id")?.takeIf { it.isNotBlank() }
         val routeLanguage = when {
             data.contains("/izle/dublaj/", ignoreCase = true) -> "0" to "Dublaj"
