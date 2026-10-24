@@ -7,10 +7,10 @@ import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllThirtyEightUniqueResolverIdsAndNames() {
+    fun inventoryHasAllThirtyNineUniqueResolverIdsAndNames() {
         val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..38).toList(), attempts.map { it.resolverId })
-        assertEquals(38, attempts.map { it.resolverName }.distinct().size)
+        assertEquals((1..39).toList(), attempts.map { it.resolverId })
+        assertEquals(39, attempts.map { it.resolverName }.distinct().size)
         assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
         assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
     }
@@ -186,6 +186,35 @@ class WebteIzleResolverBankTest {
         assertTrue(urls.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
         assertEquals(4, urls.distinct().size)
         assertTrue(attempt.candidates.all { it.kind == WebteIzleCandidateKind.PLAYER })
+    }
+
+
+    @Test
+    fun pixelSourceLabelIsRecordedWithoutInventingAnEmbedUrl() {
+        val html = """<div class="player">source unavailable</div>"""
+        val attempts = WebteIzleResolverBank.inspect(
+            html = html,
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
+            observedAjaxResponse = true,
+            hintedPlayerName = "Pixel"
+        )
+        val attempt = attempts.first { it.resolverId == 39 }
+
+        assertEquals(WebteIzleProbeStatus.SIGNAL_FOUND, attempt.status)
+        assertTrue(attempt.reason.contains("no verified URL template"))
+        assertTrue(attempt.candidates.isEmpty())
+    }
+
+    @Test
+    fun pixelPlayerFunctionMarkerIsDiagnosedWithoutSynthesizingTheHost() {
+        val html = """<script>pixel('PIXEL12345', 'config')</script>"""
+        val attempt = WebteIzleResolverBank.inspect(
+            html = html,
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
+        ).first { it.resolverId == 39 }
+
+        assertEquals(WebteIzleProbeStatus.SIGNAL_FOUND, attempt.status)
+        assertTrue(attempt.candidates.isEmpty())
     }
 
 }
