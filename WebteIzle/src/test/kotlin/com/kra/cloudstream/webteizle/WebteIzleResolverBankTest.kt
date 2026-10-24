@@ -7,10 +7,10 @@ import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllFortyUniqueResolverIdsAndNames() {
+    fun inventoryHasAllFortyOneUniqueResolverIdsAndNames() {
         val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..40).toList(), attempts.map { it.resolverId })
-        assertEquals(40, attempts.map { it.resolverName }.distinct().size)
+        assertEquals((1..41).toList(), attempts.map { it.resolverId })
+        assertEquals(41, attempts.map { it.resolverName }.distinct().size)
         assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
         assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
     }
@@ -267,6 +267,31 @@ class WebteIzleResolverBankTest {
         assertTrue(WebteIzleResolverBank.isYouTubeUrl(
             WebteIzleResolverBank.decodeKnownHexUrl(encoded)!!
         ))
+    }
+
+
+    @Test
+    fun vidmolyMasterPlaylistResolverExtractsOnlyAbsoluteHlsFileField() {
+        val expected = "https://cdn.example/master.m3u8?token=safe-fixture"
+        val html = """
+            <script>
+              jwplayer("v").setup({sources:[{file:"$expected", type:"hls"}]});
+            </script>
+        """.trimIndent()
+
+        assertEquals(expected, WebteIzleResolverBank.extractVidMolyMasterPlaylist(html))
+        assertEquals(
+            null,
+            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
+                """<script>jwplayer().setup({sources:[{file:"//cdn.example/master.m3u8"}]})</script>"""
+            )
+        )
+        assertEquals(
+            null,
+            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
+                """<script>jwplayer().setup({sources:[{file:"https://www.youtube.com/watch?v=trailer.m3u8"}]})</script>"""
+            )
+        )
     }
 
 }
