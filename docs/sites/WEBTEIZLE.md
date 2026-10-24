@@ -91,3 +91,46 @@ Important: “probe implemented” means the code can inspect an input page/mani
 - Real playback/audio selection: NOT TESTED.
 - Subtitle rendering: NOT TESTED.
 - Publication: NOT PUBLISHED; do not merge or publish until validation and approval.
+
+
+## 2026-10-25 — False-positive source incident and regression fix
+
+### Incident evidence
+
+- **CONFIRMED from the user's CloudStream screenshot:** IDs 07 (PlayerConfigObjectResolver), 17 (ExtractorRegistryResolver) and 36 (GenericExtractorFallback) all surfaced `youtu.be` URLs as source candidates, including repeated rows at 720p/480p. The host/path match was being treated as a candidate even though it was a YouTube-hosted clip, not a confirmed WebteIzle film stream.
+- **CONFIRMED in code:** IDs 17 and 36 were built from player URLs already found by other scan IDs; the same embed URL could also be processed from the detail page and multiple AJAX language paths. Resolver IDs therefore described alternate discovery/routing paths, not independent media origins.
+- **CONFIRMED in code:** the older `looksLikeMediaOrPlayer` predicate accepted generic paths such as `/watch` and `/embed`; it did not exclude YouTube hosts.
+- **PARTIAL external check (2026-10-25):** the public homepage rendered catalogue entries, but the detail-page research request did not return a readable page in the available research environment. No raw current AJAX/player payload was captured. This does not prove the site is globally offline or prove the Android runtime receives the same response.
+
+### Code changes in `fix/webteizle-real-player-candidates`
+
+- All resolver ingress paths reject `youtube.com`, `youtu.be`, `youtube-nocookie.com`, YouTube API hosts and `googlevideo.com` URLs. Such addresses are not emitted as playable source candidates.
+- Recognize the user-named player families as valid player-shaped URLs even when their path has no obvious `/embed` or media-file suffix: VidMoly, Filemoon, PixelDrain, and OK.ru. The provider routes these embed pages through CloudStream's existing `loadExtractor`; it does not synthesize media URLs.
+- Deduplicate an identical URL within the same resolver ID across overlapping detail/AJAX scans. Distinct resolver IDs remain visible because the test plan requires each strategy to be diagnosable. A repeated resolver ID is no longer repeated for the same URL.
+- Extractor exceptions and no-link outcomes are logged with resolver ID and host family while omitting full URLs/query strings.
+- Detect Cloudflare/CAPTCHA challenge HTML and report `BLOCKED`; no challenge-solving, authentication bypass, or DRM bypass is added.
+
+### Host-family support scope (not live-verified)
+
+| Family | Host variants recognized by this adapter | Resolution path |
+|---|---|---|
+| VidMoly | `vidmoly.to`, `vidmoly.me`, `vidmoly.net`, `vidmoly.sx` | CloudStream extractor registry |
+| Filemoon | `filemoon.to`, `filemoon.sx`, `filemoon.in`, `filemoon.nl` | CloudStream extractor registry |
+| PixelDrain | `pixeldrain.com`, `pixeldra.in` | CloudStream extractor registry |
+| OK.ru | `ok.ru`, `odnoklassniki.ru` | CloudStream extractor registry |
+
+Recognizing a host means the URL is routed to its extractor; it is not evidence that the host is currently reachable, the WebteIzle film points to it, its API is compatible, or the stream plays. Any further domain aliases should be added only when an actual current embed URL or maintained extractor supports them.
+
+### Regression tests added
+
+- YouTube watch, youtu.be short links, YouTube-nocookie embeds, and googlevideo CDN URLs never remain in any resolver's candidate list.
+- VidMoly, Filemoon, PixelDrain and OK.ru embed URLs are recognized without requiring a media extension.
+- A Cloudflare-style "Just a moment / challenge-platform" page is classified as an access challenge.
+
+### Remaining gates
+
+- **NOT TESTED:** current live `dataAlternatif3.asp` and `dataEmbed.asp` request/response shape from a normal CloudStream runtime.
+- **NOT TESTED:** whether the four named hosts are returned by the current film's actual alternative-player list.
+- **NOT TESTED:** HTTP response/manifest validity for emitted media, real playback, audio track and subtitle rendering.
+- If Cloudflare denies the normal request, report `BLOCKED` and use sanitized, user-authorized network evidence for diagnosis; do not try to defeat the challenge.
+- Do not label any source `MANUAL_PLAY_SUCCESS` until a real film (not a trailer) is confirmed playing on the user's device.
