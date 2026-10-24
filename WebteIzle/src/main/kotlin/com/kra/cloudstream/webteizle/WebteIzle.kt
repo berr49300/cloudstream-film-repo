@@ -14,8 +14,8 @@ class WebteIzle : MainAPI() {
     override val hasQuickSearch = true
     override val supportedTypes = setOf(TvType.Movie)
     override val mainPage = mainPageOf(
-        "$mainUrl/" to "Güncel",
-        "$mainUrl/yeniler" to "Yeniler",
+        "$mainUrl/film-izle" to "Güncel",
+        "$mainUrl/yeni-filmler" to "Yeniler",
         "$mainUrl/tavsiye-filmler" to "Tavsiye Filmler",
         "$mainUrl/odullu-filmler" to "Ödüllü Filmler",
         "$mainUrl/imdb-8" to "IMDb 8+",
@@ -27,7 +27,7 @@ class WebteIzle : MainAPI() {
         names.firstNotNullOfOrNull { attr(it).takeIf(String::isNotBlank) }
 
     private fun Element.toMovie(): SearchResponse? {
-        val a = selectFirst("a[href*=/hakkinda/], a[href*=/film/], a[href]") ?: return null
+        val a = selectFirst("a[href*=/hakkinda/], a[href*=/film/]") ?: return null
         val href = fixUrlNull(a.attr("href")) ?: return null
         if (!href.contains("/hakkinda/") && !href.contains("/film/")) return null
         val title = selectFirst(".filmname, .title, [itemprop=name]")?.text()?.trim()
@@ -44,7 +44,9 @@ class WebteIzle : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data.trimEnd('/')
-        val url = if (page <= 1) request.data else "$base/page/$page/"
+        // Observed pagination links use /film-izle/2 and /yeni-filmler/2,
+        // not the guessed /page/2 route.
+        val url = if (page <= 1) request.data else "$base/$page"
         val doc = app.get(url).document
         return newHomePageResponse(request.name,
             doc.select("div.golgever, .film-kart, .film-card, article, .movie-item")
@@ -52,7 +54,9 @@ class WebteIzle : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
+        // A public reference implementation uses the site's legacy Turkish encoding.
+        // Keep this hypothesis visible until live search parity is verified.
+        val encoded = URLEncoder.encode(query, "ISO-8859-9")
         val doc = app.get("$mainUrl/filtre?a=$encoded", referer = "$mainUrl/").document
         return doc.select("div.golgever, .film-kart, .film-card, article, .movie-item")
             .mapNotNull { it.toMovie() }.distinctBy { it.url }
