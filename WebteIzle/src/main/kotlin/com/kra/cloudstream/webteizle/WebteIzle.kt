@@ -121,10 +121,12 @@ class WebteIzle : MainAPI() {
                             val routeLabel = if (attempt.resolverId == 17) baseLabel
                                 else "$baseLabel → 17 • ExtractorRegistryResolver"
                             val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
+                            // loadExtractor's callback is non-suspending, while this provider's
+                            // callback is suspend. Collect extractor results first, then emit them
+                            // from the surrounding suspend function.
+                            val extractedLinks = mutableListOf<ExtractorLink>()
                             loadExtractor(candidate.url, data, subtitleCallback) { link ->
-                                // Keep the extractor's returned URL/type/headers while adding a
-                                // resolver label; explicitly pass type to avoid the legacy isM3u8 overload.
-                                callback(newExtractorLink(
+                                extractedLinks += newExtractorLink(
                                     source = routeLabel + " • " + host,
                                     name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
                                     url = link.url,
@@ -134,7 +136,10 @@ class WebteIzle : MainAPI() {
                                     quality = link.quality
                                     headers = link.headers
                                     extractorData = link.extractorData
-                                })
+                                }
+                            }
+                            for (extractedLink in extractedLinks) {
+                                callback(extractedLink)
                                 emitted = true
                             }
 
