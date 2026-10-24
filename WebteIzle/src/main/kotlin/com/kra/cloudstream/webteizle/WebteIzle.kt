@@ -124,16 +124,17 @@ class WebteIzle : MainAPI() {
                             loadExtractor(candidate.url, data, subtitleCallback) { link ->
                                 // Keep the extractor's returned URL/type/headers while adding a
                                 // resolver label; explicitly pass type to avoid the legacy isM3u8 overload.
-                                callback(ExtractorLink(
+                                callback(newExtractorLink(
                                     source = routeLabel + " • " + host,
                                     name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
                                     url = link.url,
-                                    referer = link.referer,
-                                    quality = link.quality,
-                                    headers = link.headers,
-                                    extractorData = link.extractorData,
                                     type = link.type
-                                ))
+                                ) {
+                                    referer = link.referer
+                                    quality = link.quality
+                                    headers = link.headers
+                                    extractorData = link.extractorData
+                                })
                                 emitted = true
                             }
 
