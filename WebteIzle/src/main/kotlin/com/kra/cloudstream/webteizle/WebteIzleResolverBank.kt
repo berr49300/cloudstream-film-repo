@@ -96,6 +96,52 @@ internal object WebteIzleResolverBank {
         """(?i)(?:\batob\s*\(|\bfromCharCode\b|\bdc_hello\b|\bdc_[a-z0-9_]+\s*\(|\b_0x[0-9a-f]+\b)"""
     )
 
+    private val youtubeHostRoots = setOf(
+        "youtube.com", "youtu.be", "youtube-nocookie.com",
+        "youtube.googleapis.com", "youtubei.googleapis.com", "googlevideo.com"
+    )
+
+    private val knownPlayerFamilies = linkedMapOf(
+        "vidmoly.to" to "VidMoly",
+        "vidmoly.me" to "VidMoly",
+        "vidmoly.net" to "VidMoly",
+        "vidmoly.sx" to "VidMoly",
+        "filemoon.to" to "Filemoon",
+        "filemoon.sx" to "Filemoon",
+        "filemoon.in" to "Filemoon",
+        "filemoon.nl" to "Filemoon",
+        "pixeldrain.com" to "PixelDrain",
+        "pixeldra.in" to "PixelDrain",
+        "ok.ru" to "OK.ru",
+        "odnoklassniki.ru" to "OK.ru"
+    )
+
+    private fun hostOf(url: String): String? =
+        runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull()
+
+    private fun isWithinHostRoot(host: String, root: String): Boolean =
+        host == root || host.endsWith(".$root")
+
+    /** True for YouTube video/CDN URLs, which this provider must not advertise as film sources. */
+    internal fun isYouTubeUrl(url: String): Boolean {
+        val host = hostOf(url) ?: return false
+        return youtubeHostRoots.any { isWithinHostRoot(host, it) }
+    }
+
+    /** Returns a known third-party player family without accepting lookalike domains. */
+    internal fun playerFamily(url: String): String? {
+        val host = hostOf(url) ?: return null
+        return knownPlayerFamilies.entries.firstOrNull { (root, _) ->
+            isWithinHostRoot(host, root)
+        }?.value
+    }
+
+    /** Detects visible access challenges; detection is diagnostic, never a bypass. */
+    internal fun isAccessChallenge(html: String): Boolean =
+        Regex(
+            """(?is)(cf-chl-|challenge-platform|/cdn-cgi/challenge-platform|verify you are human|just a moment\.\.\.|checking your browser|attention required!\s*\|\s*cloudflare|captcha)"""
+        ).containsMatchIn(html)
+
     fun inspect(
         html: String,
         baseUrl: String,
@@ -122,6 +168,13 @@ internal object WebteIzleResolverBank {
             language: String? = null
         ) {
             val url = normalizeUrl(rawUrl, baseUrl) ?: return
+            if (isYouTubeUrl(url)) {
+                signal(
+                    id,
+                    "Filtered YouTube URL: trailer/behind-the-scenes links are not accepted as WebteIzle publication sources."
+                )
+                return
+            }
             if (isStaticAsset(url) && kindOverride != WebteIzleCandidateKind.SUBTITLE) return
             if (url.startsWith("blob:", ignoreCase = true)) {
                 signal(30, "blob: URL observed; it is not treated as a portable media URL.")
@@ -355,7 +408,7 @@ internal object WebteIzleResolverBank {
         explicitStatuses[33] = WebteIzleProbeStatus.NOT_TESTED to
             "Referer is passed from the observed parent page; alternative headers are not guessed."
 
-        if (Regex("""(?i)(cf-chl-|captcha|verify you are human|access denied|login required)""").containsMatchIn(html)) {
+        if (isAccessChallenge(html)) {
             signal(34, "Access/session challenge marker detected; no access control is bypassed.")
         } else {
             explicitStatuses[34] = WebteIzleProbeStatus.NOT_TESTED to
@@ -462,6 +515,7 @@ internal object WebteIzleResolverBank {
         evidence: String
     ): Boolean {
         if (kindOverride == WebteIzleCandidateKind.SUBTITLE) return true
+        if (playerFamily(url) != null) return true
         if (looksLikeMediaOrPlayer(url)) return true
         return evidence.contains("iframe", true) || evidence.contains("player", true)
     }
@@ -472,7 +526,8 @@ internal object WebteIzleResolverBank {
         if (ext in setOf("m3u8", "mpd", "mp4", "m4v", "webm", "mkv", "avi", "mov", "ts", "m4s", "vtt", "srt", "ass", "ssa")) {
             return true
         }
-        return listOf("/embed", "/player", "/video", "/stream", "/watch", "/e/")
-            .any { it in path }
+        return playerFamily(url) != null ||
+            listOf("/embed", "/player", "/video", "/stream", "/watch", "/e/")
+                .any { it in path }
     }
 }
