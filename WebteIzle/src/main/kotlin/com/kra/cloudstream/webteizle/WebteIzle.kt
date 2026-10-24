@@ -26,6 +26,20 @@ class WebteIzle : MainAPI() {
     private fun Element.attrFirst(vararg names: String): String? =
         names.firstNotNullOfOrNull { attr(it).takeIf(String::isNotBlank) }
 
+    /**
+     * Challenge detection only. This deliberately does not try to solve or bypass
+     * Cloudflare/CAPTCHA; the caller fails closed so challenge HTML is not parsed
+     * as a catalogue, movie detail, or video-player response.
+     */
+    private fun reportAccessChallenge(context: String, html: String): Boolean {
+        if (!WebteIzleResolverBank.isAccessChallenge(html)) return false
+        android.util.Log.w(
+            "WebteIzleResolver",
+            "34 SessionDependentSourceDiagnostic: BLOCKED — Cloudflare/CAPTCHA challenge detected during $context; no bypass attempted."
+        )
+        return true
+    }
+
     private fun Element.toMovie(): SearchResponse? {
         val a = selectFirst("a[href*=/hakkinda/], a[href*=/film/]") ?: return null
         val href = fixUrlNull(a.attr("href")) ?: return null
@@ -47,7 +61,18 @@ class WebteIzle : MainAPI() {
         // Observed pagination links use /film-izle/2 and /yeni-filmler/2,
         // not the guessed /page/2 route.
         val url = if (page <= 1) request.data else "$base/$page"
-        val doc = app.get(url).document
+        val doc = try {
+            app.get(url).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — catalogue request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return newHomePageResponse(request.name, emptyList())
+        }
+        if (reportAccessChallenge("getMainPage", doc.html())) {
+            return newHomePageResponse(request.name, emptyList())
+        }
         return newHomePageResponse(request.name,
             doc.select("div.golgever, .film-kart, .film-card, article, .movie-item")
                 .mapNotNull { it.toMovie() }.distinctBy { it.url })
@@ -57,14 +82,32 @@ class WebteIzle : MainAPI() {
         // A public reference implementation uses the site's legacy Turkish encoding.
         // Keep this hypothesis visible until live search parity is verified.
         val encoded = URLEncoder.encode(query, "ISO-8859-9")
-        val doc = app.get("$mainUrl/filtre?a=$encoded", referer = "$mainUrl/").document
+        val doc = try {
+            app.get("$mainUrl/filtre?a=$encoded", referer = "$mainUrl/").document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — search request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return emptyList()
+        }
+        if (reportAccessChallenge("search", doc.html())) return emptyList()
         return doc.select("div.golgever, .film-kart, .film-card, article, .movie-item")
             .mapNotNull { it.toMovie() }.distinctBy { it.url }
     }
     override suspend fun quickSearch(query: String): List<SearchResponse> = search(query)
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url).document
+        val doc = try {
+            app.get(url).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — detail request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return null
+        }
+        if (reportAccessChallenge("load", doc.html())) return null
         val title = doc.selectFirst("meta[property=og:title]")?.attr("content")?.substringBefore(" izle")?.trim()
             ?.takeIf(String::isNotBlank) ?: doc.selectFirst("h1")?.text()?.trim()?.takeIf(String::isNotBlank)
             ?: return null
@@ -95,13 +138,7 @@ class WebteIzle : MainAPI() {
             return false
         }
         val pageHtml = page.html()
-        val accessChallenge = WebteIzleResolverBank.isAccessChallenge(pageHtml)
-        if (accessChallenge) {
-            android.util.Log.w(
-                "WebteIzleResolver",
-                "34 SessionDependentSourceDiagnostic: BLOCKED — Cloudflare/CAPTCHA challenge HTML detected; no bypass attempted."
-            )
-        }
+        val accessChallenge = reportAccessChallenge("loadLinks", pageHtml)
         val filmId = page.selectFirst("button#wip")?.attr("data-id")?.takeIf { it.isNotBlank() }
         val languages = buildList {
             if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
