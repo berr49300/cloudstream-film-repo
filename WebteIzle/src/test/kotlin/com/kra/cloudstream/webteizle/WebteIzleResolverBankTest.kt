@@ -188,9 +188,10 @@ class WebteIzleResolverBankTest {
         val urls = attempt.candidates.map { it.url }
         assertTrue(urls.contains("https://vidmoly.net/embed-VID123abc.html"))
         assertTrue(urls.contains("https://vidmoly.to/embed-VID123abc.html"))
+        assertTrue(urls.contains("https://vidmoly.biz/embed-VID123abc.html"))
         assertTrue(urls.contains("https://filemoon.sx/e/FILE456def"))
         assertTrue(urls.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
-        assertEquals(4, urls.distinct().size)
+        assertEquals(5, urls.distinct().size)
         assertTrue(attempt.candidates.all { it.kind == WebteIzleCandidateKind.PLAYER })
     }
 
