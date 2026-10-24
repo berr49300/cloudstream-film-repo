@@ -80,7 +80,8 @@ internal object WebteIzleResolverBank {
         Definition(35, "AlternateAudioAndSubtitleResolver"),
         Definition(36, "GenericExtractorFallback"),
         Definition(37, "ManualNetworkEvidenceResolver"),
-        Definition(38, "KnownPlayerEmbedConfigResolver")
+        Definition(38, "KnownPlayerEmbedConfigResolver"),
+        Definition(39, "PixelPlayerConfigDiagnostic")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -111,13 +112,13 @@ internal object WebteIzleResolverBank {
         "vidmoly.to" to "VidMoly",
         "vidmoly.me" to "VidMoly",
         "vidmoly.net" to "VidMoly",
-        "vidmoly.sx" to "VidMoly",
+        "vidmoly.biz" to "VidMoly",
         "filemoon.to" to "Filemoon",
         "filemoon.sx" to "Filemoon",
         "filemoon.in" to "Filemoon",
-        "filemoon.nl" to "Filemoon",
         "pixeldrain.com" to "PixelDrain",
         "pixeldra.in" to "PixelDrain",
+        "pixeldrain.dev" to "PixelDrain",
         "ok.ru" to "OK.ru",
         "odnoklassniki.ru" to "OK.ru"
     )
@@ -153,7 +154,8 @@ internal object WebteIzleResolverBank {
         baseUrl: String,
         observedAjaxResponse: Boolean = false,
         manualNetworkEvidence: List<String> = emptyList(),
-        nestedIframeUrls: List<String>? = null
+        nestedIframeUrls: List<String>? = null,
+        hintedPlayerName: String? = null
     ): List<WebteIzleResolverAttempt> {
         val document = Jsoup.parse(html, baseUrl)
         val scripts = document.select("script").map { it.data().ifBlank { it.html() } }
@@ -348,6 +350,18 @@ internal object WebteIzleResolverBank {
                         WebteIzleCandidateKind.PLAYER
                     )
                 }
+        }
+
+        // 39 — the source-list label may mention Pixel while the embed fragment contains no
+        // verified host URL or mapping function. Record the signal, but deliberately do not
+        // fabricate a Pixel domain/URL. The actual current host must be observed first.
+        if (hintedPlayerName?.contains("pixel", ignoreCase = true) == true ||
+            Regex("""(?i)\bpixel(?:player)?\s*\(""").containsMatchIn(html)
+        ) {
+            signal(
+                39,
+                "Pixel player hint observed, but no verified URL template/host mapping is known; no URL synthesized. Inspect the actual embed response; Cloudflare/Turnstile, if present, remains BLOCKED."
+            )
         }
 
         // 15 — direct iframe discovery.
