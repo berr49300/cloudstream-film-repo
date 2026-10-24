@@ -7,10 +7,10 @@ import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllThirtyNineUniqueResolverIdsAndNames() {
+    fun inventoryHasAllFortyUniqueResolverIdsAndNames() {
         val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..39).toList(), attempts.map { it.resolverId })
-        assertEquals(39, attempts.map { it.resolverName }.distinct().size)
+        assertEquals((1..40).toList(), attempts.map { it.resolverId })
+        assertEquals(40, attempts.map { it.resolverName }.distinct().size)
         assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
         assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
     }
@@ -221,6 +221,52 @@ class WebteIzleResolverBankTest {
 
         assertEquals(WebteIzleProbeStatus.SIGNAL_FOUND, attempt.status)
         assertTrue(attempt.candidates.isEmpty())
+    }
+
+
+    @Test
+    fun observedHexEscapedFileAndPlayerJsVPayloadDecodeOnlyRealMediaUrls() {
+        val expected = "https://cdn.example/episode.m3u8"
+        val escaped = expected.toByteArray(Charsets.UTF_8)
+            .joinToString("") { byte -> "\\x%02x".format(byte.toInt() and 0xff) }
+        val contiguous = expected.toByteArray(Charsets.UTF_8)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+        assertEquals(expected, WebteIzleResolverBank.decodeKnownHexUrl(escaped))
+        assertEquals(expected, WebteIzleResolverBank.decodeKnownHexUrl(contiguous))
+        assertEquals(null, WebteIzleResolverBank.decodeKnownHexUrl("some-random-token"))
+        assertEquals(null, WebteIzleResolverBank.decodeKnownHexUrl("https://cdn.example/episode.m3u8"))
+
+        val html = """
+            <html><body>
+              <script>var player = { file: "$escaped" };</script>
+              <iframe src="https://playerjs-three.vercel.app/?v=$contiguous"></iframe>
+            </body></html>
+        """.trimIndent()
+        val attempt = WebteIzleResolverBank.inspect(
+            html = html,
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
+        ).first { it.resolverId == 40 }
+
+        assertTrue(attempt.candidates.any { it.url == expected && it.kind == WebteIzleCandidateKind.MEDIA })
+        assertEquals(1, attempt.candidates.map { it.url }.distinct().size)
+    }
+
+    @Test
+    fun hexDecoderDoesNotConvertTrailerOrUnknownHostGuessIntoWebteIzleMedia() {
+        val youtube = "https://www.youtube.com/watch?v=trailer123"
+        val encoded = youtube.toByteArray(Charsets.UTF_8)
+            .joinToString("") { byte -> "\\x%02x".format(byte.toInt() and 0xff) }
+        val html = """<script>var file = "$encoded";</script>"""
+        val attempt = WebteIzleResolverBank.inspect(
+            html = html,
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
+        ).first { it.resolverId == 40 }
+
+        assertTrue(attempt.candidates.isEmpty())
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl(
+            WebteIzleResolverBank.decodeKnownHexUrl(encoded)!!
+        ))
     }
 
 }
