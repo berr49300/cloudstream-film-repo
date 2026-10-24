@@ -295,4 +295,52 @@ class WebteIzleResolverBankTest {
         )
     }
 
+
+    @Test
+    fun detailPageFindsOnlySameSiteDubbedAndSubtitlePlaybackRoutes() {
+        val html = """
+            <html><body>
+              <a href="/izle/altyazi/love-language">Altyazı ile izle</a>
+              <a href="/izle/dublaj/love-language">Dublaj ile izle</a>
+              <a href="https://www.youtube.com/embed/trailer-id">Fragman</a>
+              <a href="https://malicious.example/izle/altyazi/fake">external fake route</a>
+              <a href="/hakkinda/love-language">detail page</a>
+            </body></html>
+        """.trimIndent()
+
+        val routes = WebteIzleResolverBank.findPlaybackPageUrls(
+            html = html,
+            baseUrl = "https://webteizle.info/hakkinda/love-language",
+            siteBaseUrl = "https://webteizle.info"
+        )
+
+        assertEquals(
+            listOf(
+                "https://webteizle.info/izle/altyazi/love-language",
+                "https://webteizle.info/izle/dublaj/love-language"
+            ),
+            routes
+        )
+        assertTrue(routes.none { WebteIzleResolverBank.isYouTubeUrl(it) })
+        assertTrue(routes.none { it.contains("/hakkinda/") })
+    }
+
+    @Test
+    fun detailPageWithOnlyTrailerDoesNotCreatePlaybackRoute() {
+        val html = """
+            <html><body>
+              <a href="https://www.youtube.com/embed/trailer-id">Fragman</a>
+              <a href="/hakkinda/another-movie">Benzer film</a>
+            </body></html>
+        """.trimIndent()
+
+        val routes = WebteIzleResolverBank.findPlaybackPageUrls(
+            html = html,
+            baseUrl = "https://webteizle.info/hakkinda/love-language",
+            siteBaseUrl = "https://webteizle.info"
+        )
+
+        assertTrue(routes.isEmpty())
+    }
+
 }
