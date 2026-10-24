@@ -278,18 +278,22 @@ class WebteIzle : MainAPI() {
         }
 
         for ((langId, langName) in languages) {
-            val alternatives = runCatching {
+            val alternatives = try {
                 app.post("$mainUrl/ajax/dataAlternatif3.asp",
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
                     data = mapOf("filmid" to filmId, "dil" to langId, "s" to "", "b" to "", "bot" to "0")
-                ).parsedSafe<AlternativesResponse>()
-            }.getOrNull()?.data.orEmpty()
+                ).parsedSafe<AlternativesResponse>()?.data.orEmpty()
+            } catch (_: Exception) {
+                emptyList()
+            }
             for (alternative in alternatives) {
-                val embed = runCatching {
+                val embed = try {
                     app.post("$mainUrl/ajax/dataEmbed.asp",
                         headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
                         data = mapOf("id" to alternative.id.toString())).document
-                }.getOrNull() ?: continue
+                } catch (_: Exception) {
+                    continue
+                }
                 val attempts = WebteIzleResolverBank.inspect(
                     html = embed.html(),
                     baseUrl = data,
