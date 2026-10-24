@@ -114,6 +114,12 @@ class WebteIzleResolverBankTest {
             </body></html>
         """.trimIndent()
 
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://www.youtube.com/watch?v=trailer123"))
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://youtu.be/behindthescenes"))
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://www.youtube-nocookie.com/embed/clip123"))
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://r1---sn.googlevideo.com/videoplayback?id=example"))
+        assertTrue(!WebteIzleResolverBank.isYouTubeUrl("https://vidmoly.to/embed-episode123.html"))
+
         val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/hakkinda/sample")
 
         assertTrue(attempts.all { attempt ->
