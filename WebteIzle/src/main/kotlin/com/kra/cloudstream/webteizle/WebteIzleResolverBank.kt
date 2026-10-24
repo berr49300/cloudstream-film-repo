@@ -592,6 +592,27 @@ internal object WebteIzleResolverBank {
         }
     }
 
+    /**
+     * Finds only real same-site playback routes from a detail page.
+     * The movie detail URL and a YouTube trailer URL are never used as a playback route.
+     */
+    internal fun findPlaybackPageUrls(html: String, baseUrl: String, siteBaseUrl: String): List<String> {
+        val expectedHost = runCatching { URI(siteBaseUrl).host }.getOrNull() ?: return emptyList()
+        val document = Jsoup.parse(html, baseUrl)
+        return document.select("a[href*=/izle/altyazi/], a[href*=/izle/dublaj/]")
+            .mapNotNull { anchor ->
+                val url = normalizeUrl(anchor.attr("href"), baseUrl) ?: return@mapNotNull null
+                val uri = runCatching { URI(url) }.getOrNull() ?: return@mapNotNull null
+                val host = uri.host ?: return@mapNotNull null
+                if (!host.equals(expectedHost, ignoreCase = true)) return@mapNotNull null
+                if (!uri.path.contains("/izle/altyazi/", ignoreCase = true) &&
+                    !uri.path.contains("/izle/dublaj/", ignoreCase = true)
+                ) return@mapNotNull null
+                url
+            }
+            .distinct()
+    }
+
     /** Extract iframe URLs from one explicitly fetched child page (caller enforces depth/cycle limits). */
     fun findIframeUrls(html: String, baseUrl: String): List<String> {
         val doc = Jsoup.parse(html, baseUrl)
