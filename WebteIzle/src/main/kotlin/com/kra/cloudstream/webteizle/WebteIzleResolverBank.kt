@@ -599,7 +599,7 @@ internal object WebteIzleResolverBank {
     internal fun findPlaybackPageUrls(html: String, baseUrl: String, siteBaseUrl: String): List<String> {
         val expectedHost = runCatching { URI(siteBaseUrl).host }.getOrNull() ?: return emptyList()
         val document = Jsoup.parse(html, baseUrl)
-        return document.select("a[href*=/izle/altyazi/], a[href*=/izle/dublaj/]")
+        return document.select("a[href*='/izle/altyazi/'], a[href*='/izle/dublaj/']")
             .mapNotNull { anchor ->
                 val url = normalizeUrl(anchor.attr("href"), baseUrl) ?: return@mapNotNull null
                 val uri = runCatching { URI(url) }.getOrNull() ?: return@mapNotNull null
