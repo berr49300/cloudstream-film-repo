@@ -189,3 +189,12 @@ The media callback now preserves the page that supplied the candidate as its ref
 ### Pixel source evidence update
 
 A separately maintained public Webteİzle provider explicitly returns no stream for source labels `pixel` and `netu`; therefore this implementation does not invent a host pattern for Pixel. The resolver 39 signal is the deliberate result until a current, sanitized `dataEmbed.asp` response demonstrates a real Pixel iframe or public media URL. If the actual player response presents a Cloudflare/Turnstile challenge, the result remains **BLOCKED** rather than attempting a challenge bypass.
+
+
+### Playback-route correction — detail page is not the player page
+
+The provider's `loadLinks` now treats the detail URL (usually `/hakkinda/<slug>`) only as the entry point. It extracts same-host `/izle/altyazi/<slug>` and `/izle/dublaj/<slug>` links from the actual page, validates those route shapes, fetches each route with the detail URL as referer, and only then looks for `button#wip[data-id]` and requests alternatives. If neither playback link is actually present, it returns no streams and logs the missing route; it no longer scans detail-page trailers as a substitute for real sources.
+
+This route distinction is grounded by the site's public rendered detail/playback pages (the detail page links to a separate `/izle/altyazi/love-language` page where the alternatives controls appear) and is now encoded as an implementation gate. It does not infer watch slugs from title text. Both language routes are bounded/deduplicated, and the AJAX calls include the expected form content type, XHR marker, origin and playback-page referer.
+
+**Status:** code path added; source unit/build CI pending; current live raw AJAX response and real-device playback still NOT TESTED. Any Cloudflare/CAPTCHA response is classified BLOCKED; no challenge solver is added.
