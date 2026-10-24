@@ -427,7 +427,8 @@ class WebteIzle : MainAPI() {
                 val attempts = WebteIzleResolverBank.inspect(
                     html = embedHtml,
                     baseUrl = data,
-                    observedAjaxResponse = true
+                    observedAjaxResponse = true,
+                    hintedPlayerName = alternative.baslik
                 )
                 emitAttempts(attempts, langName, alternative.kalitesi)
             }
