@@ -165,12 +165,13 @@ class WebteIzleResolverBankTest {
 
     @Test
     fun observedPlayerFunctionCallsProduceKnownEmbedCandidatesUnderResolverThirtyEight() {
+        // Some AJAX responses are fragments rather than complete HTML/script documents.
         val html = """
-            <html><body><script>
+            <div>
               vidmoly('VID123abc', 'config');
               filemoon('FILE456def', 'config');
               okru('OK789xyz', 'config');
-            </script></body></html>
+            </div>
         """.trimIndent()
 
         val attempt = WebteIzleResolverBank.inspect(
