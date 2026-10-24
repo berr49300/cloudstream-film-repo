@@ -209,10 +209,19 @@ class WebteIzle : MainAPI() {
                                     "$id ${attempt.resolverName}: EXTRACTOR_ERROR — ${e.javaClass.simpleName}; URL/query omitted."
                                 )
                             }
-                            if (extractedLinks.isEmpty()) {
+                            val usableExtractedLinks = extractedLinks.filterNot {
+                                WebteIzleResolverBank.isYouTubeUrl(it.url)
+                            }
+                            extractedLinks.filter { WebteIzleResolverBank.isYouTubeUrl(it.url) }.forEach {
+                                android.util.Log.w(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: YOUTUBE_MEDIA_SUPPRESSED — extractor returned a YouTube/Google video URL; not published as a film source."
+                                )
+                            }
+                            if (usableExtractedLinks.isEmpty()) {
                                 android.util.Log.d(
                                     "WebteIzleResolver",
-                                    "$id ${attempt.resolverName}: NO_MEDIA_LINK — extractor did not return a media link for $playerLabel."
+                                    "$id ${attempt.resolverName}: NO_MEDIA_LINK — extractor did not return a non-YouTube media link for $playerLabel."
                                 )
                                 // VidMoly exposes a plain JWPlayer file field in many embeds.
                                 // If the native extractor returned no link, try a separate non-JS
@@ -268,14 +277,7 @@ class WebteIzle : MainAPI() {
                                     }
                                 }
                             }
-                            for (link in extractedLinks) {
-                                if (WebteIzleResolverBank.isYouTubeUrl(link.url)) {
-                                    android.util.Log.w(
-                                        "WebteIzleResolver",
-                                        "$id ${attempt.resolverName}: YOUTUBE_MEDIA_SUPPRESSED — extractor returned a YouTube/Google video URL; not published as a film source."
-                                    )
-                                    continue
-                                }
+                            for (link in usableExtractedLinks) {
                                 callback(newExtractorLink(
                                     source = routeLabel + " • " + playerLabel,
                                     name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
