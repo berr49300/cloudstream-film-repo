@@ -375,23 +375,57 @@ class WebteIzle : MainAPI() {
 
         for ((langId, langName) in languages) {
             val alternatives = try {
-                app.post("$mainUrl/ajax/dataAlternatif3.asp",
+                val response = app.post(
+                    "$mainUrl/ajax/dataAlternatif3.asp",
                     headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
                     data = mapOf("filmid" to filmId, "dil" to langId, "s" to "", "b" to "", "bot" to "0")
-                ).parsedSafe<AlternativesResponse>()?.data.orEmpty()
-            } catch (_: Exception) {
+                )
+                val parsed = response.parsedSafe<AlternativesResponse>()
+                if (parsed == null) {
+                    val body = runCatching { response.text }.getOrNull().orEmpty()
+                    if (reportAccessChallenge("dataAlternatif3.asp", body)) {
+                        emptyList()
+                    } else {
+                        android.util.Log.w(
+                            "WebteIzleResolver",
+                            "19 ObservedAjaxResolver: NOT TESTED — alternatives response was not parseable; current payload shape/status is unknown."
+                        )
+                        emptyList()
+                    }
+                } else {
+                    if (parsed.data.isEmpty()) {
+                        android.util.Log.d(
+                            "WebteIzleResolver",
+                            "19 ObservedAjaxResolver: NOT TESTED — parsed response contained no alternatives; an empty list does not prove the film has no source."
+                        )
+                    }
+                    parsed.data
+                }
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "WebteIzleResolver",
+                    "19 ObservedAjaxResolver: BLOCKED/NOT TESTED — alternatives request failed (${e.javaClass.simpleName}); no bypass attempted."
+                )
                 emptyList()
             }
             for (alternative in alternatives) {
                 val embed = try {
-                    app.post("$mainUrl/ajax/dataEmbed.asp",
+                    app.post(
+                        "$mainUrl/ajax/dataEmbed.asp",
                         headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
-                        data = mapOf("id" to alternative.id.toString())).document
-                } catch (_: Exception) {
+                        data = mapOf("id" to alternative.id.toString())
+                    ).document
+                } catch (e: Exception) {
+                    android.util.Log.w(
+                        "WebteIzleResolver",
+                        "19 ObservedAjaxResolver: BLOCKED/NOT TESTED — dataEmbed.asp request failed (${e.javaClass.simpleName}); URL omitted."
+                    )
                     continue
                 }
+                val embedHtml = embed.html()
+                if (reportAccessChallenge("dataEmbed.asp", embedHtml)) continue
                 val attempts = WebteIzleResolverBank.inspect(
-                    html = embed.html(),
+                    html = embedHtml,
                     baseUrl = data,
                     observedAjaxResponse = true
                 )
