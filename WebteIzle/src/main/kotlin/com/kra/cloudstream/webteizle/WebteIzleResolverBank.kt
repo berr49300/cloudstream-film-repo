@@ -317,8 +317,7 @@ internal object WebteIzleResolverBank {
         // These templates come from public CloudStream provider references, not from bypassing
         // Cloudflare or from arbitrary ID-to-URL guessing. Both observed VidMoly host variants
         // are retained as separate test candidates because old references disagree on the host.
-        scripts.forEach { body ->
-            knownPlayerConfigRegex.findAll(body).forEach { match ->
+        knownPlayerConfigRegex.findAll(html).forEach { match ->
                 val family = match.groupValues[1].lowercase()
                 val playerId = match.groupValues[2]
                 when (family) {
@@ -349,7 +348,6 @@ internal object WebteIzleResolverBank {
                         WebteIzleCandidateKind.PLAYER
                     )
                 }
-            }
         }
 
         // 15 — direct iframe discovery.
