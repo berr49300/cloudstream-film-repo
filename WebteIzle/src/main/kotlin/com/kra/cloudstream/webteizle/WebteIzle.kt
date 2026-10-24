@@ -3,10 +3,12 @@ package com.kra.cloudstream.webteizle
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import java.net.URLEncoder
 
 /** Initial adapter; see docs/sites/WEBTEIZLE.md for unverified live-site assumptions. */
 class WebteIzle : MainAPI() {
+    private val alternativesMapper by lazy { jacksonObjectMapper() }
     override var mainUrl = "https://webteizle.info"
     override var name = "WebteIzle"
     override var lang = "tr"
@@ -25,6 +27,20 @@ class WebteIzle : MainAPI() {
 
     private fun Element.attrFirst(vararg names: String): String? =
         names.firstNotNullOfOrNull { attr(it).takeIf(String::isNotBlank) }
+
+    /**
+     * Challenge detection only. This deliberately does not try to solve or bypass
+     * Cloudflare/CAPTCHA; the caller fails closed so challenge HTML is not parsed
+     * as a catalogue, movie detail, or video-player response.
+     */
+    private fun reportAccessChallenge(context: String, html: String): Boolean {
+        if (!WebteIzleResolverBank.isAccessChallenge(html)) return false
+        android.util.Log.w(
+            "WebteIzleResolver",
+            "34 SessionDependentSourceDiagnostic: BLOCKED — Cloudflare/CAPTCHA challenge detected during $context; no bypass attempted."
+        )
+        return true
+    }
 
     private fun Element.toMovie(): SearchResponse? {
         val a = selectFirst("a[href*=/hakkinda/], a[href*=/film/]") ?: return null
@@ -47,7 +63,18 @@ class WebteIzle : MainAPI() {
         // Observed pagination links use /film-izle/2 and /yeni-filmler/2,
         // not the guessed /page/2 route.
         val url = if (page <= 1) request.data else "$base/$page"
-        val doc = app.get(url).document
+        val doc = try {
+            app.get(url).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — catalogue request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return newHomePageResponse(request.name, emptyList())
+        }
+        if (reportAccessChallenge("getMainPage", doc.html())) {
+            return newHomePageResponse(request.name, emptyList())
+        }
         return newHomePageResponse(request.name,
             doc.select("div.golgever, .film-kart, .film-card, article, .movie-item")
                 .mapNotNull { it.toMovie() }.distinctBy { it.url })
@@ -57,14 +84,32 @@ class WebteIzle : MainAPI() {
         // A public reference implementation uses the site's legacy Turkish encoding.
         // Keep this hypothesis visible until live search parity is verified.
         val encoded = URLEncoder.encode(query, "ISO-8859-9")
-        val doc = app.get("$mainUrl/filtre?a=$encoded", referer = "$mainUrl/").document
+        val doc = try {
+            app.get("$mainUrl/filtre?a=$encoded", referer = "$mainUrl/").document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — search request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return emptyList()
+        }
+        if (reportAccessChallenge("search", doc.html())) return emptyList()
         return doc.select("div.golgever, .film-kart, .film-card, article, .movie-item")
             .mapNotNull { it.toMovie() }.distinctBy { it.url }
     }
     override suspend fun quickSearch(query: String): List<SearchResponse> = search(query)
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url).document
+        val doc = try {
+            app.get(url).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — detail request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return null
+        }
+        if (reportAccessChallenge("load", doc.html())) return null
         val title = doc.selectFirst("meta[property=og:title]")?.attr("content")?.substringBefore(" izle")?.trim()
             ?.takeIf(String::isNotBlank) ?: doc.selectFirst("h1")?.text()?.trim()?.takeIf(String::isNotBlank)
             ?: return null
@@ -83,18 +128,118 @@ class WebteIzle : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(data: String, isCasting: Boolean,
+    /**
+     * Resolve the movie-detail page to its actual playback route before asking for sources.
+     * The site's /hakkinda/<slug> page contains language/watch links, while button#wip and the
+     * alternative-player AJAX chain live on /izle/altyazi/<slug> or /izle/dublaj/<slug>.
+     */
+    private fun normalizePlaybackPageUrl(raw: String): String? {
+        val absolute = fixUrlNull(raw) ?: return null
+        val uri = runCatching { java.net.URI(absolute) }.getOrNull() ?: return null
+        val host = uri.host ?: return null
+        val expectedHost = runCatching { java.net.URI(mainUrl).host }.getOrNull() ?: return null
+        if (!host.equals(expectedHost, ignoreCase = true)) return null
+        if (!uri.path.contains("/izle/altyazi/", ignoreCase = true) &&
+            !uri.path.contains("/izle/dublaj/", ignoreCase = true)
+        ) return null
+        return absolute
+    }
+
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val rootPage = try {
+            app.get(data).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — initial page request failed (${e.javaClass.simpleName}); no bypass attempted."
+            )
+            return false
+        }
+        if (reportAccessChallenge("loadLinks root page", rootPage.html())) return false
+
+        val watchPages = linkedSetOf<String>()
+        if (data.contains("/izle/altyazi/", ignoreCase = true) ||
+            data.contains("/izle/dublaj/", ignoreCase = true)
+        ) {
+            normalizePlaybackPageUrl(data)?.let(watchPages::add)
+        }
+        // Links on the /hakkinda page are the source of truth; only same-site playback routes qualify.
+        watchPages.addAll(
+            WebteIzleResolverBank.findPlaybackPageUrls(
+                html = rootPage.html(),
+                baseUrl = data,
+                siteBaseUrl = mainUrl
+            )
+        )
+
+        if (watchPages.isEmpty()) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "19 ObservedAjaxResolver: NOT TESTED — no /izle/altyazi/ or /izle/dublaj/ link was present on the loaded page; refusing to treat a detail page or trailer as the movie stream."
+            )
+            return false
+        }
+
+        var emitted = false
+        // A film can have one or both language routes. Bound work and avoid processing the same route twice.
+        watchPages.take(6).forEach { watchUrl ->
+            emitted = loadLinksForWatchPage(
+                data = watchUrl,
+                refererPage = data,
+                isCasting = isCasting,
+                subtitleCallback = subtitleCallback,
+                callback = callback
+            ) || emitted
+        }
+        return emitted
+    }
+
+    private suspend fun loadLinksForWatchPage(data: String, refererPage: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val page = app.get(data).document
+        val page = try {
+            app.get(data, referer = refererPage).document
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "WebteIzleResolver",
+                "34 SessionDependentSourceDiagnostic: BLOCKED/NOT TESTED — detail request failed (${e.javaClass.simpleName}); access controls are not bypassed."
+            )
+            return false
+        }
+        val pageHtml = page.html()
+        val accessChallenge = reportAccessChallenge("loadLinks", pageHtml)
+        if (accessChallenge) return false
         val filmId = page.selectFirst("button#wip")?.attr("data-id")?.takeIf { it.isNotBlank() }
-        val languages = buildList {
-            if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
-            if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
+        val routeLanguage = when {
+            data.contains("/izle/dublaj/", ignoreCase = true) -> "0" to "Dublaj"
+            data.contains("/izle/altyazi/", ignoreCase = true) -> "1" to "Altyazı"
+            else -> null
+        }
+        val languages = if (routeLanguage != null) {
+            listOf(routeLanguage)
+        } else {
+            buildList {
+                if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
+                if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
+            }
         }
         var emitted = false
         val fetchedIframePages = linkedSetOf<String>()
         val fetchedManifestUrls = linkedSetOf<String>()
         val headCheckedMediaUrls = linkedSetOf<String>()
+        // Multiple AJAX language tabs or overlapping scanner passes may contain the exact same
+        // URL. Keep one entry per resolver ID / candidate URL / kind so IDs remain testable
+        // without repeating one source several times under the same method.
+        val seenCandidateKeys = linkedSetOf<String>()
+        val emittedVidMolyMasters = linkedSetOf<String>()
+
+        fun candidateReferer(candidate: WebteIzleResolverCandidate): String =
+            candidate.sourcePageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: data
+
         val maxNestedPlayerPages = 8
         val maxManifests = 8
         val maxMediaHeadChecks = 8
@@ -114,26 +259,111 @@ class WebteIzle : MainAPI() {
                 )
                 for (candidate in attempt.candidates) {
                     val id = attempt.resolverId.toString().padStart(2, '0')
+                    val candidateKey = "$id|${candidate.kind}|${candidate.url}|${candidate.language.orEmpty()}"
+                    if (!seenCandidateKeys.add(candidateKey)) {
+                        android.util.Log.d(
+                            "WebteIzleResolver",
+                            "$id ${attempt.resolverName}: DUPLICATE_SUPPRESSED — same candidate URL already processed for this resolver."
+                        )
+                        continue
+                    }
                     val baseLabel = "$id • ${attempt.resolverName} • $langName"
                     when (candidate.kind) {
                         WebteIzleCandidateKind.PLAYER -> {
                             val host = runCatching { java.net.URI(candidate.url).host }.getOrNull() ?: "unknown-player"
                             val routeLabel = if (attempt.resolverId == 17) baseLabel
                                 else "$baseLabel → 17 • ExtractorRegistryResolver"
+                            val family = WebteIzleResolverBank.playerFamily(candidate.url)
+                            val playerLabel = family?.let { "$it ($host)" } ?: host
                             val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
                             // loadExtractor's callback is non-suspending, while this provider's
                             // callback is suspend. Collect extractor results first, then emit them
                             // from the surrounding suspend function.
                             val extractedLinks = mutableListOf<ExtractorLink>()
-                            loadExtractor(candidate.url, data, subtitleCallback) { link ->
-                                // This callback is non-suspending: only collect the already-built
-                                // extractor link here. Provider callbacks run after extraction returns.
-                                extractedLinks += link
+                            try {
+                                loadExtractor(candidate.url, data, subtitleCallback) { link ->
+                                    // This callback is non-suspending: only collect the already-built
+                                    // extractor link here. Provider callbacks run after extraction returns.
+                                    extractedLinks += link
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: EXTRACTOR_ERROR — ${e.javaClass.simpleName}; URL/query omitted."
+                                )
                             }
-                            for (link in extractedLinks) {
+                            val usableExtractedLinks = extractedLinks.filterNot {
+                                WebteIzleResolverBank.isYouTubeUrl(it.url)
+                            }
+                            extractedLinks.filter { WebteIzleResolverBank.isYouTubeUrl(it.url) }.forEach {
+                                android.util.Log.w(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: YOUTUBE_MEDIA_SUPPRESSED — extractor returned a YouTube/Google video URL; not published as a film source."
+                                )
+                            }
+                            if (usableExtractedLinks.isEmpty()) {
+                                android.util.Log.d(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: NO_MEDIA_LINK — extractor did not return a non-YouTube media link for $playerLabel."
+                                )
+                                // VidMoly exposes a plain JWPlayer file field in many embeds.
+                                // If the native extractor returned no link, try a separate non-JS
+                                // fallback. If the normal request gets a challenge, report BLOCKED.
+                                if (family == "VidMoly") {
+                                    val playerHtml = try {
+                                        app.get(
+                                            candidate.url,
+                                            headers = mapOf("Sec-Fetch-Dest" to "iframe"),
+                                            referer = "$mainUrl/"
+                                        ).text
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                    when {
+                                        playerHtml.isNullOrBlank() -> android.util.Log.d(
+                                            "WebteIzleResolver",
+                                            "41 VidMolyMasterPlaylistResolver: NOT TESTED — embed response unavailable."
+                                        )
+                                        WebteIzleResolverBank.isAccessChallenge(playerHtml) -> android.util.Log.w(
+                                            "WebteIzleResolver",
+                                            "41 VidMolyMasterPlaylistResolver: BLOCKED — VidMoly returned a Cloudflare/CAPTCHA challenge; no bypass attempted."
+                                        )
+                                        else -> {
+                                            val master = WebteIzleResolverBank.extractVidMolyMasterPlaylist(playerHtml)
+                                            if (master == null) {
+                                                android.util.Log.d(
+                                                    "WebteIzleResolver",
+                                                    "41 VidMolyMasterPlaylistResolver: NOT FOUND — no absolute .m3u8 file field in the embed response."
+                                                )
+                                            } else if (emittedVidMolyMasters.add(master)) {
+                                                val playerReferer = runCatching {
+                                                    val uri = java.net.URI(candidate.url)
+                                                    "${uri.scheme}://${uri.authority}/"
+                                                }.getOrDefault("$mainUrl/")
+                                                callback(newExtractorLink(
+                                                    source = "41 • VidMolyMasterPlaylistResolver",
+                                                    name = "41 • VidMolyMasterPlaylistResolver • $langName • VidMoly • HLS • Aday • $qualityLabel",
+                                                    url = master,
+                                                    type = ExtractorLinkType.M3U8
+                                                ) {
+                                                    referer = playerReferer
+                                                    quality = fallbackQuality?.takeIf { it > 0 } ?: getQualityFromName(master)
+                                                })
+                                                emitted = true
+                                            } else {
+                                                android.util.Log.d(
+                                                    "WebteIzleResolver",
+                                                    "41 VidMolyMasterPlaylistResolver: DUPLICATE_SUPPRESSED — same master URL already emitted."
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            for (link in usableExtractedLinks) {
                                 callback(newExtractorLink(
-                                    source = routeLabel + " • " + host,
-                                    name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
+                                    source = routeLabel + " • " + playerLabel,
+                                    name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
                                     url = link.url,
                                     type = link.type
                                 ) {
@@ -153,7 +383,7 @@ class WebteIzle : MainAPI() {
                             ) {
                                 fetchedIframePages += candidate.url
                                 val childHtml = try {
-                                    app.get(candidate.url, referer = data).text
+                                    app.get(candidate.url, referer = candidateReferer(candidate)).text
                                 } catch (_: Exception) {
                                     null
                                 }
@@ -162,13 +392,19 @@ class WebteIzle : MainAPI() {
                                         "WebteIzleResolver",
                                         "16 NestedIframeResolver: NOT TESTED — child player response unavailable"
                                     )
+                                } else if (WebteIzleResolverBank.isAccessChallenge(childHtml)) {
+                                    android.util.Log.w(
+                                        "WebteIzleResolver",
+                                        "34 SessionDependentSourceDiagnostic: BLOCKED — child player returned Cloudflare/CAPTCHA challenge HTML; no bypass attempted."
+                                    )
                                 } else {
                                     val nestedUrls = WebteIzleResolverBank.findIframeUrls(childHtml, candidate.url)
                                         .filterNot { it == candidate.url }
                                     val nestedAttempts = WebteIzleResolverBank.inspect(
                                         html = childHtml,
                                         baseUrl = candidate.url,
-                                        nestedIframeUrls = nestedUrls
+                                        nestedIframeUrls = nestedUrls,
+                                        refererUrl = candidate.url
                                     )
                                     emitAttempts(
                                         attempts = nestedAttempts,
@@ -195,7 +431,7 @@ class WebteIzle : MainAPI() {
                                 url = candidate.url,
                                 type = mediaType
                             ) {
-                                referer = data
+                                referer = candidateReferer(candidate)
                                 this.quality = quality
                             })
                             emitted = true
@@ -208,7 +444,7 @@ class WebteIzle : MainAPI() {
                             ) {
                                 fetchedManifestUrls += candidate.url
                                 val manifest = try {
-                                    app.get(candidate.url, referer = data).text
+                                    app.get(candidate.url, referer = candidateReferer(candidate)).text
                                 } catch (_: Exception) {
                                     null
                                 }
@@ -226,7 +462,8 @@ class WebteIzle : MainAPI() {
                                 if (!manifest.isNullOrBlank() && validManifest) {
                                     val manifestAttempts = WebteIzleResolverBank.inspect(
                                         html = manifest,
-                                        baseUrl = candidate.url
+                                        baseUrl = candidate.url,
+                                        refererUrl = candidateReferer(candidate)
                                     )
                                     emitAttempts(
                                         attempts = manifestAttempts,
@@ -242,7 +479,7 @@ class WebteIzle : MainAPI() {
                             ) {
                                 headCheckedMediaUrls += candidate.url
                                 val contentType = try {
-                                    val headers = app.head(candidate.url, referer = data).headers
+                                    val headers = app.head(candidate.url, referer = candidateReferer(candidate)).headers
                                     headers["Content-Type"] ?: headers["content-type"]
                                 } catch (_: Exception) {
                                     null
@@ -267,12 +504,16 @@ class WebteIzle : MainAPI() {
         }
 
         // Inspect the detail document too; a direct source must not depend on AJAX succeeding.
-        emitAttempts(WebteIzleResolverBank.inspect(page.html(), data), "Sayfa")
+        emitAttempts(WebteIzleResolverBank.inspect(pageHtml, data), "Sayfa")
 
         if (filmId == null) {
             android.util.Log.d(
                 "WebteIzleResolver",
-                "19 ObservedAjaxResolver: NOT TESTED — button#wip/data-id was absent; direct-page candidates were still scanned"
+                if (accessChallenge) {
+                    "34 SessionDependentSourceDiagnostic: BLOCKED — Cloudflare/CAPTCHA response has no movie ID; direct-page scan only, no bypass attempted."
+                } else {
+                    "19 ObservedAjaxResolver: NOT TESTED — button#wip/data-id was absent; direct-page candidates were still scanned."
+                }
             )
             return emitted
         }
@@ -286,25 +527,76 @@ class WebteIzle : MainAPI() {
 
         for ((langId, langName) in languages) {
             val alternatives = try {
-                app.post("$mainUrl/ajax/dataAlternatif3.asp",
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
+                val response = app.post(
+                    "$mainUrl/ajax/dataAlternatif3.asp",
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Origin" to mainUrl,
+                        "Referer" to data
+                    ),
                     data = mapOf("filmid" to filmId, "dil" to langId, "s" to "", "b" to "", "bot" to "0")
-                ).parsedSafe<AlternativesResponse>()?.data.orEmpty()
-            } catch (_: Exception) {
+                )
+                // Read the body once so a challenge HTML page can be identified before JSON parsing.
+                val body = response.text
+                if (reportAccessChallenge("dataAlternatif3.asp", body)) {
+                    emptyList()
+                } else {
+                    val parsed = runCatching {
+                        alternativesMapper.readValue(body, AlternativesResponse::class.java)
+                    }.getOrNull()
+                    if (parsed == null) {
+                        android.util.Log.w(
+                            "WebteIzleResolver",
+                            "19 ObservedAjaxResolver: NOT TESTED — alternatives response was not parseable; current payload shape/status is unknown."
+                        )
+                        emptyList()
+                    } else {
+                        if (parsed.data.isEmpty()) {
+                            android.util.Log.d(
+                                "WebteIzleResolver",
+                                "19 ObservedAjaxResolver: NOT TESTED — parsed response contained no alternatives; an empty list does not prove the film has no source."
+                            )
+                        }
+                        parsed.data
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "WebteIzleResolver",
+                    "19 ObservedAjaxResolver: BLOCKED/NOT TESTED — alternatives request failed (${e.javaClass.simpleName}); no bypass attempted."
+                )
                 emptyList()
             }
             for (alternative in alternatives) {
                 val embed = try {
-                    app.post("$mainUrl/ajax/dataEmbed.asp",
-                        headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to data),
-                        data = mapOf("id" to alternative.id.toString())).document
-                } catch (_: Exception) {
+                    app.post(
+                        "$mainUrl/ajax/dataEmbed.asp",
+                        headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Origin" to mainUrl,
+                        "Referer" to data
+                    ),
+                        data = mapOf("id" to alternative.id.toString())
+                    ).document
+                } catch (e: Exception) {
+                    android.util.Log.w(
+                        "WebteIzleResolver",
+                        "19 ObservedAjaxResolver: BLOCKED/NOT TESTED — dataEmbed.asp request failed (${e.javaClass.simpleName}); URL omitted."
+                    )
                     continue
                 }
+                val embedHtml = embed.html()
+                if (reportAccessChallenge("dataEmbed.asp", embedHtml)) continue
                 val attempts = WebteIzleResolverBank.inspect(
-                    html = embed.html(),
-                    baseUrl = data,
-                    observedAjaxResponse = true
+                    html = embedHtml,
+                    // AJAX embed fragments use the site's origin as their relative-URL base;
+                    // using the film detail URL here can mis-resolve relative iframe paths.
+                    baseUrl = "$mainUrl/ajax/dataEmbed.asp",
+                    observedAjaxResponse = true,
+                    hintedPlayerName = alternative.baslik,
+                    refererUrl = data
                 )
                 emitAttempts(attempts, langName, alternative.kalitesi)
             }
