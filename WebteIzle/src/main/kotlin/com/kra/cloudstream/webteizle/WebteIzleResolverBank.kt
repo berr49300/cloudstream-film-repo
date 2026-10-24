@@ -82,7 +82,7 @@ internal object WebteIzleResolverBank {
         Definition(37, "ManualNetworkEvidenceResolver")
     )
 
-    private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
+    private val urlRegex = Regex("""(?i)https?://[^\s"'<>\]+""")
     private val keyUrlRegex = Regex(
         """(?is)["']?(?:file|src|url|source|contentUrl|embedUrl|hls|manifest)["']?\s*:\s*["']([^"']+)["']"""
     )
