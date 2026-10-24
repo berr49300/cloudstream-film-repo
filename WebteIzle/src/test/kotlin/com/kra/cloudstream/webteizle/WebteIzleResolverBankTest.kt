@@ -7,10 +7,10 @@ import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllThirtySevenUniqueResolverIdsAndNames() {
+    fun inventoryHasAllThirtyEightUniqueResolverIdsAndNames() {
         val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..37).toList(), attempts.map { it.resolverId })
-        assertEquals(37, attempts.map { it.resolverName }.distinct().size)
+        assertEquals((1..38).toList(), attempts.map { it.resolverId })
+        assertEquals(38, attempts.map { it.resolverName }.distinct().size)
         assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
         assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
     }
@@ -160,6 +160,31 @@ class WebteIzleResolverBankTest {
 
         assertTrue(WebteIzleResolverBank.isAccessChallenge(challenge))
         assertTrue(!WebteIzleResolverBank.isAccessChallenge(normal))
+    }
+
+
+    @Test
+    fun observedPlayerFunctionCallsProduceKnownEmbedCandidatesUnderResolverThirtyEight() {
+        val html = """
+            <html><body><script>
+              vidmoly('VID123abc', 'config');
+              filemoon('FILE456def', 'config');
+              okru('OK789xyz', 'config');
+            </script></body></html>
+        """.trimIndent()
+
+        val attempt = WebteIzleResolverBank.inspect(
+            html,
+            "https://webteizle.info/ajax/dataEmbed.asp"
+        ).first { it.resolverId == 38 }
+
+        val urls = attempt.candidates.map { it.url }
+        assertTrue(urls.contains("https://vidmoly.net/embed-VID123abc.html"))
+        assertTrue(urls.contains("https://vidmoly.to/embed-VID123abc.html"))
+        assertTrue(urls.contains("https://filemoon.sx/e/FILE456def"))
+        assertTrue(urls.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
+        assertEquals(4, urls.distinct().size)
+        assertTrue(attempt.candidates.all { it.kind == WebteIzleCandidateKind.PLAYER })
     }
 
 }
