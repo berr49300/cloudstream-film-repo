@@ -86,7 +86,7 @@ class WebteIzle : MainAPI() {
     override suspend fun loadLinks(data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val page = app.get(data).document
-        val filmId = page.selectFirst("button#wip")?.attr("data-id") ?: return false
+        val filmId = page.selectFirst("button#wip")?.attr("data-id")?.takeIf { it.isNotBlank() }
         val languages = buildList {
             if (page.selectFirst("div.golge a[href*=dublaj]") != null) add("0" to "Dublaj")
             if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
@@ -226,9 +226,8 @@ class WebteIzle : MainAPI() {
                             ) {
                                 headCheckedMediaUrls += candidate.url
                                 val contentType = runCatching {
-                                    app.head(candidate.url, referer = data).headers.entries
-                                        .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
-                                        ?.value
+                                    val headers = app.head(candidate.url, referer = data).headers
+                                    headers["Content-Type"] ?: headers["content-type"]
                                 }.getOrNull()
                                 val responseStatus = if (contentType.isNullOrBlank()) {
                                     "NOT TESTED — HEAD failed or Content-Type unavailable"
@@ -251,6 +250,21 @@ class WebteIzle : MainAPI() {
 
         // Inspect the detail document too; a direct source must not depend on AJAX succeeding.
         emitAttempts(WebteIzleResolverBank.inspect(page.html(), data), "Sayfa")
+
+        if (filmId == null) {
+            android.util.Log.d(
+                "WebteIzleResolver",
+                "19 ObservedAjaxResolver: NOT TESTED — button#wip/data-id was absent; direct-page candidates were still scanned"
+            )
+            return emitted
+        }
+        if (languages.isEmpty()) {
+            android.util.Log.d(
+                "WebteIzleResolver",
+                "19 ObservedAjaxResolver: NOT TESTED — no recognised language/playback link was present on the detail page"
+            )
+            return emitted
+        }
 
         for ((langId, langName) in languages) {
             val alternatives = runCatching {
