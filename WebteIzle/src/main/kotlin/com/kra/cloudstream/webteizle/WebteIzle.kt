@@ -92,11 +92,19 @@ class WebteIzle : MainAPI() {
             if (page.selectFirst("div.golge a[href*=altyazi]") != null) add("1" to "Altyazı")
         }
         var emitted = false
+        val fetchedIframePages = linkedSetOf<String>()
+        val fetchedManifestUrls = linkedSetOf<String>()
+        val headCheckedMediaUrls = linkedSetOf<String>()
+        val maxNestedPlayerPages = 8
+        val maxManifests = 8
+        val maxMediaHeadChecks = 8
 
         suspend fun emitAttempts(
             attempts: List<WebteIzleResolverAttempt>,
             langName: String,
-            fallbackQuality: Int? = null
+            fallbackQuality: Int? = null,
+            probeNestedPages: Boolean = true,
+            probeManifests: Boolean = true
         ) {
             attempts.forEach { attempt ->
                 // IDs/statuses are logged without URLs, tokens, or player query strings.
@@ -114,29 +122,124 @@ class WebteIzle : MainAPI() {
                                 else "$baseLabel → 17 • ExtractorRegistryResolver"
                             val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
                             loadExtractor(candidate.url, data, subtitleCallback) { link ->
-                                callback(ExtractorLink(
+                                callback(newExtractorLink(
                                     source = routeLabel + " • " + host,
-                                    name = routeLabel + " • " + host + " • " + qualityLabel,
+                                    name = routeLabel + " • " + host + " • Aday • " + qualityLabel,
                                     url = link.url,
-                                    referer = link.referer,
-                                    quality = link.quality,
-                                    headers = link.headers,
-                                    extractorData = link.extractorData,
                                     type = link.type
-                                ))
+                                ) {
+                                    referer = link.referer
+                                    quality = link.quality
+                                    headers = link.headers
+                                    extractorData = link.extractorData
+                                    audioTracks = link.audioTracks
+                                })
                                 emitted = true
+                            }
+
+                            // Follow a bounded, one-hop iframe chain only from directly discovered
+                            // iframe candidates. The host is not logged with URL query parameters.
+                            if (probeNestedPages && attempt.resolverId == 15 &&
+                                candidate.url !in fetchedIframePages &&
+                                fetchedIframePages.size < maxNestedPlayerPages
+                            ) {
+                                fetchedIframePages += candidate.url
+                                val childHtml = runCatching { app.get(candidate.url, referer = data).text }.getOrNull()
+                                if (childHtml.isNullOrBlank()) {
+                                    android.util.Log.d(
+                                        "WebteIzleResolver",
+                                        "16 NestedIframeResolver: NOT TESTED — child player response unavailable"
+                                    )
+                                } else {
+                                    val nestedUrls = WebteIzleResolverBank.findIframeUrls(childHtml, candidate.url)
+                                        .filterNot { it == candidate.url }
+                                    val nestedAttempts = WebteIzleResolverBank.inspect(
+                                        html = childHtml,
+                                        baseUrl = candidate.url,
+                                        nestedIframeUrls = nestedUrls
+                                    )
+                                    emitAttempts(
+                                        attempts = nestedAttempts,
+                                        langName = "$langName iframe",
+                                        fallbackQuality = fallbackQuality,
+                                        probeNestedPages = false,
+                                        probeManifests = false
+                                    )
+                                }
                             }
                         }
                         WebteIzleCandidateKind.MEDIA -> {
+                            val path = candidate.url.substringBefore('?').substringBefore('#')
+                            val extension = path.substringAfterLast('.', "").lowercase()
                             val quality = fallbackQuality ?: getQualityFromName(candidate.url)
-                            callback(ExtractorLink(
+                            val mediaType = when (extension) {
+                                "m3u8" -> ExtractorLinkType.M3U8
+                                "mpd" -> ExtractorLinkType.DASH
+                                else -> null
+                            }
+                            callback(newExtractorLink(
                                 source = baseLabel,
-                                name = "$baseLabel • ${candidate.url.substringBefore('?').substringAfterLast('.').ifBlank { "media" }} • ${quality}p",
+                                name = "$baseLabel • ${extension.ifBlank { "media" }.uppercase()} • Aday • ${quality}p",
                                 url = candidate.url,
-                                referer = data,
-                                quality = quality
-                            ))
+                                type = mediaType
+                            ) {
+                                referer = data
+                                this.quality = quality
+                            })
                             emitted = true
+
+                            // Read actual playlist/manifest bodies when a discovered candidate is
+                            // a manifest. Do not download direct media files merely to inspect them.
+                            if (probeManifests && extension in setOf("m3u8", "mpd") &&
+                                candidate.url !in fetchedManifestUrls &&
+                                fetchedManifestUrls.size < maxManifests
+                            ) {
+                                fetchedManifestUrls += candidate.url
+                                val manifest = runCatching { app.get(candidate.url, referer = data).text }.getOrNull()
+                                val validManifest = when (extension) {
+                                    "m3u8" -> manifest?.contains("#EXTM3U") == true
+                                    "mpd" -> manifest?.contains("<MPD", ignoreCase = true) == true
+                                    else -> false
+                                }
+                                android.util.Log.d(
+                                    "WebteIzleResolver",
+                                    "${if (extension == "m3u8") "23 HlsMasterPlaylistResolver" else "25 DashManifestResolver"}: " +
+                                        if (validManifest) "RESPONSE_VALID — expected manifest marker found"
+                                        else "NOT TESTED/INVALID — manifest body unavailable or expected marker absent"
+                                )
+                                if (!manifest.isNullOrBlank() && validManifest) {
+                                    val manifestAttempts = WebteIzleResolverBank.inspect(
+                                        html = manifest,
+                                        baseUrl = candidate.url
+                                    )
+                                    emitAttempts(
+                                        attempts = manifestAttempts,
+                                        langName = "$langName $extension",
+                                        fallbackQuality = fallbackQuality,
+                                        probeNestedPages = false,
+                                        probeManifests = false
+                                    )
+                                }
+                            } else if (probeManifests && extension in setOf("mp4", "m4v", "webm", "mkv", "avi", "mov") &&
+                                candidate.url !in headCheckedMediaUrls &&
+                                headCheckedMediaUrls.size < maxMediaHeadChecks
+                            ) {
+                                headCheckedMediaUrls += candidate.url
+                                val contentType = runCatching {
+                                    app.head(candidate.url, referer = data).headers.entries
+                                        .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
+                                        ?.value
+                                }.getOrNull()
+                                val responseStatus = if (contentType.isNullOrBlank()) {
+                                    "NOT TESTED — HEAD failed or Content-Type unavailable"
+                                } else {
+                                    "RESPONSE_VALID? — HEAD returned Content-Type=$contentType; validate byte ranges and actual playback separately"
+                                }
+                                android.util.Log.d(
+                                    "WebteIzleResolver",
+                                    "26/27 DirectMediaFileResolver: $responseStatus"
+                                )
+                            }
                         }
                         WebteIzleCandidateKind.SUBTITLE -> {
                             subtitleCallback(SubtitleFile(candidate.language ?: "Altyazı", candidate.url))
