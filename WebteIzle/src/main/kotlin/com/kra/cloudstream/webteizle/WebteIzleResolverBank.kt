@@ -20,7 +20,8 @@ internal data class WebteIzleResolverCandidate(
     val url: String,
     val kind: WebteIzleCandidateKind,
     val evidence: String,
-    val language: String? = null
+    val language: String? = null,
+    val sourcePageUrl: String? = null
 )
 
 internal data class WebteIzleResolverAttempt(
@@ -82,7 +83,8 @@ internal object WebteIzleResolverBank {
         Definition(37, "ManualNetworkEvidenceResolver"),
         Definition(38, "KnownPlayerEmbedConfigResolver"),
         Definition(39, "PixelPlayerConfigDiagnostic"),
-        Definition(40, "KnownHexEncodedPayloadResolver")
+        Definition(40, "KnownHexEncodedPayloadResolver"),
+        Definition(41, "VidMolyMasterPlaylistResolver")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -178,7 +180,8 @@ internal object WebteIzleResolverBank {
         observedAjaxResponse: Boolean = false,
         manualNetworkEvidence: List<String> = emptyList(),
         nestedIframeUrls: List<String>? = null,
-        hintedPlayerName: String? = null
+        hintedPlayerName: String? = null,
+        refererUrl: String = baseUrl
     ): List<WebteIzleResolverAttempt> {
         val document = Jsoup.parse(html, baseUrl)
         val scripts = document.select("script").map { it.data().ifBlank { it.html() } }
@@ -219,7 +222,8 @@ internal object WebteIzleResolverBank {
                 url = url,
                 kind = kindOverride ?: classify(url),
                 evidence = evidence,
-                language = language
+                language = language,
+                sourcePageUrl = refererUrl
             )
             val list = candidates.getOrPut(id) { mutableListOf() }
             if (list.none { it.url == item.url && it.kind == item.kind && it.language == item.language }) {
@@ -564,6 +568,23 @@ internal object WebteIzleResolverBank {
         }
     }
 
+
+    /**
+     * Reads the plain JWPlayer-style HLS file field used by observed VidMoly embed pages.
+     * This is a parser only; fetching the page and access checks remain the caller's job.
+     */
+    internal fun extractVidMolyMasterPlaylist(html: String): String? {
+        val normalized = normalizeEscapes(html)
+        val raw = Regex("""(?is)\\bfile\\s*:\\s*['"]([^'"]+\\.m3u8[^'"]*)['"]""")
+            .find(normalized)?.groupValues?.get(1) ?: return null
+        val value = raw.trim()
+        if (isYouTubeUrl(value)) return null
+        return value.takeIf {
+            (it.startsWith("https://", true) || it.startsWith("http://", true)) &&
+                extension(it) == "m3u8" &&
+                runCatching { URI(it).host?.isNotBlank() == true }.getOrDefault(false)
+        }
+    }
 
     /** Extract iframe URLs from one explicitly fetched child page (caller enforces depth/cycle limits). */
     fun findIframeUrls(html: String, baseUrl: String): List<String> {
