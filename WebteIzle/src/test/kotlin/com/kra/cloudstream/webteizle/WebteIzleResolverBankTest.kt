@@ -74,6 +74,23 @@ class WebteIzleResolverBankTest {
     }
 
     @Test
+    fun nestedIframeUrlsAreOnlyAssignedToIdSixteenAfterAChildPageIsFetched() {
+        val parentUrl = "https://player.example/embed/parent"
+        val childHtml = """<iframe src="/embed/child"></iframe>"""
+        val nested = WebteIzleResolverBank.findIframeUrls(childHtml, parentUrl)
+        val attempts = WebteIzleResolverBank.inspect(
+            html = childHtml,
+            baseUrl = parentUrl,
+            nestedIframeUrls = nested
+        )
+        val nestedAttempt = attempts.first { it.resolverId == 16 }
+
+        assertEquals("https://player.example/embed/child", nested.single())
+        assertTrue(nestedAttempt.candidates.any { it.url == "https://player.example/embed/child" })
+        assertEquals(WebteIzleProbeStatus.CANDIDATE_FOUND, nestedAttempt.status)
+    }
+
+    @Test
     fun signedUrlCandidateIsKeptUnderItsOwnIdWithoutPuttingQueryIntoReason() {
         val html = """<video src="https://cdn.example/movie.mp4?token=do-not-log&expires=999999">"""
         val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/")
