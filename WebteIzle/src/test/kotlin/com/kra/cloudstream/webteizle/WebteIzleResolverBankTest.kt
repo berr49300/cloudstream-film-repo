@@ -57,7 +57,7 @@ class WebteIzleResolverBankTest {
         )
 
         assertEquals(listOf("https://vidmoly.biz/embed-MOVIE123.html"), urls)
-        assertTrue(urls.all(WebteIzleResolverBank::isVidMolyUrl))
+        assertTrue(urls.all { WebteIzleResolverBank.isVidMolyUrl(it) })
     }
 
     @Test
