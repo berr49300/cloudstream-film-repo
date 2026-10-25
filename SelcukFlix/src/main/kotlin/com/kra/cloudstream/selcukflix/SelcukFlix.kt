@@ -820,7 +820,7 @@ class SelcukFlix : MainAPI() {
         pageDocument.select("script").forEachIndexed { index, script ->
             val text = script.data().ifBlank { script.html() }
             if (text.isNotBlank() && Regex(
-                    """(?is)(source_content|sourceContent|openPlayer|source2\\.php|iframe\\.php|player|manifest|m3u8|mpd)"""
+                    """(?is)(source_content|sourceContent|openPlayer|source2\.php|iframe\.php|player|manifest|m3u8|mpd)"""
                 ).containsMatchIn(text)
             ) {
                 payloadSurfaces.putIfAbsent("Embedded player script ${index + 1}", text)
