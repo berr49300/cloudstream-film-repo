@@ -230,6 +230,25 @@ internal object SelcukFlixResolverBank {
         return found.toList()
     }
 
+    /**
+     * Applies the visible category metadata used by the site's "Güncel Bölümler" tabs.
+     * Callers should pass card text plus relevant class/data-* attributes; a tab match is
+     * never inferred from the series title alone.
+     */
+    fun matchesEpisodeFilter(metadata: String, filter: String): Boolean {
+        val value = metadata.lowercase()
+        return when (filter.lowercase()) {
+            "all", "" -> true
+            "dub" -> Regex("""(?i)(dublaj|dubbed|turkish\\s*audio|türkçe[\\s_-]*ses|\\bdub\\b)""")
+                .containsMatchIn(value)
+            "foreign" -> Regex("""(?i)(altyazı|altyazılı|subtitled|original\\s*audio|yabancı(?:\\s+dizi)?|\\bsub\\b)""")
+                .containsMatchIn(value)
+            "anime" -> Regex("""(?i)(anime|animeler|japon[\\s_-]*animasyon|japanese[\\s_-]*animation)""")
+                .containsMatchIn(value)
+            else -> true
+        }
+    }
+
     fun resolverName(id: Int): String = resolverNames[id] ?: "UnknownResolver"
 
     fun resolverCatalog(): List<Pair<Int, String>> =
