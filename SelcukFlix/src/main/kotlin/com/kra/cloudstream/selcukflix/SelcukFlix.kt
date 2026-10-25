@@ -121,9 +121,19 @@ class SelcukFlix : MainAPI() {
                 referer = mainUrl.trimEnd('/') + "/mobil-arama"
             ).text
         } catch (error: Exception) {
+            val detail = error.message.orEmpty()
+            val blocked = Regex("""(?i)(403|forbidden|1020|1015|captcha|cloudflare|access denied)""")
+                .containsMatchIn(detail)
+            if (blocked) {
+                android.util.Log.w(
+                    "SelcukFlix",
+                    "BLOCKED at API request; access challenge/status marker detected. No workaround attempted."
+                )
+                throw ErrorLoadingException("SelcukFlix API erişimi BLOCKED (HTTP/access challenge); otomatik aşma yapılmadı.")
+            }
             val kind = error.javaClass.simpleName.ifBlank { "NetworkError" }
             throw ErrorLoadingException(
-                "SelcukFlix API isteği başarısız ($kind). /api/bg uçları .app üzerinde henüz canlı doğrulanamadı."
+                "SelcukFlix API isteği başarısız ($kind). /api/bg/searchContent .app üzerinde canlı doğrulanamadı."
             )
         }
         if (isBlocked(body, path)) {
@@ -254,6 +264,16 @@ class SelcukFlix : MainAPI() {
         val html = try {
             app.get(url, headers = browserHeaders, referer = mainUrl.trimEnd('/') + "/").text
         } catch (error: Exception) {
+            val detail = error.message.orEmpty()
+            val blocked = Regex("""(?i)(403|forbidden|1020|1015|captcha|cloudflare|access denied)""")
+                .containsMatchIn(detail)
+            if (blocked) {
+                android.util.Log.w(
+                    "SelcukFlix",
+                    "BLOCKED at page request for " + context + "; access challenge/status marker detected. No workaround attempted."
+                )
+                throw ErrorLoadingException("SelcukFlix $context erişimi BLOCKED (HTTP/access challenge); otomatik aşma yapılmadı.")
+            }
             val kind = error.javaClass.simpleName.ifBlank { "NetworkError" }
             throw ErrorLoadingException("SelcukFlix sayfasına erişilemedi ($kind).")
         }
