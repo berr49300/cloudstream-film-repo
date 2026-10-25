@@ -650,7 +650,9 @@ class SelcukFlix : MainAPI() {
     ): List<SelcukResolverCandidate> {
         val output = input.toMutableList()
         val parents = input.filter {
-            it.id == 15 && !SelcukFlixResolverBank.isPichiveIframe(it.url)
+            it.id == 15 &&
+                !SelcukFlixResolverBank.isPichiveIframe(it.url) &&
+                !SelcukFlixContentXSourceParser.canHandle(it.url)
         }
             .distinctBy { it.url }
             .take(6)
@@ -721,7 +723,7 @@ class SelcukFlix : MainAPI() {
 
         sourceItems.take(12).forEachIndexed { sourceIndex, source ->
             SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
-                subtitleCallback(SubtitleFile("35 • " + sub.language, sub.url))
+                subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url))
             }
 
             val cacheKey = source.content + "|" + episodeUrl
@@ -733,19 +735,64 @@ class SelcukFlix : MainAPI() {
                     fromObservedApi = true
                 )
             }
-            val withPichive = expandPichiveCandidates(initialCandidates, episodeUrl, subtitleCallback)
+            // The observed source_content response may contain escaped iframe markup that a generic
+            // HTML selector will not recognize. Recover only iframe URLs actually present there.
+            val sourceIframes = SelcukFlixResolverBank.extractSourceIframes(source.content, episodeUrl)
+            val allInitial = (
+                initialCandidates.filterNot { it.url in sourceIframes } +
+                    sourceIframes.map { iframe ->
+                        SelcukResolverCandidate(
+                            id = 15,
+                            url = iframe,
+                            kind = SelcukMediaKind.PLAYER,
+                            referer = episodeUrl,
+                            note = "observed source_content iframe"
+                        )
+                    }
+                ).distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer }
+            val withPichive = expandPichiveCandidates(allInitial, episodeUrl, subtitleCallback)
             val candidates = expandNestedIframeCandidates(withPichive, episodeUrl)
             if (candidates.isEmpty()) {
                 android.util.Log.w(
                     "SelcukFlix",
-                    "36 • GenericExtractorFallback: NOT TESTED; no candidate URL could be extracted from source item " +
-                        (sourceIndex + 1)
+                    "No iframe or media URL found in source item " + (sourceIndex + 1) +
+                        "; source schema may have changed."
                 )
             }
 
             candidates.forEach { candidate ->
                 val label = sourceLabel(candidate, source)
                 if (SelcukFlixResolverBank.isYouTubeUrl(candidate.url)) return@forEach
+
+                // ContentX/Pichive iframe.php hosts are dynamic; resolve the observed URL directly
+                // rather than relying on an extractor registry hostname match.
+                if (SelcukFlixContentXSourceParser.canHandle(candidate.url)) {
+                    val before = totalResolved
+                    try {
+                        SelcukFlixContentXExtractor().getUrl(
+                            candidate.url,
+                            candidate.referer.ifBlank { episodeUrl },
+                            subtitleCallback
+                        ) { link ->
+                            if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) {
+                                callback(link)
+                                totalResolved += 1
+                            }
+                        }
+                    } catch (_: Exception) {
+                        android.util.Log.w(
+                            "SelcukFlixContentX",
+                            "Observed iframe resolver failed; iframe URL and token omitted from log."
+                        )
+                    }
+                    if (totalResolved == before) {
+                        android.util.Log.w(
+                            "SelcukFlixContentX",
+                            "No media file was emitted by the ContentX source API for this iframe."
+                        )
+                    }
+                    return@forEach
+                }
 
                 val directLinkType = directType(candidate.url)
                 if (directLinkType != null) {
@@ -775,7 +822,7 @@ class SelcukFlix : MainAPI() {
                                 }
                             SelcukFlixResolverBank.extractHlsSubtitles(manifestBody, candidate.url)
                                 .forEach { subtitle ->
-                                    subtitleCallback(SubtitleFile("35 • " + subtitle.language, subtitle.url))
+                                    subtitleCallback(newSubtitleFile("35 • " + subtitle.language, subtitle.url))
                                 }
                         } else if (SelcukFlixResolverBank.isAccessChallenge(manifestBody)) {
                             android.util.Log.w(
@@ -790,21 +837,15 @@ class SelcukFlix : MainAPI() {
                 val playerKey = candidate.url + "|" + candidate.referer
                 val resolvedLinks = playerCache[playerKey] ?: run {
                     val collected = mutableListOf<ExtractorLink>()
-                    var subtitleIndex = 0
                     try {
                         loadExtractor(
                             candidate.url,
                             candidate.referer,
-                            { sub ->
-                                subtitleIndex += 1
-                                subtitleCallback(SubtitleFile("35 • " + sub.lang, sub.url))
-                            }
+                            { sub -> subtitleCallback(newSubtitleFile("35 • " + sub.lang, sub.url)) }
                         ) { link ->
-                            if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) {
-                                collected += link
-                            }
+                            if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
                         }
-                    } catch (error: Exception) {
+                    } catch (_: Exception) {
                         android.util.Log.d(
                             "SelcukFlix",
                             "Resolver candidate failed; URL and query parameters intentionally omitted."
@@ -826,13 +867,10 @@ class SelcukFlix : MainAPI() {
                         totalResolved += 1
                     }
                 } else {
-                    // Keep an unresolved player URL visible as a manual diagnostic candidate.
-                    // It is intentionally labelled so it cannot be mistaken for a verified media URL.
-                    callback(newExtractorLink(name, label + " • PLAYER PAGE / UNRESOLVED", candidate.url, null) {
-                        this.referer = candidate.referer
-                        this.quality = Qualities.Unknown.value
-                    })
-                    totalResolved += 1
+                    android.util.Log.d(
+                        "SelcukFlix",
+                        "Candidate did not resolve to media; no placeholder video link emitted."
+                    )
                 }
             }
         }
