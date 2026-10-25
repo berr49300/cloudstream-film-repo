@@ -886,6 +886,21 @@ class SelcukFlix : MainAPI() {
         val processedCandidates = mutableSetOf<String>()
         val emittedResolverLinks = mutableSetOf<String>()
 
+        fun emitUnresolvedPlayerProbe(candidate: SelcukResolverCandidate, label: String) {
+            // The user explicitly needs to try each discovered route manually. If all installed
+            // extractors fail, expose the observed player URL as a clearly marked probe instead
+            // of returning an empty source list. This is NOT reported as resolved media.
+            val probeLabel = "$label • PROBE ONLY (player URL, media NOT verified)"
+            val probeKey = candidate.id.toString() + "|" + candidate.url + "|" + candidate.referer + "|probe"
+            if (!emittedResolverLinks.add(probeKey)) return
+            callback(newExtractorLink(name, probeLabel, candidate.url, null) {
+                this.referer = candidate.referer
+                this.headers = browserHeaders + mapOf("Referer" to candidate.referer)
+                this.quality = Qualities.Unknown.value
+            })
+            totalResolved += 1
+        }
+
         sourceItems.distinctBy { it.label + "|" + it.content }.forEachIndexed { sourceIndex, source ->
             SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
                 subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url) {
@@ -931,8 +946,7 @@ class SelcukFlix : MainAPI() {
             candidates.forEach { candidate ->
                 val label = sourceLabel(candidate, source)
                 if (SelcukFlixResolverBank.isYouTubeUrl(candidate.url)) return@forEach
-                val candidateKey = candidate.id.toString() + "|" + candidate.url + "|" +
-                    candidate.referer + "|" + candidate.note
+                val candidateKey = candidate.id.toString() + "|" + candidate.url + "|" + candidate.referer
                 if (!processedCandidates.add(candidateKey)) return@forEach
 
                 // ContentX/Pichive iframe.php hosts are dynamic. Cache the network result per
@@ -964,6 +978,7 @@ class SelcukFlix : MainAPI() {
                             "SelcukFlixContentX",
                             "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: no media file emitted for this request context."
                         )
+                        emitUnresolvedPlayerProbe(candidate, label)
                     }
                     resolvedLinks.forEach { link ->
                         val emitKey = candidateKey + "|" + link.url + "|" + link.type
@@ -1075,8 +1090,11 @@ class SelcukFlix : MainAPI() {
                 } else {
                     android.util.Log.d(
                         "SelcukFlix",
-                        "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: candidate did not resolve to media."
+                        "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: candidate did not resolve to media; exposing a probe-only player URL."
                     )
+                    if (candidate.kind in setOf(SelcukMediaKind.PLAYER, SelcukMediaKind.UNKNOWN)) {
+                        emitUnresolvedPlayerProbe(candidate, label)
+                    }
                 }
             }
         }
