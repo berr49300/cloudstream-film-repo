@@ -171,12 +171,12 @@ class WebteIzle : MainAPI() {
             if (language !in watchPages) watchPages[language] = route.first to url
         }
 
-        normalizePlaybackPageUrl(data)?.let(::addWatchPage)
+        normalizePlaybackPageUrl(data)?.let { addWatchPage(it) }
         WebteIzleResolverBank.findPlaybackPageUrls(
             html = rootPage.html(),
             baseUrl = data,
             siteBaseUrl = mainUrl
-        ).forEach(::addWatchPage)
+        ).forEach { addWatchPage(it) }
 
         if (watchPages.isEmpty()) {
             android.util.Log.w(
