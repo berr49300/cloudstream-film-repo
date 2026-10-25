@@ -251,6 +251,7 @@ class SelcukFlix : MainAPI() {
         return if (isSeries && !isMovie) {
             newTvSeriesSearchResponse(title, url, TvType.TvSeries) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.score = Score.from10(score)
             }
         } else {
@@ -308,7 +309,10 @@ class SelcukFlix : MainAPI() {
             href.substringBefore("/sezon-").substringBefore("/bolum-")
         }
         val poster = posterFromImage(anchor.selectFirst("img"))
-        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { posterUrl = poster }
+        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) {
+            posterUrl = poster
+            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+        }
     }
 
     private var currentEpisodeFilter: String = "all"
@@ -360,9 +364,15 @@ class SelcukFlix : MainAPI() {
                     if (title.isBlank()) return@forEach
                     val poster = posterFromImage(image)
                     result += if (uriPath.startsWith("/film/")) {
-                        newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
+                        newMovieSearchResponse(title, href, TvType.Movie) {
+                            posterUrl = poster
+                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+                        }
                     } else {
-                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
+                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                            posterUrl = poster
+                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+                        }
                     }
                 }
             }
@@ -370,13 +380,35 @@ class SelcukFlix : MainAPI() {
 
         val unique = result.distinctBy { it.url }
 
-        // Poster fallback belongs to the real HTML catalogue routes, not the unsupported
-        // /api/bg/findSeries endpoint. Only inspect a bounded number of missing posters.
+        // If initialSeries supplied metadata without poster aliases, reuse the image on the
+        // visible catalogue card before issuing any detail request. This avoids unnecessary
+        // per-item network calls and repairs the common nested-card/data-URL variant.
+        if (!episodeFilter && page == 1) {
+            val cardPosters = linkedMapOf<String, String>()
+            document.select("a[href*='/dizi/'], a[href*='/film/']").forEach { anchor ->
+                val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                val cardPath = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
+                if (cardPath.contains("/sezon-") || cardPath.contains("/bolum-")) return@forEach
+                val poster = posterFromImage(anchor.selectFirst("img"), href) ?: return@forEach
+                cardPosters.putIfAbsent(href, poster)
+            }
+            unique.forEach { item ->
+                if (item.posterUrl.isNullOrBlank()) {
+                    val poster = cardPosters[item.url]
+                    if (!poster.isNullOrBlank()) {
+                        item.posterUrl = poster
+                        item.posterHeaders = browserHeaders + ("Referer" to "$mainUrl/")
+                    }
+                }
+            }
+        }
+
+        // Only fetch a small, bounded set of detail pages for posters that are still missing.
         val routePath = runCatching { URI(base).path.orEmpty().lowercase() }.getOrDefault("")
         if (!episodeFilter && page == 1 && routePath in setOf("/dizi-izle", "/film-izle")) {
             var detailLookups = 0
             unique.forEach { item ->
-                if (detailLookups >= 24) return@forEach
+                if (detailLookups >= 8) return@forEach
                 if (!item.posterUrl.isNullOrBlank()) return@forEach
                 detailLookups++
                 val poster = runCatching {
@@ -385,6 +417,7 @@ class SelcukFlix : MainAPI() {
                 }.getOrNull()
                 if (!poster.isNullOrBlank()) {
                     item.posterUrl = poster
+                    item.posterHeaders = browserHeaders + ("Referer" to item.url)
                     android.util.Log.d("SelcukFlixPoster", "Recovered a missing poster from a detail-page image.")
                 } else {
                     android.util.Log.d("SelcukFlixPoster", "No detail-page poster was available for a missing poster.")
