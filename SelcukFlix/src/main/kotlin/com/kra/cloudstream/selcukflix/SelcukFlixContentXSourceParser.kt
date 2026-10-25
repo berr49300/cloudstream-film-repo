@@ -3,6 +3,7 @@ package com.kra.cloudstream.selcukflix
 import java.net.URI
 
 internal data class SelcukFlixPlayerToken(val token: String, val label: String)
+internal data class SelcukFlixResolvedMediaCandidate(val resolverId: Int, val url: String, val label: String)
 
 /**
  * Parses player token and source-file declarations used by SelcukFlix's ContentX/Pichive iframe family.
@@ -60,6 +61,33 @@ internal object SelcukFlixContentXSourceParser {
             }
         }
         return found.toList()
+    }
+
+    /**
+     * Keeps the API-declared file and the separately testable m.php -> master.m3u8
+     * transformation. The transformed URL is a hypothesis until CloudStream playback proves it.
+     */
+    fun mediaFileCandidates(rawUrl: String, baseUrl: String): List<SelcukFlixResolvedMediaCandidate> {
+        val url = SelcukFlixResolverBank.normalizeUrl(rawUrl, baseUrl) ?: return emptyList()
+        val result = mutableListOf(
+            SelcukFlixResolvedMediaCandidate(38, url, "PichiveSourceApiResolver • raw file")
+        )
+        val beforeFragment = url.substringBefore("#")
+        val fragment = url.substringAfter("#", "").takeIf { "#" in url }?.let { "#$it" }.orEmpty()
+        val pathAndQuery = beforeFragment.substringBefore("?")
+        val query = beforeFragment.substringAfter("?", "").takeIf { "?" in beforeFragment }?.let { "?$it" }.orEmpty()
+        if (Regex("""(?i)/m\.php$""").containsMatchIn(pathAndQuery)) {
+            val transformed = pathAndQuery.replace(Regex("""(?i)m\.php$"""), "master.m3u8") + query + fragment
+            val normalized = SelcukFlixResolverBank.normalizeUrl(transformed, baseUrl)
+            if (normalized != null && normalized != url) {
+                result += SelcukFlixResolvedMediaCandidate(
+                    39,
+                    normalized,
+                    "PichiveMasterPlaylistResolver • m.php → master.m3u8"
+                )
+            }
+        }
+        return result
     }
 
     fun canBeSubtitle(url: String): Boolean =
