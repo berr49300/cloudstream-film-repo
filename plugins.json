@@ -102,10 +102,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=webteizle.info",
-        "fileHash": "sha256-dcf86aec6a7f14885534a1478533734df9847cf7cc34b01894fe33120e64f51c",
+        "fileHash": "sha256-c13755c4a816de8d33987bb773ca12131aa7628466c551a40e98ffe5dbe66adf",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 88721,
+        "fileSize": 93918,
         "status": 1,
         "language": "tr",
         "authors": [
@@ -114,9 +114,9 @@
         "tvTypes": [
             "Movie"
         ],
-        "version": 3,
+        "version": 4,
         "internalName": "WebteIzle",
-        "description": "WebteIzle (deneysel): film katalo\u011fu ve ger\u00e7ek oynat\u0131c\u0131 kaynak testi",
+        "description": "WebteIzle: sade kaynak listesi ve alternatif oynat\u0131c\u0131 \u00e7\u00f6z\u00fcmleme testi",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/WebteIzle.cs3",
         "name": "WebteIzle"
     }
