@@ -7,10 +7,10 @@ import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllFortyOneUniqueResolverIdsAndNames() {
+    fun inventoryHasAllFortyFourUniqueResolverIdsAndNames() {
         val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..41).toList(), attempts.map { it.resolverId })
-        assertEquals(41, attempts.map { it.resolverName }.distinct().size)
+        assertEquals((1..44).toList(), attempts.map { it.resolverId })
+        assertEquals(44, attempts.map { it.resolverName }.distinct().size)
         assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
         assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
     }
@@ -341,6 +341,100 @@ class WebteIzleResolverBankTest {
         )
 
         assertTrue(routes.isEmpty())
+    }
+
+
+    @Test
+    fun filemoonAndOkRuFunctionConfigsProduceNativeHostVariants() {
+        val html = """
+            <div>
+              filemoon('FILE123abc');
+              okru('OK789xyz');
+            </div>
+        """.trimIndent()
+        val attempts = WebteIzleResolverBank.inspect(
+            html = html,
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
+        )
+        val filemoon = attempts.first { it.resolverId == 42 }.candidates.map { it.url }
+        val okru = attempts.first { it.resolverId == 43 }.candidates.map { it.url }
+
+        assertTrue(filemoon.contains("https://filemoon.to/e/FILE123abc"))
+        assertTrue(filemoon.contains("https://filemoon.sx/e/FILE123abc"))
+        assertTrue(filemoon.contains("https://filemoon.in/e/FILE123abc"))
+        assertTrue(okru.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
+        assertTrue(okru.contains("https://ok.ru/videoembed/OK789xyz"))
+        assertTrue(okru.contains("https://m.ok.ru/videoembed/OK789xyz"))
+    }
+
+    @Test
+    fun pixelResolverUsesOnlyObservedIframeAndNeverSynthesizesPixelDomain() {
+        val observed = "https://pixel.example/embed/observedPlayer123"
+        val attempts = WebteIzleResolverBank.inspect(
+            html = """<iframe src="$observed"></iframe>""",
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
+            hintedPlayerName = "Pixel"
+        )
+        val pixel = attempts.first { it.resolverId == 44 }
+
+        assertTrue(pixel.candidates.any { it.url == observed })
+        assertTrue(pixel.candidates.none { it.url.contains("pixel.example.com") })
+        assertTrue(pixel.reason.contains("candidate"))
+    }
+
+    @Test
+    fun emittedMediaDedupKeyIsOnePerLanguageAndDoesNotTreatOrdinalAsQuality() {
+        val first = WebteIzleResolverBank.emittedMediaKey(
+            "Dublaj",
+            "https://CDN.example/master.m3u8?token=abc#player"
+        )
+        val sameDub = WebteIzleResolverBank.emittedMediaKey(
+            "TR Dublaj",
+            "https://cdn.example/master.m3u8?token=abc"
+        )
+        val alt = WebteIzleResolverBank.emittedMediaKey(
+            "Altyazı",
+            "https://cdn.example/master.m3u8?token=abc"
+        )
+
+        assertEquals(first, sameDub)
+        assertTrue(first != alt)
+        assertEquals(null, WebteIzleResolverBank.validQualityHint(1))
+        assertEquals(null, WebteIzleResolverBank.validQualityHint(2))
+        assertEquals(1080, WebteIzleResolverBank.validQualityHint(1080))
+    }
+
+    @Test
+    fun playerHostVariantsPreserveObservedPathAndSignedQuery() {
+        val original = "https://filemoon.sx/e/observedCode?token=keep-me"
+        val variants = WebteIzleResolverBank.playerHostVariants(original, "Filemoon")
+
+        assertTrue(variants.contains(original))
+        assertTrue(variants.contains("https://filemoon.to/e/observedCode?token=keep-me"))
+        assertTrue(variants.contains("https://filemoon.in/e/observedCode?token=keep-me"))
+        assertEquals(3, variants.distinct().size)
+
+        val okru = WebteIzleResolverBank.playerHostVariants(
+            "https://odnoklassniki.ru/videoembed/12345?from=ok",
+            "OK.ru"
+        )
+        assertTrue(okru.contains("https://ok.ru/videoembed/12345?from=ok"))
+        assertTrue(okru.contains("https://m.ok.ru/videoembed/12345?from=ok"))
+    }
+
+
+    @Test
+    fun pixelFunctionMapsOnlyAnObservedIdToTheDocumentedPixelDrainPath() {
+        val attempts = WebteIzleResolverBank.inspect(
+            html = """<div>pixel('PIXEL789abc')</div>""",
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
+            hintedPlayerName = "Pixel"
+        )
+        val pixel = attempts.first { it.resolverId == 44 }
+
+        assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.com/u/PIXEL789abc" })
+        assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.dev/u/PIXEL789abc" })
+        assertEquals("PixelDrain", WebteIzleResolverBank.playerFamily("https://pixeldrain.com/u/PIXEL789abc"))
     }
 
 }

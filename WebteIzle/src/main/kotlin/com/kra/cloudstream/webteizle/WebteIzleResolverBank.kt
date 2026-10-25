@@ -21,7 +21,8 @@ internal data class WebteIzleResolverCandidate(
     val kind: WebteIzleCandidateKind,
     val evidence: String,
     val language: String? = null,
-    val sourcePageUrl: String? = null
+    val sourcePageUrl: String? = null,
+    val playerHint: String? = null
 )
 
 internal data class WebteIzleResolverAttempt(
@@ -84,7 +85,10 @@ internal object WebteIzleResolverBank {
         Definition(38, "KnownPlayerEmbedConfigResolver"),
         Definition(39, "PixelPlayerConfigDiagnostic"),
         Definition(40, "KnownHexEncodedPayloadResolver"),
-        Definition(41, "VidMolyMasterPlaylistResolver")
+        Definition(41, "VidMolyMasterPlaylistResolver"),
+        Definition(42, "FilemoonHostVariantResolver"),
+        Definition(43, "OkRuHostVariantResolver"),
+        Definition(44, "PixelObservedPlayerResolver")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -104,6 +108,10 @@ internal object WebteIzleResolverBank {
     // embed URL templates are hypotheses until confirmed against current site payloads.
     private val knownPlayerConfigRegex = Regex(
         """(?i)\b(vidmoly|filemoon|okru)\s*\(\s*['"]([A-Za-z0-9_-]{3,256})['"]\s*,\s*['"]"""
+    )
+    // Some legacy player fragments expose only functionName('id') with no second argument.
+    private val alternativePlayerConfigRegex = Regex(
+        """(?i)\b(filemoon|okru|pixel)\s*\(\s*['"]([^'"]{3,512})['"]"""
     )
     private val repeatedHexEscapesRegex = Regex("""(?i)^(?:\\x[0-9a-f]{2}){8,}$""")
     private val plainHexPayloadRegex = Regex("""(?i)^[0-9a-f]{40,}$""")
@@ -168,6 +176,56 @@ internal object WebteIzleResolverBank {
         }?.value
     }
 
+    internal fun languageBucket(label: String): String = when {
+        label.contains("dublaj", ignoreCase = true) -> "Dublaj"
+        label.contains("altyaz", ignoreCase = true) -> "Altyazı"
+        else -> label.substringBefore(" iframe").substringBefore(" m3u8").trim()
+    }
+
+    /** Dedup keys retain query tokens but ignore URL fragments and normalize host casing. */
+    internal fun emittedMediaKey(language: String, rawUrl: String): String {
+        val normalized = runCatching {
+            val uri = URI(rawUrl)
+            val scheme = uri.scheme?.lowercase() ?: return@runCatching rawUrl.substringBefore('#')
+            val host = uri.host?.lowercase() ?: return@runCatching rawUrl.substringBefore('#')
+            val defaultPort = (scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)
+            val port = if (uri.port >= 0 && !defaultPort) ":" + uri.port.toString() else ""
+            val path = uri.normalize().rawPath.orEmpty()
+            val query = uri.rawQuery?.let { "?" + it }.orEmpty()
+            scheme + "://" + host + port + path + query
+        }.getOrDefault(rawUrl.substringBefore('#'))
+        return languageBucket(language) + "|" + normalized
+    }
+
+    /** Alternative list ordinals (for example 1/2) are not video resolutions. */
+    internal fun validQualityHint(value: Int?): Int? = value?.takeIf { it in 144..4320 }
+
+    /**
+     * Generates only known native-extractor host variants for an already observed Filemoon or
+     * OK.ru player URL. Path, query/signature and fragment are preserved; no IDs/hosts are guessed.
+     */
+    internal fun playerHostVariants(url: String, family: String?): List<String> {
+        val host = hostOf(url) ?: return listOf(url)
+        val targets = when {
+            family.equals("Filemoon", ignoreCase = true) &&
+                host in setOf("filemoon.to", "filemoon.sx", "filemoon.in") ->
+                listOf("filemoon.to", "filemoon.sx", "filemoon.in")
+            family.equals("OK.ru", ignoreCase = true) &&
+                host in setOf("ok.ru", "m.ok.ru", "odnoklassniki.ru") ->
+                listOf("odnoklassniki.ru", "ok.ru", "m.ok.ru")
+            family.equals("PixelDrain", ignoreCase = true) &&
+                host in setOf("pixeldrain.com", "pixeldrain.dev") ->
+                listOf("pixeldrain.com", "pixeldrain.dev")
+            else -> return listOf(url)
+        }
+        val authorityPattern = Regex("(?i)(://)(?:www\\.)?" + Regex.escape(host))
+        return (listOf(url) + targets.filterNot { it == host }.mapNotNull { target ->
+            val pattern = authorityPattern
+            if (!pattern.containsMatchIn(url)) null
+            else pattern.replace(url) { match -> match.groupValues[1] + target }
+        }).distinct()
+    }
+
     /** Detects visible access challenges; detection is diagnostic, never a bypass. */
     internal fun isAccessChallenge(html: String): Boolean =
         Regex(
@@ -223,11 +281,29 @@ internal object WebteIzleResolverBank {
                 kind = kindOverride ?: classify(url),
                 evidence = evidence,
                 language = language,
-                sourcePageUrl = refererUrl
+                sourcePageUrl = refererUrl,
+                playerHint = hintedPlayerName?.takeIf { it.isNotBlank() }
             )
             val list = candidates.getOrPut(id) { mutableListOf() }
             if (list.none { it.url == item.url && it.kind == item.kind && it.language == item.language }) {
                 list += item
+            }
+            // For Pixel, mirror only an actually observed player URL; never derive an unknown
+            // hostname or URL from the source label/ID.
+            if (id != 44 && hintedPlayerName.equals("Pixel", ignoreCase = true) &&
+                item.kind == WebteIzleCandidateKind.PLAYER &&
+                playerFamily(item.url) == null
+            ) {
+                val pixelDefinition = definitions.first { it.id == 44 }
+                val pixelCandidate = item.copy(
+                    resolverId = 44,
+                    resolverName = pixelDefinition.name,
+                    evidence = "observed iframe/player URL returned for the site's Pixel alternative"
+                )
+                val pixelList = candidates.getOrPut(44) { mutableListOf() }
+                if (pixelList.none { it.url == pixelCandidate.url && it.kind == pixelCandidate.kind }) {
+                    pixelList += pixelCandidate
+                }
             }
         }
 
@@ -383,6 +459,29 @@ internal object WebteIzleResolverBank {
                         WebteIzleCandidateKind.PLAYER
                     )
                 }
+        }
+
+        // 42/43 — host-specific alternatives from observed Filemoon/OK.ru function configs.
+        // URL variants are derived only after that family's function call and source ID were found.
+        alternativePlayerConfigRegex.findAll(html).forEach { match ->
+            val family = match.groupValues[1].lowercase()
+            val playerId = match.groupValues[2]
+            when (family) {
+                "filemoon" -> {
+                    add(42, "https://filemoon.to/e/" + playerId, "observed filemoon(id) config; native CloudStream .to extractor variant", WebteIzleCandidateKind.PLAYER)
+                    add(42, "https://filemoon.sx/e/" + playerId, "observed filemoon(id) config; native CloudStream .sx extractor variant", WebteIzleCandidateKind.PLAYER)
+                    add(42, "https://filemoon.in/e/" + playerId, "observed filemoon(id) config; native CloudStream .in extractor variant", WebteIzleCandidateKind.PLAYER)
+                }
+                "okru" -> {
+                    add(43, "https://odnoklassniki.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream Odnoklassniki extractor variant", WebteIzleCandidateKind.PLAYER)
+                    add(43, "https://ok.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream OK.ru extractor variant", WebteIzleCandidateKind.PLAYER)
+                    add(43, "https://m.ok.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream mobile extractor variant", WebteIzleCandidateKind.PLAYER)
+                }
+                "pixel" -> {
+                    add(44, "https://pixeldrain.com/u/" + playerId, "observed pixel(id) config; WebteIzle public-provider reference maps Pixel to PixelDrain /u/id", WebteIzleCandidateKind.PLAYER)
+                    add(44, "https://pixeldrain.dev/u/" + playerId, "observed pixel(id) config; PixelDrain alternate host for native extractor compatibility", WebteIzleCandidateKind.PLAYER)
+                }
+            }
         }
 
         // 39 — the source-list label may mention Pixel while the embed fragment contains no

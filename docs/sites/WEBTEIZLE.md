@@ -198,3 +198,41 @@ The provider's `loadLinks` now treats the detail URL (usually `/hakkinda/<slug>`
 This route distinction is grounded by the site's public rendered detail/playback pages (the detail page links to a separate `/izle/altyazi/love-language` page where the alternatives controls appear) and is now encoded as an implementation gate. It does not infer watch slugs from title text. Both language routes are bounded/deduplicated, and the AJAX calls include the expected form content type, XHR marker, origin and playback-page referer.
 
 **Status:** code path added; source unit/build CI pending; current live raw AJAX response and real-device playback still NOT TESTED. Any Cloudflare/CAPTCHA response is classified BLOCKED; no challenge solver is added.
+
+
+## 2026-10-25 — Source de-duplication and host-specific strategies 42–44
+
+### User-visible failure
+
+The installed build emitted the same `41 • VidMolyMasterPlaylistResolver` HLS address many times at the same language and displayed `1p` as if it were a resolution. The alternative-list's numeric `kalitesi` value can be an ordinal such as `1` or `2`; it is not automatically a resolution value. The watch page also advertises separate alternative names `Pixel`, `OK.Ru`, `VidMoly` and `Filemoon`.
+
+### Changes in branch `fix/webteizle-deduplicate-and-host-resolvers`
+
+- The set of emitted *final media URLs* is shared across dubbed and subtitled watch routes. The key combines normalized language (`Dublaj` or `Altyazı`) and final URL. Query strings are kept because they can contain required signatures/tokens; fragments and hostname casing are normalized.
+- The set of attempted *player URLs* is shared across duplicate discovery methods for that language. This avoids re-running the same player URL under IDs 15, 17, 36 and 38. Different player URL variants are still tried.
+- HLS and other direct media candidates use the same final-result deduplication. Subtitle URLs are deduplicated independently.
+- Resolution labels only accept quality hints from 144p through 4320p. Ordinal values such as 1 and 2 render as `Auto`, not `1p`/`2p`.
+- The raw `dataEmbed.asp` response body is passed to the scanner rather than serializing it back through Jsoup. This preserves the observed JavaScript/escape sequences used by player-config resolvers.
+- Existing VidMoly resolver 41 retains its current request/extraction behavior; only the shared final URL de-duplication and quality-label validation affect its output.
+- Resolver 42 tries Filemoon URLs formed from an observed `filemoon('id')` call across the native CloudStream-supported `.to`, `.sx`, and `.in` variants. For an observed Filemoon iframe, the same known variants are retried if the first native extractor attempt returns no links.
+- Resolver 43 does the equivalent for observed `okru('id')` calls and the `odnoklassniki.ru`, `ok.ru`, and `m.ok.ru` native extractor variants.
+- Resolver 44 handles the exact observed `pixel('id')` player-function pattern. A public WebteIzle provider implementation maps that pattern to `https://pixeldrain.com/u/{id}`; this adapter emits the `.com` and native-extractor-supported `.dev` variants, then lets CloudStream's PixelDrain extractor resolve the actual file. This mapping is **HYPOTHESIS for the current live site's payload** until the installed build successfully plays it. A Pixel source label without an observed ID/iframe does not create a fabricated URL.
+- If the Pixel player URL is observed but responds with a Cloudflare/CAPTCHA challenge, the strategy logs `BLOCKED`; it does not try to solve or bypass that challenge.
+
+### Strategy index (continued)
+
+| ID | Strategy | What it tries / what proves success |
+|---:|---|---|
+| 41 | VidMolyMasterPlaylistResolver | Existing VidMoly embed -> absolute HLS `file` field. Existing logic kept; final result is now deduplicated per language |
+| 42 | FilemoonHostVariantResolver | Observed Filemoon player ID -> known host variants -> native CloudStream extractor; a final stream link must be emitted |
+| 43 | OkRuHostVariantResolver | Observed OK.ru player ID -> known host variants -> native CloudStream extractor; a final stream link must be emitted |
+| 44 | PixelObservedPlayerResolver | Observed `pixel('id')` -> PixelDrain embed variants -> native extractor; if the source does not reveal an ID/URL or it is blocked, report that rather than claim success |
+
+### Acceptance criteria
+
+1. At most one row per exact final media URL per normalized language. A URL may still appear once for Dublaj and once for Altyazı when both language paths use it.
+2. Distinct URLs must remain available even when they share the same host, so working source alternatives are not hidden by deduplication.
+3. A strategy number is useful only when its extractor returned a link and the final URL passed deduplication. `CANDIDATE_FOUND` means only that an embed/player candidate was discovered, not that playback works.
+4. Build/test success is not runtime success. Real movie playback, audio, subtitles and each additional source remain unverified until checked on-device.
+
+Reference for the observed `filemoon`, `okru` and `pixel` function-call shapes: [csprofesor/csnuvio WebteIzle provider](https://github.com/csprofesor/csnuvio/blob/799d3b16bd345027314593674be603683a492da3/providers/webteizle.js). It is used as external prior-art evidence for URL templates, not as evidence that a current link plays.
