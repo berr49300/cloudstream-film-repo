@@ -274,7 +274,9 @@ class SelcukFlix : MainAPI() {
         if (heading.isBlank()) return null
         val episodeLabel = anchor.selectFirst("h3 + div, h3 + span, .episode-info, .episode-title")
             ?.text()?.trim().orEmpty()
-        val subtitle = anchor.text().trim()
+        val subtitle = anchor.text().trim() + " " +
+            anchor.parent()?.text().orEmpty() + " " +
+            anchor.parent()?.parent()?.text().orEmpty()
         val mode = currentEpisodeFilter
         val combined = "$heading $episodeLabel $subtitle".lowercase()
         if (mode == "dub" && !Regex("""dublaj|dubbed|türkçe ses""").containsMatchIn(combined)) return null
@@ -347,7 +349,7 @@ class SelcukFlix : MainAPI() {
         }
 
         val unique = result.distinctBy { it.url }
-        return newHomePageResponse(request.name, unique, hasNext = unique.size >= 24)
+        return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -729,10 +731,13 @@ class SelcukFlix : MainAPI() {
         val manifestChecked = mutableSetOf<String>()
         val playerCache = mutableMapOf<String, List<ExtractorLink>>()
         val sourceCache = mutableMapOf<String, List<SelcukResolverCandidate>>()
+        val contentXIframesResolved = mutableSetOf<String>()
 
         sourceItems.take(12).forEachIndexed { sourceIndex, source ->
             SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
-                subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url))
+                subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url) {
+                    headers = browserHeaders + mapOf("Referer" to episodeUrl)
+                })
             }
 
             val cacheKey = source.content + "|" + episodeUrl
@@ -776,6 +781,7 @@ class SelcukFlix : MainAPI() {
                 // ContentX/Pichive iframe.php hosts are dynamic; resolve the observed URL directly
                 // rather than relying on an extractor registry hostname match.
                 if (SelcukFlixContentXSourceParser.canHandle(candidate.url)) {
+                    if (!contentXIframesResolved.add(candidate.url)) return@forEach
                     val before = totalResolved
                     try {
                         SelcukFlixContentXExtractor().getUrl(
@@ -831,7 +837,9 @@ class SelcukFlix : MainAPI() {
                                 }
                             SelcukFlixResolverBank.extractHlsSubtitles(manifestBody, candidate.url)
                                 .forEach { subtitle ->
-                                    subtitleCallback(newSubtitleFile("35 • " + subtitle.language, subtitle.url))
+                                    subtitleCallback(newSubtitleFile("35 • " + subtitle.language, subtitle.url) {
+                                        headers = browserHeaders + mapOf("Referer" to candidate.url)
+                                    })
                                 }
                         } else if (SelcukFlixResolverBank.isAccessChallenge(manifestBody)) {
                             android.util.Log.w(
@@ -850,7 +858,11 @@ class SelcukFlix : MainAPI() {
                         loadExtractor(
                             candidate.url,
                             candidate.referer,
-                            { sub -> subtitleCallback(newSubtitleFile("35 • " + sub.lang, sub.url)) }
+                            { sub ->
+                                subtitleCallback(newSubtitleFile("35 • " + sub.lang, sub.url) {
+                                    headers = sub.headers.ifEmpty { mapOf("Referer" to candidate.url) }
+                                })
+                            }
                         ) { link ->
                             if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
                         }
