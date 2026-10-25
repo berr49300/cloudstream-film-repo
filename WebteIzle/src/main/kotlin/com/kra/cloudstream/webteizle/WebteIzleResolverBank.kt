@@ -77,6 +77,10 @@ internal object WebteIzleResolverBank {
         val normalized = normalizeEscapes(html)
         val raw = Regex("""(?is)\bfile\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
             .find(normalized)?.groupValues?.get(1) ?: return null
+        if (!raw.startsWith("http://", true) &&
+            !raw.startsWith("https://", true) &&
+            !raw.startsWith("//")
+        ) return null
         val value = normalizeUrl(raw, "https://vidmoly.biz/") ?: return null
         if (isYouTubeUrl(value)) return null
         return value.takeIf {
