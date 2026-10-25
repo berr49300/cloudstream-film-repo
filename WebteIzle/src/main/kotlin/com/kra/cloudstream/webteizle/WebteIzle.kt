@@ -693,17 +693,19 @@ class WebteIzle : MainAPI() {
                 emptyList()
             }
             for (alternative in alternatives) {
-                val embed = try {
+                val embedHtml = try {
+                    // Preserve the raw AJAX fragment: Jsoup re-serialization can normalize script
+                    // escapes that the Filemoon/OK.ru/Pixel player-config scanners need to inspect.
                     app.post(
                         "$mainUrl/ajax/dataEmbed.asp",
                         headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
-                        "Origin" to mainUrl,
-                        "Referer" to data
-                    ),
+                            "X-Requested-With" to "XMLHttpRequest",
+                            "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+                            "Origin" to mainUrl,
+                            "Referer" to data
+                        ),
                         data = mapOf("id" to alternative.id.toString())
-                    ).document
+                    ).text
                 } catch (e: Exception) {
                     android.util.Log.w(
                         "WebteIzleResolver",
@@ -711,7 +713,6 @@ class WebteIzle : MainAPI() {
                     )
                     continue
                 }
-                val embedHtml = embed.html()
                 if (reportAccessChallenge("dataEmbed.asp", embedHtml)) continue
                 val attempts = WebteIzleResolverBank.inspect(
                     html = embedHtml,
