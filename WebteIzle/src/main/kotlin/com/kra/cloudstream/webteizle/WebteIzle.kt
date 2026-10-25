@@ -310,7 +310,7 @@ class WebteIzle : MainAPI() {
                             // from the surrounding suspend function.
                             val extractedLinks = mutableListOf<ExtractorLink>()
                             try {
-                                loadExtractor(candidate.url, data, subtitleCallback) { link ->
+                                loadExtractor(candidate.url, candidateReferer(candidate), subtitleCallback) { link ->
                                     // This callback is non-suspending: only collect the already-built
                                     // extractor link here. Provider callbacks run after extraction returns.
                                     extractedLinks += link
@@ -364,7 +364,10 @@ class WebteIzle : MainAPI() {
                                                     "WebteIzleResolver",
                                                     "41 VidMolyMasterPlaylistResolver: NOT FOUND — no absolute .m3u8 file field in the embed response."
                                                 )
-                                            } else if (emittedVidMolyMasters.add(master)) {
+                                            } else if (
+                                                emittedVidMolyMasters.add(master) &&
+                                                emittedResultKeys.add(WebteIzleResolverBank.emittedMediaKey(langName, master))
+                                            ) {
                                                 val playerReferer = runCatching {
                                                     val uri = java.net.URI(candidate.url)
                                                     "${uri.scheme}://${uri.authority}/"
