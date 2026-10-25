@@ -260,7 +260,8 @@ class WebteIzle : MainAPI() {
             langName: String,
             fallbackQuality: Int? = null,
             probeNestedPages: Boolean = true,
-            probeManifests: Boolean = true
+            probeManifests: Boolean = true,
+            probeKnownPlayerPages: Boolean = true
         ) {
             attempts.forEach { attempt ->
                 // IDs/statuses are logged without URLs, tokens, or player query strings.
@@ -293,15 +294,15 @@ class WebteIzle : MainAPI() {
                             val hostFamily = WebteIzleResolverBank.playerFamily(candidate.url)
                             val family = hostFamily ?: candidate.playerHint
                             val routeLabel = when {
-                                hostFamily.equals("Filemoon", ignoreCase = true) || candidate.playerHint.equals("Filemoon", ignoreCase = true) ->
-                                    "42 • FilemoonHostVariantResolver • $langName"
-                                hostFamily.equals("OK.ru", ignoreCase = true) || candidate.playerHint.equals("OK.ru", ignoreCase = true) ->
-                                    "43 • OkRuHostVariantResolver • $langName"
+                                hostFamily.equals("VidMoly", ignoreCase = true) ||
+                                    candidate.playerHint.equals("VidMoly", ignoreCase = true) -> "41 • VidMoly"
+                                hostFamily.equals("Filemoon", ignoreCase = true) ||
+                                    candidate.playerHint.equals("Filemoon", ignoreCase = true) -> "42 • Filemoon"
+                                hostFamily.equals("OK.ru", ignoreCase = true) ||
+                                    candidate.playerHint.equals("OK.ru", ignoreCase = true) -> "43 • OK.ru"
                                 hostFamily.equals("PixelDrain", ignoreCase = true) ||
-                                    candidate.playerHint.equals("Pixel", ignoreCase = true) ->
-                                    "44 • PixelObservedPlayerResolver • $langName"
-                                attempt.resolverId == 17 -> baseLabel
-                                else -> "$baseLabel → 17 • ExtractorRegistryResolver"
+                                    candidate.playerHint.equals("Pixel", ignoreCase = true) -> "44 • Pixel"
+                                else -> "17 • $playerLabel"
                             }
                             val playerLabel = family?.let { "$it ($host)" } ?: host
                             val sourceQuality = WebteIzleResolverBank.validQualityHint(fallbackQuality)
@@ -374,8 +375,8 @@ class WebteIzle : MainAPI() {
                                                     "${uri.scheme}://${uri.authority}/"
                                                 }.getOrDefault("$mainUrl/")
                                                 callback(newExtractorLink(
-                                                    source = "41 • VidMolyMasterPlaylistResolver",
-                                                    name = "41 • VidMolyMasterPlaylistResolver • $langName • VidMoly • HLS • Aday • $qualityLabel",
+                                                    source = "41 • VidMoly",
+                                                    name = "41 • VidMoly • $langName",
                                                     url = master,
                                                     type = ExtractorLinkType.M3U8
                                                 ) {
@@ -470,9 +471,12 @@ class WebteIzle : MainAPI() {
                                     )
                                     continue
                                 }
+                                val actualQuality = link.quality.takeIf { it in 144..4320 }
+                                val resultName = routeLabel + " • " + langName +
+                                    (actualQuality?.let { " • " + it + "p" } ?: "")
                                 callback(newExtractorLink(
-                                    source = routeLabel + " • " + playerLabel,
-                                    name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
+                                    source = routeLabel,
+                                    name = resultName,
                                     url = link.url,
                                     type = link.type
                                 ) {
