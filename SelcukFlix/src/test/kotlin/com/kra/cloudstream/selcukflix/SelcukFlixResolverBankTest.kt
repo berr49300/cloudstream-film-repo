@@ -145,7 +145,7 @@ class SelcukFlixResolverBankTest {
                     "getEpisodeSources": {
                       "result": [
                         {
-                          "source_content": "<iframe src=\\"https://four.pichive.online/iframe.php?v=sample\\" title=\\"player\\"></iframe>"
+                          "source_content": "<iframe src=\\\"https://four.pichive.online/iframe.php?v=sample\\\" title=\\\"player\\\"></iframe>"
                         }
                       ]
                     }
