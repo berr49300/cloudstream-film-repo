@@ -886,7 +886,7 @@ class SelcukFlix : MainAPI() {
         val processedCandidates = mutableSetOf<String>()
         val emittedResolverLinks = mutableSetOf<String>()
 
-        fun emitUnresolvedPlayerProbe(candidate: SelcukResolverCandidate, label: String) {
+        suspend fun emitUnresolvedPlayerProbe(candidate: SelcukResolverCandidate, label: String) {
             // The user explicitly needs to try each discovered route manually. If all installed
             // extractors fail, expose the observed player URL as a clearly marked probe instead
             // of returning an empty source list. This is NOT reported as resolved media.
