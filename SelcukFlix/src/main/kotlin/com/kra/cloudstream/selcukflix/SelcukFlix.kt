@@ -591,10 +591,19 @@ class SelcukFlix : MainAPI() {
                     "embedUrl", "embed_url", "videoUrl", "video_url"
                 )
                 if (!content.isNullOrBlank()) {
-                    val quality = node.textField("quality_name", "qualityName", "name", "label")
-                        ?: "Kaynak " + (found.size + 1)
-                    val key = quality + "|" + content
-                    found.putIfAbsent(key, SourceItem(content, quality))
+                    // Preserve the player's own label and audio/language variant so a dubbed
+                    // source is not hidden behind a generic "Kaynak 1" entry.
+                    val labelParts = listOf(
+                        node.textField("source_name", "sourceName", "provider_name", "providerName",
+                            "player_name", "playerName", "name"),
+                        node.textField("language_name", "languageName", "source_language", "sourceLanguage",
+                            "audio_type", "audioType", "language", "lang", "version", "audio"),
+                        node.textField("quality_name", "qualityName", "quality", "label")
+                    ).filterNotNull().map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                    val label = labelParts.joinToString(" • ")
+                        .ifBlank { "Kaynak " + (found.size + 1) }
+                    val key = label + "|" + content
+                    found.putIfAbsent(key, SourceItem(content, label))
                 }
                 node.children().forEach(::walk)
             } else if (node.isArray) {
@@ -761,7 +770,7 @@ class SelcukFlix : MainAPI() {
         val sourceCache = mutableMapOf<String, List<SelcukResolverCandidate>>()
         val contentXIframesResolved = mutableSetOf<String>()
 
-        sourceItems.take(12).forEachIndexed { sourceIndex, source ->
+        sourceItems.forEachIndexed { sourceIndex, source ->
             SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
                 subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url) {
                     headers = browserHeaders + mapOf("Referer" to episodeUrl)
