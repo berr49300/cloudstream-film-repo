@@ -570,18 +570,32 @@ class WebteIzle : MainAPI() {
                                 else -> null
                             }
                             val mediaStrategyLabel = when {
-                                candidate.playerHint.equals("Filemoon", ignoreCase = true) -> "42 • FilemoonHostVariantResolver • $langName"
-                                candidate.playerHint.equals("OK.ru", ignoreCase = true) -> "43 • OkRuHostVariantResolver • $langName"
+                                candidate.playerHint.equals("VidMoly", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("VidMoly", ignoreCase = true) ->
+                                    "41 • VidMoly • $langName"
+                                candidate.playerHint.equals("Filemoon", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("Filemoon", ignoreCase = true) ->
+                                    "42 • Filemoon • $langName"
+                                candidate.playerHint.equals("OK.ru", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("OK.ru", ignoreCase = true) ->
+                                    "43 • OK.ru • $langName"
                                 candidate.playerHint.equals("Pixel", ignoreCase = true) ||
                                     WebteIzleResolverBank.playerFamily(candidate.url).equals("PixelDrain", ignoreCase = true) ->
-                                    "44 • PixelObservedPlayerResolver • $langName"
-                                else -> baseLabel
+                                    "44 • Pixel • $langName"
+                                else -> "$id • Direct • $langName"
                             }
+                            val mediaTypeLabel = when (extension) {
+                                "m3u8" -> "HLS"
+                                "mpd" -> "DASH"
+                                else -> extension.ifBlank { "media" }.uppercase()
+                            }
+                            val mediaQualityLabel = WebteIzleResolverBank.validQualityHint(fallbackQuality)
+                                ?.let { " • " + it + "p" }.orEmpty()
                             val finalKey = WebteIzleResolverBank.emittedMediaKey(langName, candidate.url)
                             if (emittedResultKeys.add(finalKey)) {
                                 callback(newExtractorLink(
-                                    source = mediaStrategyLabel,
-                                    name = "$mediaStrategyLabel • ${extension.ifBlank { "media" }.uppercase()} • Aday • $qualityLabel",
+                                    source = mediaStrategyLabel.substringBefore(" • " + langName),
+                                    name = mediaStrategyLabel + " • " + mediaTypeLabel + mediaQualityLabel,
                                     url = candidate.url,
                                     type = mediaType
                                 ) {
