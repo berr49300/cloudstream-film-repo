@@ -88,7 +88,8 @@ internal object WebteIzleResolverBank {
         Definition(41, "VidMolyMasterPlaylistResolver"),
         Definition(42, "FilemoonHostVariantResolver"),
         Definition(43, "OkRuHostVariantResolver"),
-        Definition(44, "PixelObservedPlayerResolver")
+        Definition(44, "PixelObservedPlayerResolver"),
+        Definition(45, "ObservedPlayerPageMediaResolver")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -150,6 +151,7 @@ internal object WebteIzleResolverBank {
         "filemoon.to" to "Filemoon",
         "filemoon.sx" to "Filemoon",
         "filemoon.in" to "Filemoon",
+        "bysezoxexe.com" to "Filemoon",
         "pixeldrain.com" to "PixelDrain",
         "pixeldrain.dev" to "PixelDrain",
         "ok.ru" to "OK.ru",
@@ -182,8 +184,18 @@ internal object WebteIzleResolverBank {
         else -> label.substringBefore(" iframe").substringBefore(" m3u8").trim()
     }
 
-    /** Dedup keys retain query tokens but ignore URL fragments and normalize host casing. */
+    /**
+     * Stable final-stream key. Signed CDN URLs often change only expiry/token/signature query
+     * values on each identical embed request. Ignore those volatile keys for comparison while
+     * retaining the first full URL (including its valid signature) for playback.
+     */
     internal fun emittedMediaKey(language: String, rawUrl: String): String {
+        val volatileQueryKeys = setOf(
+            "token", "access_token", "auth", "authorization", "signature", "sig",
+            "expires", "expiry", "exp", "hdnts", "policy", "key-pair-id", "jwt",
+            "session", "sessionid", "nonce", "timestamp", "ts", "cache", "cachebust",
+            "rand", "random", "ip", "hash", "secure", "st", "e", "s"
+        )
         val normalized = runCatching {
             val uri = URI(rawUrl)
             val scheme = uri.scheme?.lowercase() ?: return@runCatching rawUrl.substringBefore('#')
@@ -191,7 +203,21 @@ internal object WebteIzleResolverBank {
             val defaultPort = (scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)
             val port = if (uri.port >= 0 && !defaultPort) ":" + uri.port.toString() else ""
             val path = uri.normalize().rawPath.orEmpty()
-            val query = uri.rawQuery?.let { "?" + it }.orEmpty()
+            val stableQuery = uri.rawQuery.orEmpty()
+                .split('&')
+                .filter { it.isNotBlank() }
+                .filterNot { pair ->
+                    val key = pair.substringBefore('=').lowercase()
+                        .replace(Regex("""[^a-z0-9_\-]"""), "")
+                    key in volatileQueryKeys ||
+                        key.startsWith("utm_") ||
+                        key.startsWith("x-amz-") ||
+                        key.startsWith("x-goog-") ||
+                        key.startsWith("cf_")
+                }
+                .sorted()
+                .joinToString("&")
+            val query = if (stableQuery.isBlank()) "" else "?" + stableQuery
             scheme + "://" + host + port + path + query
         }.getOrDefault(rawUrl.substringBefore('#'))
         return languageBucket(language) + "|" + normalized
