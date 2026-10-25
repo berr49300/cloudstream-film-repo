@@ -278,39 +278,15 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    internal fun episodesFrom(root: JsonNode): List<Episode> {
-        val related = root.field("relatedResults") ?: return emptyList()
-        val seasonResponse = related.field("getSerieSeasonAndEpisodes") ?: return emptyList()
-        // Current SelcukFlix .app payloads wrap the season list in "result" (older payloads may name it "seasons").
-        val seasonsNode = seasonResponse.field("result") ?: seasonResponse.field("seasons")
-            ?: return emptyList()
-        val entries = mutableListOf<Triple<Int, Int, Episode>>()
-        var fallbackIndex = 0
-        seasonsNode.children().forEach { seasonNode ->
-            val seasonNumber = seasonNode.textField("season_no", "seasonNo", "seasonNumber", "number")
-                ?.toIntOrNull()
-            val episodesNode = seasonNode.field("episodes") ?: return@forEach
-            episodesNode.children().forEach { episodeNode ->
-                val episodeUrl = canonicalSiteUrl(
-                    episodeNode.textField("used_slug", "usedSlug", "slug", "url", "link")
-                ) ?: return@forEach
-                fallbackIndex += 1
-                val episodeNumber = episodeNode.textField("episode_no", "episodeNo", "episodeNumber", "number")
-                    ?.toIntOrNull() ?: fallbackIndex
-                val episodeName = episodeNode.textField("episode_text", "epText", "episodeTitle", "title", "name")
-                val episode = newEpisode(episodeUrl) {
-                    name = episodeName
-                    season = seasonNumber
-                    episode = episodeNumber
-                    posterUrl = normalizePoster(episodeNode.textField("poster_url", "posterUrl", "poster"))
-                }
-                entries += Triple(seasonNumber ?: 0, episodeNumber, episode)
+    private fun episodesFrom(root: JsonNode): List<Episode> =
+        SelcukFlixResolverBank.parseEpisodeRecords(root, mainUrl).map { record ->
+            newEpisode(record.url) {
+                name = record.name
+                season = record.season
+                episode = record.episode
+                posterUrl = record.posterUrl
             }
         }
-        return entries.sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
-            .map { it.third }
-            .distinctBy { it.data }
-    }
 
     override suspend fun load(url: String): LoadResponse {
         val canonicalUrl = canonicalSiteUrl(url)
