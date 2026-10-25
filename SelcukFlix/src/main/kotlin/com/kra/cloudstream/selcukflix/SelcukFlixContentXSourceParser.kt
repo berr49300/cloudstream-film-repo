@@ -67,10 +67,15 @@ internal object SelcukFlixContentXSourceParser {
      * Keeps the API-declared file and the separately testable m.php -> master.m3u8
      * transformation. The transformed URL is a hypothesis until CloudStream playback proves it.
      */
-    fun mediaFileCandidates(rawUrl: String, baseUrl: String): List<SelcukFlixResolvedMediaCandidate> {
+    fun mediaFileCandidates(
+        rawUrl: String,
+        baseUrl: String,
+        rawResolverId: Int = 38,
+        derivedResolverId: Int = 39
+    ): List<SelcukFlixResolvedMediaCandidate> {
         val url = SelcukFlixResolverBank.normalizeUrl(rawUrl, baseUrl) ?: return emptyList()
         val result = mutableListOf(
-            SelcukFlixResolvedMediaCandidate(38, url, "PichiveSourceApiResolver • raw file")
+            SelcukFlixResolvedMediaCandidate(rawResolverId, url, "raw file")
         )
         val beforeFragment = url.substringBefore("#")
         val fragment = url.substringAfter("#", "").takeIf { "#" in url }?.let { "#$it" }.orEmpty()
@@ -81,7 +86,7 @@ internal object SelcukFlixContentXSourceParser {
             val normalized = SelcukFlixResolverBank.normalizeUrl(transformed, baseUrl)
             if (normalized != null && normalized != url) {
                 result += SelcukFlixResolvedMediaCandidate(
-                    39,
+                    derivedResolverId,
                     normalized,
                     "PichiveMasterPlaylistResolver • m.php → master.m3u8"
                 )
