@@ -34,14 +34,12 @@ class SelcukFlix : MainAPI() {
         "Accept-Language" to "tr-TR,tr;q=0.9,en;q=0.8",
         "X-Requested-With" to "XMLHttpRequest",
         "Origin" to "https://selcukflix.app",
-        "Referer" to "https://selcukflix.app/mobil-arama"
+        "Referer" to "https://selcukflix.app/"
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/dizi-izle" to "Yeni Diziler",
         "$mainUrl/film-izle" to "Yeni Filmler",
-        "$mainUrl/trend" to "Trend",
-        "$mainUrl/kesfet" to "Keşfet"
+        "$mainUrl/dizi-izle" to "Yeni Diziler"
     )
 
     private data class SourceItem(val content: String, val label: String)
@@ -106,7 +104,7 @@ class SelcukFlix : MainAPI() {
             app.post(
                 mainUrl.trimEnd('/') + path,
                 headers = apiHeaders,
-                referer = mainUrl.trimEnd('/') + "/mobil-arama"
+                referer = mainUrl.trimEnd('/') + "/"
             ).text
         } catch (error: Exception) {
             val detail = error.message.orEmpty()
@@ -121,7 +119,7 @@ class SelcukFlix : MainAPI() {
             }
             val kind = error.javaClass.simpleName.ifBlank { "NetworkError" }
             throw ErrorLoadingException(
-                "SelcukFlix API isteği başarısız ($kind). /api/bg/searchContent .app üzerinde canlı doğrulanamadı."
+                "SelcukFlix /api/bg/searchcontent API isteği başarısız ($kind)."
             )
         }
         if (isBlocked(body, path)) {
@@ -181,7 +179,7 @@ class SelcukFlix : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = canonicalSiteUrl(request.data) ?: request.data
         val pageUrl = if (page > 1) {
-            base + (if (base.contains("?")) "&" else "?") + "sayfa=" + page
+            base + (if (base.contains("?")) "&" else "?") + "page=" + page
         } else {
             base
         }
@@ -236,7 +234,7 @@ class SelcukFlix : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val root = requestApi("/api/bg/searchContent?searchterm=" + encoded)
+        val root = requestApi("/api/bg/searchcontent?searchterm=" + encoded)
         val state = root.field("state")
         if (state != null && state.isBoolean && !state.asBoolean()) {
             throw ErrorLoadingException("SelcukFlix arama API'si başarısız yanıt döndürdü.")
