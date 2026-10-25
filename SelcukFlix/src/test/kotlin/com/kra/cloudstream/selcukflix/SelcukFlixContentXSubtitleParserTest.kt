@@ -73,6 +73,35 @@ class SelcukFlixContentXSubtitleParserTest {
 
         assertTrue(result.isEmpty())
     }
+
+    @Test
+    fun createsSeparateRawAndDerivedPlaylistCandidatesWithStableIds() {
+        val result = SelcukFlixContentXSourceParser.mediaFileCandidates(
+            "https://four.pichive.online/media/m.php?key=fixture",
+            "https://four.pichive.online/source2.php?v=fixture"
+        )
+        assertEquals(listOf(38, 39), result.map { it.resolverId })
+        assertEquals(
+            "https://four.pichive.online/media/m.php?key=fixture",
+            result[0].url
+        )
+        assertEquals(
+            "https://four.pichive.online/media/master.m3u8?key=fixture",
+            result[1].url
+        )
+    }
+
+    @Test
+    fun directManifestDoesNotCreateFakeDerivedCandidate() {
+        val result = SelcukFlixContentXSourceParser.mediaFileCandidates(
+            "https://cdn.example/master.m3u8",
+            "https://player.example/source2.php?v=fixture"
+        )
+        assertEquals(1, result.size)
+        assertEquals(38, result.single().resolverId)
+        assertEquals("https://cdn.example/master.m3u8", result.single().url)
+    }
+
 }
 
 
