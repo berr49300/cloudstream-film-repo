@@ -968,7 +968,7 @@ class SelcukFlix : MainAPI() {
                                     "; URL and token omitted from log."
                             )
                         }
-                        collected.distinctBy { it.url to it.type }.also { contentXCache[contextKey] = it }
+                        collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }.also { contentXCache[contextKey] = it }
                     }
                     if (resolvedLinks.isEmpty()) {
                         android.util.Log.w(
@@ -978,7 +978,7 @@ class SelcukFlix : MainAPI() {
                         emitUnresolvedPlayerProbe(candidate, label)
                     }
                     resolvedLinks.forEach { link ->
-                        val emitKey = candidateKey + "|" + link.url + "|" + link.type
+                        val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
                         if (!emittedResolverLinks.add(emitKey)) return@forEach
                         callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
                             this.referer = link.referer.ifBlank { candidate.referer }
@@ -1069,12 +1069,12 @@ class SelcukFlix : MainAPI() {
                             "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)} failed; URL and query parameters intentionally omitted."
                         )
                     }
-                    collected.distinctBy { it.url to it.type }.also { playerCache[playerKey] = it }
+                    collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }.also { playerCache[playerKey] = it }
                 }
 
                 if (resolvedLinks.isNotEmpty()) {
                     resolvedLinks.forEach { link ->
-                        val emitKey = candidateKey + "|" + link.url + "|" + link.type
+                        val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
                         if (!emittedResolverLinks.add(emitKey)) return@forEach
                         callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
                             this.referer = link.referer.ifBlank { candidate.referer }
