@@ -393,9 +393,14 @@ class WebteIzle : MainAPI() {
                                     }
                                 } else if (
                                     hostFamily.equals("Filemoon", ignoreCase = true) ||
-                                    hostFamily.equals("OK.ru", ignoreCase = true)
+                                    hostFamily.equals("OK.ru", ignoreCase = true) ||
+                                    hostFamily.equals("PixelDrain", ignoreCase = true)
                                 ) {
-                                    val strategyId = if (hostFamily.equals("Filemoon", ignoreCase = true)) "42" else "43"
+                                    val strategyId = when {
+                                        hostFamily.equals("Filemoon", ignoreCase = true) -> "42"
+                                        hostFamily.equals("OK.ru", ignoreCase = true) -> "43"
+                                        else -> "44"
+                                    }
                                     val variants = WebteIzleResolverBank.playerHostVariants(candidate.url, hostFamily).drop(1)
                                     for (variantUrl in variants) {
                                         val variantKey = WebteIzleResolverBank.emittedMediaKey(langName, variantUrl)
