@@ -102,10 +102,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=selcukflix.app",
-        "fileHash": "sha256-cd6c6c57796afd2b4341c750e6c149d682efc828fe4e7c11fad958e85f362a4d",
+        "fileHash": "sha256-2c4806856451d7d1da58e59773a0740dcda470d4622fb34dee4ea689362337df",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 122047,
+        "fileSize": 123121,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -115,9 +115,9 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 5,
+        "version": 6,
         "internalName": "SelcukFlix",
-        "description": "SelcukFlix v5: katalog/poster d\u00fczeltmeleri, Pichive ve oynat\u0131c\u0131 ba\u011flam\u0131 testleri",
+        "description": "SelcukFlix v6: Pichive kaynak API referer ve PHP-HLS d\u00fczeltmeleri, katalog/poster iyile\u015ftirmeleri",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/SelcukFlix.cs3",
         "name": "SelcukFlix"
     },
