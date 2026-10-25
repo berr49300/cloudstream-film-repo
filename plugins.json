@@ -102,10 +102,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=selcukflix.app",
-        "fileHash": "sha256-fa14a93917501762162805d96e647957dd9d663f174f12c53e09db3f48fba6e8",
+        "fileHash": "sha256-4be3d5128f1c841b57311b5fa0e5f8e3e7c98211a38846d4479fceee086deaa8",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 74768,
+        "fileSize": 103685,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -115,7 +115,7 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 2,
+        "version": 3,
         "internalName": "SelcukFlix",
         "description": "SelcukFlix i\u00e7in ba\u011f\u0131ms\u0131z film/dizi sa\u011flay\u0131c\u0131s\u0131 ve numaral\u0131 kaynak test bankas\u0131",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/SelcukFlix.cs3",
