@@ -363,9 +363,11 @@ class SelcukFlix : MainAPI() {
             }
         }
 
-        val episodes = episodeEntries
+        val htmlEpisodes = episodeEntries
             .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
             .map { it.third }
+        // Prefer the site's structured episode payload; use season-page HTML as a fallback.
+        val episodes = root?.let(::episodesFrom)?.takeIf { it.isNotEmpty() } ?: htmlEpisodes
         val path = runCatching { URI(canonicalUrl).path.orEmpty().lowercase() }.getOrDefault("")
         val isSeries = path.startsWith("/dizi/") || seasonLinks.isNotEmpty() ||
             episodes.isNotEmpty() || root?.field("relatedResults")?.field("getSerieSeasonAndEpisodes") != null
