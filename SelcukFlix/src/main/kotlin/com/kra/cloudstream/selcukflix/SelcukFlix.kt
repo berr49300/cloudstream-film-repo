@@ -38,50 +38,17 @@ class SelcukFlix : MainAPI() {
         "Referer" to "https://selcukflix.app/"
     )
 
+    // These four public HTML routes are the catalog routes used by the current site.
+    // Do not advertise guessed /api/bg/findMovies or /findSeries endpoints as catalog rows.
     override val mainPage = mainPageOf(
         "episodes|all" to "Güncel Bölümler • Tümü",
-        "episodes|foreign" to "Güncel Bölümler • Yabancı Dizi",
-        "episodes|dub" to "Güncel Bölümler • Dublaj Dizi",
-        "episodes|anime" to "Güncel Bölümler • Animeler",
-        "api|findMovies" to "Yeni Eklenen Filmler",
-        "api|findMovies|imdbPointMin=6.9" to "IMDb 6.9 Üstü",
-        "api|findMovies|countryCodesComma=TR" to "Yerli Filmler",
+        "episodes|foreign" to "Güncel Bölümler • Altyazılı",
+        "episodes|dub" to "Güncel Bölümler • Dublaj",
+        "episodes|anime" to "Güncel Bölümler • Anime",
+        "$mainUrl/dizi-izle" to "Yeni Diziler",
         "$mainUrl/film-izle" to "Yeni Filmler",
-        "api|findSeries" to "Yeni Eklenen Diziler",
-        "$mainUrl/dizi-izle" to "Yabancı Diziler",
-        "$mainUrl/kesfet" to "Keşfet",
-        "$mainUrl/trend" to "Trend Diziler",
-        "api|findSeries|countryIdsComma=21,26" to "Asya / Kore Dizileri",
-        "api|findSeries|categoryIdsComma=17" to "Anime Dizileri",
-        "api|findSeries|categoryIdsComma=9" to "Aksiyon Dizileri",
-        "api|findSeries|categoryIdsComma=5" to "Bilim Kurgu Dizileri",
-        "api|findSeries|categoryIdsComma=4" to "Komedi Dizileri",
-        "api|findSeries|categoryIdsComma=2" to "Dram Dizileri",
-        "api|findSeries|categoryIdsComma=12" to "Fantastik Diziler",
-        "api|findSeries|categoryIdsComma=18" to "Gerilim Dizileri",
-        "api|findSeries|categoryIdsComma=8" to "Korku Dizileri",
-        "api|findSeries|categoryIdsComma=3" to "Gizem Dizileri",
-        "api|findSeries|categoryIdsComma=24" to "Macera Dizileri",
-        "api|findSeries|categoryIdsComma=7" to "Romantik Diziler",
-        "api|findSeries|categoryIdsComma=1" to "Suç Dizileri",
-        "api|findSeries|categoryIdsComma=15" to "Aile Dizileri",
-        "api|findSeries|categoryIdsComma=26" to "Savaş Dizileri",
-        "api|findSeries|categoryIdsComma=11" to "Western Diziler",
-        "api|findMovies|categoryIdsComma=59" to "Aksiyon Filmleri",
-        "api|findMovies|categoryIdsComma=66" to "Bilim Kurgu Filmleri",
-        "api|findMovies|categoryIdsComma=45" to "Komedi Filmleri",
-        "api|findMovies|categoryIdsComma=48" to "Dram Filmleri",
-        "api|findMovies|categoryIdsComma=61" to "Fantastik Filmler",
-        "api|findMovies|categoryIdsComma=68" to "Gerilim Filmleri",
-        "api|findMovies|categoryIdsComma=63" to "Korku Filmleri",
-        "api|findMovies|categoryIdsComma=51" to "Gizem Filmleri",
-        "api|findMovies|categoryIdsComma=60" to "Macera Filmleri",
-        "api|findMovies|categoryIdsComma=65" to "Romantik Filmler",
-        "api|findMovies|categoryIdsComma=46" to "Suç Filmleri",
-        "api|findMovies|categoryIdsComma=49" to "Aile Filmleri",
-        "api|findMovies|categoryIdsComma=44" to "Animasyon Filmleri",
-        "api|findMovies|categoryIdsComma=69" to "Savaş Filmleri",
-        "api|findMovies|categoryIdsComma=78" to "Western Filmler"
+        "$mainUrl/trend" to "Trend",
+        "$mainUrl/kesfet" to "Keşfet"
     )
 
     private data class SourceItem(val content: String, val label: String)
@@ -467,6 +434,29 @@ class SelcukFlix : MainAPI() {
         }
 
         val unique = result.distinctBy { it.url }
+
+        // Poster fallback belongs to the real HTML catalogue routes, not the unsupported
+        // /api/bg/findSeries endpoint. Only inspect a bounded number of missing posters.
+        val routePath = runCatching { URI(base).path.orEmpty().lowercase() }.getOrDefault("")
+        if (!episodeFilter && page == 1 && routePath in setOf("/dizi-izle", "/film-izle")) {
+            var detailLookups = 0
+            unique.forEach { item ->
+                if (detailLookups >= 8) return@forEach
+                if (!item.posterUrl.isNullOrBlank()) return@forEach
+                detailLookups++
+                val poster = runCatching {
+                    val detailHtml = loadPageHtml(item.url, "katalog poster fallback")
+                    posterFromDocument(Jsoup.parse(detailHtml, item.url), item.url)
+                }.getOrNull()
+                if (!poster.isNullOrBlank()) {
+                    item.posterUrl = poster
+                    android.util.Log.d("SelcukFlixPoster", "Recovered a missing poster from a detail-page image.")
+                } else {
+                    android.util.Log.d("SelcukFlixPoster", "No detail-page poster was available for a missing poster.")
+                }
+            }
+        }
+
         return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
     }
 
@@ -714,17 +704,23 @@ class SelcukFlix : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit
     ): List<SelcukResolverCandidate> {
         val output = input.toMutableList()
+        // Run the dedicated source2.php strategy for both the episode-page and
+        // site-origin referer contexts. The generic iframe extractor also handles iframe.php,
+        // so excluding its URLs here silently disabled this independent resolver path.
         val pichiveFrames = input.filter {
-            it.id == 15 &&
-                SelcukFlixResolverBank.isPichiveIframe(it.url) &&
-                !SelcukFlixContentXSourceParser.canHandle(it.url)
-        }.distinctBy { it.url }.take(8)
+            it.id in setOf(15, 33) && SelcukFlixResolverBank.isPichiveIframe(it.url)
+        }.distinctBy { it.url + "|" + it.referer }.take(12)
 
         for (frame in pichiveFrames) {
             val iframeHtml = try {
                 // Use the normal embedding-page referer once. If the site responds with a challenge,
                 // mark it BLOCKED instead of trying alternate headers, mirrors, or challenge workarounds.
-                app.get(frame.url, headers = browserHeaders, referer = episodeUrl).text
+                val frameReferer = frame.referer.ifBlank { episodeUrl }
+                app.get(
+                    frame.url,
+                    headers = browserHeaders + mapOf("Referer" to frameReferer),
+                    referer = frameReferer
+                ).text
             } catch (_: Exception) {
                 android.util.Log.w(
                     "SelcukFlix",
@@ -758,7 +754,8 @@ class SelcukFlix : MainAPI() {
                     apiUrl,
                     headers = browserHeaders + mapOf(
                         "Accept" to "application/json, text/plain, */*",
-                        "X-Requested-With" to "XMLHttpRequest"
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to frame.url
                     ),
                     referer = frame.url
                 ).text
