@@ -236,3 +236,25 @@ The installed build emitted the same `41 • VidMolyMasterPlaylistResolver` HLS 
 4. Build/test success is not runtime success. Real movie playback, audio, subtitles and each additional source remain unverified until checked on-device.
 
 Reference for the observed `filemoon`, `okru` and `pixel` function-call shapes: [csprofesor/csnuvio WebteIzle provider](https://github.com/csprofesor/csnuvio/blob/799d3b16bd345027314593674be603683a492da3/providers/webteizle.js). It is used as external prior-art evidence for URL templates, not as evidence that a current link plays.
+
+
+## 2026-10-25 — v4 follow-up: stable HLS de-duplication and real alternative-host fallback
+
+### What v3 did not fix
+
+The user's v3 screenshot still showed repeated `41 • VidMolyMasterPlaylistResolver` rows and no Filemoon/OK.ru/Pixel results. Code inspection explains the two gaps: final HLS URL keys preserved every query parameter, so refreshed signed tokens made the same playlist appear unique; and Filemoon was only synthesized as `filemoon.* /e/id`, although a maintained public WebteIzle provider maps the observed `filemoon('id')` function to `https://bysezoxexe.com/e/{id}`. The native extractor alone was not enough for wrapper pages that expose the media URL only in their HTML.
+
+### v4 changes
+
+- For HLS/DASH de-duplication, normalize scheme/host/path and keep only stream-identity query fields (`id`, `episode`, `quality`, `variant`, `audio`, `lang`, `source`, `url`, etc.). Ignore CDN auth/nonce/cache query values for the *comparison key only*. The first complete URL, including its usable signature, is still the URL sent to the player.
+- The de-dup key still includes language. A final URL is listed at most once for Dublaj and once for Altyazı; distinct episode/track IDs remain separate.
+- Shorten displayed link labels: `41 • VidMoly • Dublaj`, `42 • Filemoon • Dublaj`, `43 • OK.ru • Altyazı`, `44 • Pixel • Dublaj`. The long resolver class names and generic “Aday” word are removed from final links.
+- Map an observed `filemoon('id')` call first to the WebteIzle wrapper `bysezoxexe.com/e/{id}`, retain known fallback hosts, and classify that wrapper as Filemoon.
+- If the native extractor returns no link for an observed Filemoon, OK.ru, Pixel or PixelDrain player URL, fetch the ordinary player HTML once and scan the page for an absolute HLS/DASH/MP4 URL or a nested iframe. Nested probing is bounded to avoid recursion. A Cloudflare/CAPTCHA response is reported as BLOCKED and is not bypassed.
+- Version bumped to 4. The existing VidMoly HLS URL extraction remains in place; changes on that path are limited to stable de-duplication and shorter output labels.
+
+### v4 status and evidence
+
+The exact v3 symptom was reproduced by inspection of the source logic; the query-key code could distinguish identical HLS paths solely because their short-lived parameters changed. The Filemoon URL mapping is backed by the public [csprofesor/csnuvio WebteIzle provider](https://github.com/csprofesor/csnuvio/blob/799d3b16bd345027314593674be603683a492da3/providers/webteizle.js), which also maps `pixel('id')` to PixelDrain `/u/{id}` and `okru('id')` to `ok.ru/videoembed/{id}`. This establishes observed URL templates in that reference, not that every current WebteIzle embed will play.
+
+**Acceptance:** unit tests cover stable HLS keys with changing opaque parameters while preserving differing episode IDs, and the Filemoon wrapper and host aliases. CI and on-device playback remain separate checks. The new source list is expected to contain only distinct resolved links; a source family that is blocked or cannot produce a media link will not be represented as a fake playable entry.
