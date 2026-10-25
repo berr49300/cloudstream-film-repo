@@ -596,7 +596,12 @@ class WebteIzle : MainAPI() {
                             }
                         }
                         WebteIzleCandidateKind.SUBTITLE -> {
-                            subtitleCallback(SubtitleFile(candidate.language ?: "Altyazı", candidate.url))
+                            val subtitleKey = "subtitle|" + WebteIzleResolverBank.emittedMediaKey(langName, candidate.url)
+                            if (emittedResultKeys.add(subtitleKey)) {
+                                subtitleCallback(SubtitleFile(candidate.language ?: "Altyazı", candidate.url))
+                            } else {
+                                android.util.Log.d("WebteIzleResolver", "$id ${attempt.resolverName}: DUPLICATE_SUBTITLE_SUPPRESSED.")
+                            }
                         }
                     }
                 }
