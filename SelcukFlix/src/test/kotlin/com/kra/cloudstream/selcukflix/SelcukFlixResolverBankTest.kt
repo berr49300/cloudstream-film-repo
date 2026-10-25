@@ -328,4 +328,13 @@ class SelcukFlixResolverBankTest {
         })
     }
 
+    @Test
+    fun latestEpisodeFiltersMatchCardMetadata() {
+        assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("episode-card category-anime", "anime"))
+        assertFalse(SelcukFlixResolverBank.matchesEpisodeFilter("episode-card category-drama", "anime"))
+        assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("Türkçe dublaj", "dub"))
+        assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("Yabancı dizi altyazılı", "foreign"))
+        assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("any episode", "all"))
+    }
+
 }
