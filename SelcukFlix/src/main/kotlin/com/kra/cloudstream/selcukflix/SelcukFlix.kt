@@ -192,9 +192,17 @@ class SelcukFlix : MainAPI() {
         return emptyList()
     }
 
-    private fun normalizePoster(raw: String?): String? {
+    private fun normalizePoster(raw: String?, baseUrl: String = mainUrl): String? {
         if (raw.isNullOrBlank()) return null
-        val url = canonicalSiteUrl(raw) ?: SelcukFlixResolverBank.normalizeUrl(raw, mainUrl) ?: return null
+        val value = raw.trim()
+        val url = if (value.startsWith("http://", true) ||
+            value.startsWith("https://", true) || value.startsWith("//") ||
+            value.startsWith("selcukflix.app", true)
+        ) {
+            canonicalSiteUrl(value) ?: SelcukFlixResolverBank.normalizeUrl(value, baseUrl)
+        } else {
+            SelcukFlixResolverBank.normalizeUrl(value, baseUrl)
+        } ?: return null
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
         if (listOf("placeholder", "no-poster", "no_poster", "poster-not-found",
                 "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) return null
@@ -218,7 +226,7 @@ class SelcukFlix : MainAPI() {
             ?.let(::normalizePoster)
     }
 
-    private fun posterFromImage(image: org.jsoup.nodes.Element?): String? {
+    private fun posterFromImage(image: org.jsoup.nodes.Element?, baseUrl: String = mainUrl): String? {
         if (image == null) return null
         val values = listOf(
             image.attr("data-src"),
@@ -239,7 +247,7 @@ class SelcukFlix : MainAPI() {
                 listOf(value.trim().substringBefore(' '))
             }
             for (candidate in candidates) {
-                val normalized = normalizePoster(candidate)
+                val normalized = normalizePoster(candidate, baseUrl)
                 if (normalized != null) return normalized
             }
         }
@@ -252,7 +260,7 @@ class SelcukFlix : MainAPI() {
         ).mapNotNull { normalizePoster(it.attr("content")) }.firstOrNull()
         if (meta != null) return meta
         document.select("img").forEach { image ->
-            posterFromImage(image)?.let { return it }
+            posterFromImage(image, baseUrl)?.let { return it }
         }
         return null
     }
