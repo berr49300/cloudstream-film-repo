@@ -453,6 +453,14 @@ class WebteIzle : MainAPI() {
                                 }
                             }
                             for (link in usableExtractedLinks) {
+                                val finalKey = WebteIzleResolverBank.emittedMediaKey(langName, link.url)
+                                if (!emittedResultKeys.add(finalKey)) {
+                                    android.util.Log.d(
+                                        "WebteIzleResolver",
+                                        "$id ${attempt.resolverName}: FINAL_DUPLICATE_SUPPRESSED — same stream already emitted for ${WebteIzleResolverBank.languageBucket(langName)}."
+                                    )
+                                    continue
+                                }
                                 callback(newExtractorLink(
                                     source = routeLabel + " • " + playerLabel,
                                     name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
