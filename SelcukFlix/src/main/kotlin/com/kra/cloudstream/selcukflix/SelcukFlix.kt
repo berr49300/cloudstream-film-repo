@@ -7,7 +7,6 @@ import com.lagradost.cloudstream3.utils.*
 import org.jsoup.Jsoup
 import java.net.URI
 import java.net.URLEncoder
-import java.util.Calendar
 
 class SelcukFlix : MainAPI() {
     override var mainUrl = "https://selcukflix.app"
@@ -262,68 +261,6 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    private suspend fun getApiCategory(page: Int, request: MainPageRequest): HomePageResponse {
-        val pieces = request.data.split("|")
-        val endpoint = pieces.getOrNull(1)?.takeIf { it in setOf("findMovies", "findSeries") }
-            ?: throw ErrorLoadingException("SelcukFlix kategori uç noktası tanınmadı.")
-        val filters = linkedMapOf<String, String>()
-        pieces.drop(2).forEach { part ->
-            val at = part.indexOf('=')
-            if (at > 0) filters[part.substring(0, at)] = part.substring(at + 1)
-        }
-        val params = linkedMapOf(
-            "releaseYearStart" to "1900",
-            "releaseYearEnd" to Calendar.getInstance().get(Calendar.YEAR).toString(),
-            "imdbPointMin" to "0",
-            "imdbPointMax" to "10",
-            "categoryIdsComma" to "",
-            "countryIdsComma" to "",
-            "orderType" to "date_desc",
-            "languageId" to "-1",
-            "currentPage" to page.toString(),
-            "currentPageCount" to "24",
-            "queryStr" to "",
-            "categorySlugsComma" to "",
-            "countryCodesComma" to ""
-        ).apply { putAll(filters) }
-        // Page values are internal controls, not category overrides.
-        params["currentPage"] = page.toString()
-        params["currentPageCount"] = "24"
-
-        val root = requestApi("/api/bg/$endpoint", params, "$mainUrl/kesfet")
-        val sourceItems = resultArray(root)
-        val mapped = mutableListOf<SearchResponse>()
-        var detailPosterLookups = 0
-        sourceItems.forEach { item ->
-            val initial = asSearchResponse(item) ?: return@forEach
-            var response = initial
-            // The new-series API sometimes omits poster fields while the detail page still has
-            // og:image/lazy image data. Use a bounded first-page fallback, never one request per
-            // item across every category/page.
-            if (page == 1 && endpoint == "findSeries" && filters.isEmpty() &&
-                initial.posterUrl.isNullOrBlank() && detailPosterLookups < 8
-            ) {
-                detailPosterLookups++
-                val poster = runCatching {
-                    val detailHtml = loadPageHtml(initial.url, "poster fallback")
-                    posterFromDocument(Jsoup.parse(detailHtml, initial.url), initial.url)
-                }.getOrNull()
-                if (!poster.isNullOrBlank()) response = asSearchResponse(item, poster) ?: initial
-                android.util.Log.d(
-                    "SelcukFlixPoster",
-                    if (!poster.isNullOrBlank()) "Detail fallback poster found for a missing series poster."
-                    else "Detail fallback had no usable poster for a missing series poster."
-                )
-            }
-            mapped += response
-        }
-        val items = mapped.distinctBy { it.url }
-        val hasMore = root.field("pagination")?.field("hasMore")?.asBoolean()
-            ?: root.field("hasMore")?.asBoolean()
-            ?: (items.size >= 24)
-        return newHomePageResponse(request.name, items, hasNext = hasMore && items.isNotEmpty())
-    }
-
     private fun episodeMetadataText(
         anchor: org.jsoup.nodes.Element,
         heading: String,
@@ -377,8 +314,6 @@ class SelcukFlix : MainAPI() {
     private var currentEpisodeFilter: String = "all"
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        if (request.data.startsWith("api|")) return getApiCategory(page, request)
-
         val episodeFilter = request.data.startsWith("episodes|")
         currentEpisodeFilter = if (episodeFilter) request.data.substringAfter("|") else "all"
         // The site shows "Güncel Bölümler" as a homepage section; do not assume a hidden route.
@@ -441,7 +376,7 @@ class SelcukFlix : MainAPI() {
         if (!episodeFilter && page == 1 && routePath in setOf("/dizi-izle", "/film-izle")) {
             var detailLookups = 0
             unique.forEach { item ->
-                if (detailLookups >= 8) return@forEach
+                if (detailLookups >= 24) return@forEach
                 if (!item.posterUrl.isNullOrBlank()) return@forEach
                 detailLookups++
                 val poster = runCatching {
