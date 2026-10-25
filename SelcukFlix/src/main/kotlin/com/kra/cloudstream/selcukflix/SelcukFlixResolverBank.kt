@@ -5,6 +5,11 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Jsoup
 import java.net.URI
 import java.util.Base64
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import java.net.URLEncoder
 
 internal enum class SelcukMediaKind {
     PLAYER, HLS, DASH, VIDEO, UNKNOWN
@@ -70,7 +75,9 @@ internal object SelcukFlixResolverBank {
         34 to "SessionDependentSourceDiagnostic",
         35 to "AlternateAudioAndSubtitleResolver",
         36 to "GenericExtractorFallback",
-        37 to "ManualNetworkEvidenceResolver"
+        37 to "ManualNetworkEvidenceResolver",
+        38 to "PichiveSourceApiResolver",
+        39 to "PichiveMasterPlaylistResolver"
     )
 
     private val urlRegex = Regex("""(?i)(?:https?:)?//[^\s"'<>\\]+""")
@@ -109,7 +116,7 @@ internal object SelcukFlixResolverBank {
                 ?.takeIf { it.isTextual }
                 ?.asText()
             if (!secure.isNullOrBlank()) {
-                return decodeBase64Text(secure) ?: secure
+                return decodeSitePayload(secure) ?: secure
             }
             return script
         }
@@ -117,7 +124,43 @@ internal object SelcukFlixResolverBank {
         val secureMatch = Regex(
             """(?is)["']secureData["']\s*:\s*["']([A-Za-z0-9+/_=-]{24,})["']"""
         ).find(html)?.groupValues?.getOrNull(1)
-        return secureMatch?.let { decodeBase64Text(it) ?: it }
+        return secureMatch?.let { decodeSitePayload(it) ?: it }
+    }
+
+    /**
+     * SelcukFlix app-side public payload encoding observed in independent provider implementations.
+     * This decodes the site's ordinary page/API payload; it does not bypass login, CAPTCHA, DRM,
+     * Cloudflare challenges, or any other access control. A challenge response must be rejected first.
+     */
+    fun decodeSitePayload(raw: String): String? =
+        decryptSiteEnvelope(raw) ?: decodeBase64Text(raw)
+
+    private fun decryptSiteEnvelope(raw: String): String? {
+        val value = raw.trim().filterNot(Char::isWhitespace)
+        if (value.length < 24 || value.length > 1_000_000) return null
+        val cipherBytes = runCatching { Base64.getDecoder().decode(value) }.getOrNull()
+            ?: runCatching { Base64.getUrlDecoder().decode(value) }.getOrNull()
+            ?: return null
+
+        return runCatching {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
+            val encodedDigest = Base64.getEncoder().encodeToString(digest)
+            // The page's client-side payload format uses the first 32 Base64 characters as AES-256 key bytes.
+            val keyBytes = encodedDigest.take(32).toByteArray(Charsets.UTF_8)
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(keyBytes, "AES"),
+                IvParameterSpec(ByteArray(16))
+            )
+            String(cipher.doFinal(cipherBytes), Charsets.UTF_8).trim().takeIf { decoded ->
+                decoded.startsWith("{") || decoded.startsWith("[") ||
+                    decoded.contains("<iframe", ignoreCase = true) ||
+                    decoded.contains("m3u8", ignoreCase = true) ||
+                    decoded.contains("source_content", ignoreCase = true)
+            }
+        }.getOrNull()
     }
 
     fun decodeBase64Text(raw: String): String? {
@@ -397,6 +440,91 @@ internal object SelcukFlixResolverBank {
         observedUrls.filter { isLikelyPlayerOrMedia(it, siteUrl) }
             .forEach { add(36, it, baseUrl, forcePlayerContext = true) }
 
+        return result.values.toList()
+    }
+
+    fun isPichiveIframe(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val host = uri.host.orEmpty().lowercase()
+        return uri.path.orEmpty().contains("iframe.php", ignoreCase = true) &&
+            (host == "pichive.online" || host.endsWith(".pichive.online") ||
+                host == "dplayer82.site" || host.endsWith(".dplayer82.site"))
+    }
+
+    fun extractPichiveToken(iframeHtml: String): String? {
+        if (iframeHtml.isBlank() || isAccessChallenge(iframeHtml)) return null
+        return Regex("""(?is)\bopenPlayer\s*\(\s*['"]([A-Za-z0-9_./+=:-]{8,2048})['"]""")
+            .find(normalizeEscapes(iframeHtml))
+            ?.groupValues?.getOrNull(1)
+            ?.takeIf { it.length in 8..2048 }
+    }
+
+    fun pichiveSourceApiUrl(iframeUrl: String, token: String): String? {
+        if (!isPichiveIframe(iframeUrl) || token.isBlank()) return null
+        val uri = runCatching { URI(iframeUrl) }.getOrNull() ?: return null
+        val origin = uri.scheme + "://" + uri.rawAuthority
+        return origin + "/source2.php?v=" + URLEncoder.encode(token, "UTF-8")
+    }
+
+    /**
+     * Source2 response parsing is kept as an independent site/player-specific strategy.
+     * The m.php -> master.m3u8 relation is a known pattern from public SelcukFlix integrations,
+     * but remains HYPOTHESIS on any individual live response until tested.
+     */
+    fun extractPichiveSourceCandidates(
+        responseText: String,
+        iframeUrl: String
+    ): List<SelcukResolverCandidate> {
+        if (responseText.isBlank() || isAccessChallenge(responseText)) return emptyList()
+        val root = runCatching { mapper.readTree(responseText) }.getOrNull() ?: return emptyList()
+        if (root.get("state")?.asBoolean(false) != true) return emptyList()
+        val playlist = root.get("playlist")?.takeIf { it.isArray } ?: return emptyList()
+        val result = linkedMapOf<String, SelcukResolverCandidate>()
+
+        playlist.forEach { track ->
+            val trackLabel = track.get("title")?.asText().orEmpty().take(50)
+            val sources = track.get("sources")?.takeIf { it.isArray } ?: return@forEach
+            sources.forEach { source ->
+                val rawFile = source.get("file")?.asText().orEmpty()
+                if (rawFile.isBlank()) return@forEach
+                val label = source.get("label")?.asText().orEmpty().take(24)
+                val detail = listOf(trackLabel, label).filter { it.isNotBlank() }.joinToString("/")
+                    .ifBlank { "source2" }
+                val absolute = normalizeUrl(rawFile, iframeUrl) ?: return@forEach
+                if (isYouTubeUrl(absolute)) return@forEach
+
+                val rawCandidate = SelcukResolverCandidate(
+                    id = 38,
+                    url = absolute,
+                    kind = classify(absolute, forcePlayerContext = true),
+                    referer = iframeUrl,
+                    note = "raw endpoint • $detail"
+                )
+                result.putIfAbsent("38|$absolute|$detail", rawCandidate)
+
+                val path = runCatching { URI(absolute).path.orEmpty() }.getOrDefault("")
+                val masterUrl = if (path.endsWith("m.php", ignoreCase = true)) {
+                    val beforeQuery = absolute.substringBefore('#')
+                    val query = beforeQuery.substringAfter('?', "").takeIf { '?' in beforeQuery }
+                    val basePath = beforeQuery.substringBefore('?')
+                        .replace(Regex("""m\.php$""", RegexOption.IGNORE_CASE), "master.m3u8")
+                    basePath + (query?.let { "?$it" } ?: "")
+                } else {
+                    absolute
+                }
+                val kind = classify(masterUrl, forcePlayerContext = true)
+                if (masterUrl != absolute || kind in setOf(SelcukMediaKind.HLS, SelcukMediaKind.DASH, SelcukMediaKind.VIDEO)) {
+                    val playlistCandidate = SelcukResolverCandidate(
+                        id = 39,
+                        url = masterUrl,
+                        kind = kind,
+                        referer = iframeUrl,
+                        note = "derived playlist • $detail"
+                    )
+                    result.putIfAbsent("39|$masterUrl|$detail", playlistCandidate)
+                }
+            }
+        }
         return result.values.toList()
     }
 
