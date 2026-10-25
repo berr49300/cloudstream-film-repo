@@ -201,7 +201,7 @@ internal object SelcukFlixResolverBank {
                     "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) {
                 return null
             }
-            if (Regex("""(?i)\\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
+            if (Regex("""(?i)\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
             return url
         }
 
@@ -906,7 +906,7 @@ internal object SelcukFlixResolverBank {
     private fun isNonMediaAssetUrl(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val path = uri.path.orEmpty().lowercase()
-        if (Regex("""(?i)\\.(avif|bmp|gif|jpe?g|png|webp|svg|ico|css|js|map|woff2?|ttf|otf)(?:$|[?#])""")
+        if (Regex("""(?i)\.(avif|bmp|gif|jpe?g|png|webp|svg|ico|css|js|map|woff2?|ttf|otf)(?:$|[?#])""")
                 .containsMatchIn(path)
         ) return true
         if (Regex("""(?i)/(images?|posters?|covers?|thumbnails?|avatars?|logos?)(?:/|$)""")
