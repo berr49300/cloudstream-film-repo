@@ -186,7 +186,7 @@ internal object SelcukFlixResolverBank {
                 normalizeUrl(raw, baseUrl)?.let(found::add)
             }
             // A few responses keep quotes escaped even after outer JSON has been decoded.
-            val escapedSrc = Regex("""(?is)<iframe\\b[^>]*?\\bsrc\\s*=\\s*\\\\?["']([^"'\\]+)""")
+            val escapedSrc = Regex("""(?is)<iframe\b[^>]*?\bsrc\s*=\s*\\?["']([^"'\\]+)""")
             escapedSrc.findAll(normalized).forEach { match ->
                 normalizeUrl(match.groupValues[1], baseUrl)?.let(found::add)
             }
