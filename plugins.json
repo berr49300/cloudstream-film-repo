@@ -101,6 +101,27 @@
         "name": "FullHDFilmizlesene"
     },
     {
+        "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=selcukflix.app",
+        "fileHash": "sha256-c54fccc978de12a6d7971389894f7243cde0423ff6d6c593e594f19e670cd30f",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
+        "fileSize": 72572,
+        "status": 3,
+        "language": "tr",
+        "authors": [
+            "berr49300"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "SelcukFlix",
+        "description": "SelcukFlix i\u00e7in ba\u011f\u0131ms\u0131z film/dizi sa\u011flay\u0131c\u0131s\u0131 ve numaral\u0131 kaynak test bankas\u0131",
+        "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/SelcukFlix.cs3",
+        "name": "SelcukFlix"
+    },
+    {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=webteizle.info",
         "fileHash": "sha256-a9269bbf06572dfcb047bf66dffbd98f6a460c4abb7a798f44638e657de0b0dc",
         "apiVersion": 1,
