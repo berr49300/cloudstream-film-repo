@@ -257,7 +257,7 @@ class SelcukFlix : MainAPI() {
     private fun posterFromDocument(document: org.jsoup.nodes.Document, baseUrl: String): String? {
         val meta = document.select(
             "meta[property=og:image], meta[property=og:image:url], meta[name=twitter:image], meta[name=twitter:image:src]"
-        ).mapNotNull { normalizePoster(it.attr("content")) }.firstOrNull()
+        ).mapNotNull { normalizePoster(it.attr("content"), baseUrl) }.firstOrNull()
         if (meta != null) return meta
         document.select("img").forEach { image ->
             posterFromImage(image, baseUrl)?.let { return it }
