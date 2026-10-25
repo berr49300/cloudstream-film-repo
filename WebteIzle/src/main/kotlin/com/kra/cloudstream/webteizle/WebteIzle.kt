@@ -260,7 +260,8 @@ class WebteIzle : MainAPI() {
             langName: String,
             fallbackQuality: Int? = null,
             probeNestedPages: Boolean = true,
-            probeManifests: Boolean = true
+            probeManifests: Boolean = true,
+            probeKnownPlayerPages: Boolean = true
         ) {
             attempts.forEach { attempt ->
                 // IDs/statuses are logged without URLs, tokens, or player query strings.
@@ -292,18 +293,18 @@ class WebteIzle : MainAPI() {
                             val host = runCatching { java.net.URI(candidate.url).host }.getOrNull() ?: "unknown-player"
                             val hostFamily = WebteIzleResolverBank.playerFamily(candidate.url)
                             val family = hostFamily ?: candidate.playerHint
-                            val routeLabel = when {
-                                hostFamily.equals("Filemoon", ignoreCase = true) || candidate.playerHint.equals("Filemoon", ignoreCase = true) ->
-                                    "42 • FilemoonHostVariantResolver • $langName"
-                                hostFamily.equals("OK.ru", ignoreCase = true) || candidate.playerHint.equals("OK.ru", ignoreCase = true) ->
-                                    "43 • OkRuHostVariantResolver • $langName"
-                                hostFamily.equals("PixelDrain", ignoreCase = true) ||
-                                    candidate.playerHint.equals("Pixel", ignoreCase = true) ->
-                                    "44 • PixelObservedPlayerResolver • $langName"
-                                attempt.resolverId == 17 -> baseLabel
-                                else -> "$baseLabel → 17 • ExtractorRegistryResolver"
-                            }
                             val playerLabel = family?.let { "$it ($host)" } ?: host
+                            val routeLabel = when {
+                                hostFamily.equals("VidMoly", ignoreCase = true) ||
+                                    candidate.playerHint.equals("VidMoly", ignoreCase = true) -> "41 • VidMoly"
+                                hostFamily.equals("Filemoon", ignoreCase = true) ||
+                                    candidate.playerHint.equals("Filemoon", ignoreCase = true) -> "42 • Filemoon"
+                                hostFamily.equals("OK.ru", ignoreCase = true) ||
+                                    candidate.playerHint.equals("OK.ru", ignoreCase = true) -> "43 • OK.ru"
+                                hostFamily.equals("PixelDrain", ignoreCase = true) ||
+                                    candidate.playerHint.equals("Pixel", ignoreCase = true) -> "44 • Pixel"
+                                else -> "17 • $playerLabel"
+                            }
                             val sourceQuality = WebteIzleResolverBank.validQualityHint(fallbackQuality)
                             val qualityLabel = sourceQuality?.toString()?.plus("p") ?: "Auto"
                             // loadExtractor's callback is non-suspending, while this provider's
@@ -374,8 +375,8 @@ class WebteIzle : MainAPI() {
                                                     "${uri.scheme}://${uri.authority}/"
                                                 }.getOrDefault("$mainUrl/")
                                                 callback(newExtractorLink(
-                                                    source = "41 • VidMolyMasterPlaylistResolver",
-                                                    name = "41 • VidMolyMasterPlaylistResolver • $langName • VidMoly • HLS • Aday • $qualityLabel",
+                                                    source = "41 • VidMoly",
+                                                    name = "41 • VidMoly • $langName",
                                                     url = master,
                                                     type = ExtractorLinkType.M3U8
                                                 ) {
@@ -392,16 +393,61 @@ class WebteIzle : MainAPI() {
                                         }
                                     }
                                 } else if (
-                                    hostFamily.equals("Filemoon", ignoreCase = true) ||
-                                    hostFamily.equals("OK.ru", ignoreCase = true) ||
-                                    hostFamily.equals("PixelDrain", ignoreCase = true)
+                                    family.equals("Filemoon", ignoreCase = true) ||
+                                    family.equals("OK.ru", ignoreCase = true) ||
+                                    family.equals("PixelDrain", ignoreCase = true) ||
+                                    family.equals("Pixel", ignoreCase = true)
                                 ) {
                                     val strategyId = when {
-                                        hostFamily.equals("Filemoon", ignoreCase = true) -> "42"
-                                        hostFamily.equals("OK.ru", ignoreCase = true) -> "43"
+                                        family.equals("Filemoon", ignoreCase = true) -> "42"
+                                        family.equals("OK.ru", ignoreCase = true) -> "43"
                                         else -> "44"
                                     }
-                                    val variants = WebteIzleResolverBank.playerHostVariants(candidate.url, hostFamily).drop(1)
+                                    val displayFamily = when (strategyId) {
+                                        "42" -> "Filemoon"
+                                        "43" -> "OK.ru"
+                                        else -> "Pixel"
+                                    }
+
+                                    // Crucial fallback: fetch the observed player page and scan its
+                                    // own config/HTML for direct HLS/MP4 URLs or a nested iframe.
+                                    // This is a normal page request, not a Cloudflare challenge bypass.
+                                    if (probeKnownPlayerPages) {
+                                        val playerPageHtml = try {
+                                            app.get(candidate.url, referer = candidateReferer(candidate)).text
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                        when {
+                                            playerPageHtml.isNullOrBlank() -> android.util.Log.d(
+                                                "WebteIzleResolver",
+                                                "$strategyId $displayFamily: PAGE_NOT_TESTED — player page unavailable."
+                                            )
+                                            WebteIzleResolverBank.isAccessChallenge(playerPageHtml) -> android.util.Log.w(
+                                                "WebteIzleResolver",
+                                                "$strategyId $displayFamily: BLOCKED — player returned Cloudflare/CAPTCHA; no bypass attempted."
+                                            )
+                                            else -> {
+                                                val pageAttempts = WebteIzleResolverBank.inspect(
+                                                    html = playerPageHtml,
+                                                    baseUrl = candidate.url,
+                                                    hintedPlayerName = displayFamily,
+                                                    refererUrl = candidate.url
+                                                )
+                                                emitAttempts(
+                                                    attempts = pageAttempts,
+                                                    langName = langName,
+                                                    fallbackQuality = fallbackQuality,
+                                                    probeNestedPages = true,
+                                                    probeManifests = true,
+                                                    probeKnownPlayerPages = false
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    val variantFamily = if (family.equals("Pixel", ignoreCase = true)) "PixelDrain" else family
+                                    val variants = WebteIzleResolverBank.playerHostVariants(candidate.url, variantFamily).drop(1)
                                     for (variantUrl in variants) {
                                         val variantKey = WebteIzleResolverBank.emittedMediaKey(langName, variantUrl)
                                         if (!seenPlayerCandidates.add(variantKey)) continue
@@ -413,7 +459,7 @@ class WebteIzle : MainAPI() {
                                         } catch (e: Exception) {
                                             android.util.Log.w(
                                                 "WebteIzleResolver",
-                                                "$strategyId player-host variant: EXTRACTOR_ERROR — ${e.javaClass.simpleName}; URL omitted."
+                                                "$strategyId $displayFamily variant: EXTRACTOR_ERROR — ${e.javaClass.simpleName}; URL omitted."
                                             )
                                         }
                                         for (link in variantLinks.filterNot { WebteIzleResolverBank.isYouTubeUrl(it.url) }) {
@@ -421,13 +467,16 @@ class WebteIzle : MainAPI() {
                                             if (!emittedResultKeys.add(finalKey)) {
                                                 android.util.Log.d(
                                                     "WebteIzleResolver",
-                                                    "$strategyId player-host variant: FINAL_DUPLICATE_SUPPRESSED."
+                                                    "$strategyId $displayFamily: FINAL_DUPLICATE_SUPPRESSED."
                                                 )
                                                 continue
                                             }
+                                            val actualQuality = link.quality.takeIf { it in 144..4320 }
+                                            val resultName = "$strategyId • $displayFamily • $langName" +
+                                                (actualQuality?.let { " • " + it + "p" } ?: "")
                                             callback(newExtractorLink(
-                                                source = "$strategyId • $hostFamily HostVariantResolver",
-                                                name = "$strategyId • $hostFamily HostVariantResolver • $langName • Aday • $qualityLabel",
+                                                source = "$strategyId • $displayFamily",
+                                                name = resultName,
                                                 url = link.url,
                                                 type = link.type
                                             ) {
@@ -438,26 +487,6 @@ class WebteIzle : MainAPI() {
                                             })
                                             emitted = true
                                         }
-                                    }
-                                } else if (candidate.playerHint.equals("Pixel", ignoreCase = true) && hostFamily == null) {
-                                    val pixelHtml = try {
-                                        app.get(candidate.url, referer = candidateReferer(candidate)).text
-                                    } catch (_: Exception) {
-                                        null
-                                    }
-                                    when {
-                                        pixelHtml.isNullOrBlank() -> android.util.Log.d(
-                                            "WebteIzleResolver",
-                                            "44 PixelObservedPlayerResolver: NOT TESTED — observed Pixel iframe response unavailable."
-                                        )
-                                        WebteIzleResolverBank.isAccessChallenge(pixelHtml) -> android.util.Log.w(
-                                            "WebteIzleResolver",
-                                            "44 PixelObservedPlayerResolver: BLOCKED — Pixel page returned a Cloudflare/CAPTCHA challenge; no bypass attempted."
-                                        )
-                                        else -> android.util.Log.d(
-                                            "WebteIzleResolver",
-                                            "44 PixelObservedPlayerResolver: NOT FOUND — observed page has no native extractor link and no verified direct-media template."
-                                        )
                                     }
                                 }
                             }
@@ -470,9 +499,12 @@ class WebteIzle : MainAPI() {
                                     )
                                     continue
                                 }
+                                val actualQuality = link.quality.takeIf { it in 144..4320 }
+                                val resultName = routeLabel + " • " + langName +
+                                    (actualQuality?.let { " • " + it + "p" } ?: "")
                                 callback(newExtractorLink(
-                                    source = routeLabel + " • " + playerLabel,
-                                    name = routeLabel + " • " + playerLabel + " • Aday • " + qualityLabel,
+                                    source = routeLabel,
+                                    name = resultName,
                                     url = link.url,
                                     type = link.type
                                 ) {
@@ -520,7 +552,8 @@ class WebteIzle : MainAPI() {
                                         langName = "$langName iframe",
                                         fallbackQuality = fallbackQuality,
                                         probeNestedPages = false,
-                                        probeManifests = false
+                                        probeManifests = false,
+                                        probeKnownPlayerPages = false
                                     )
                                 }
                             }
@@ -537,18 +570,32 @@ class WebteIzle : MainAPI() {
                                 else -> null
                             }
                             val mediaStrategyLabel = when {
-                                candidate.playerHint.equals("Filemoon", ignoreCase = true) -> "42 • FilemoonHostVariantResolver • $langName"
-                                candidate.playerHint.equals("OK.ru", ignoreCase = true) -> "43 • OkRuHostVariantResolver • $langName"
+                                candidate.playerHint.equals("VidMoly", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("VidMoly", ignoreCase = true) ->
+                                    "41 • VidMoly • $langName"
+                                candidate.playerHint.equals("Filemoon", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("Filemoon", ignoreCase = true) ->
+                                    "42 • Filemoon • $langName"
+                                candidate.playerHint.equals("OK.ru", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("OK.ru", ignoreCase = true) ->
+                                    "43 • OK.ru • $langName"
                                 candidate.playerHint.equals("Pixel", ignoreCase = true) ||
                                     WebteIzleResolverBank.playerFamily(candidate.url).equals("PixelDrain", ignoreCase = true) ->
-                                    "44 • PixelObservedPlayerResolver • $langName"
-                                else -> baseLabel
+                                    "44 • Pixel • $langName"
+                                else -> "$id • Direct • $langName"
                             }
+                            val mediaTypeLabel = when (extension) {
+                                "m3u8" -> "HLS"
+                                "mpd" -> "DASH"
+                                else -> extension.ifBlank { "media" }.uppercase()
+                            }
+                            val mediaQualityLabel = WebteIzleResolverBank.validQualityHint(fallbackQuality)
+                                ?.let { " • " + it + "p" }.orEmpty()
                             val finalKey = WebteIzleResolverBank.emittedMediaKey(langName, candidate.url)
                             if (emittedResultKeys.add(finalKey)) {
                                 callback(newExtractorLink(
-                                    source = mediaStrategyLabel,
-                                    name = "$mediaStrategyLabel • ${extension.ifBlank { "media" }.uppercase()} • Aday • $qualityLabel",
+                                    source = mediaStrategyLabel.substringBefore(" • " + langName),
+                                    name = mediaStrategyLabel + " • " + mediaTypeLabel + mediaQualityLabel,
                                     url = candidate.url,
                                     type = mediaType
                                 ) {

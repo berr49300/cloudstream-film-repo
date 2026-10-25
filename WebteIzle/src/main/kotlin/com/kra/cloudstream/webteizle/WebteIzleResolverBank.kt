@@ -88,7 +88,8 @@ internal object WebteIzleResolverBank {
         Definition(41, "VidMolyMasterPlaylistResolver"),
         Definition(42, "FilemoonHostVariantResolver"),
         Definition(43, "OkRuHostVariantResolver"),
-        Definition(44, "PixelObservedPlayerResolver")
+        Definition(44, "PixelObservedPlayerResolver"),
+        Definition(45, "ObservedPlayerPageMediaResolver")
     )
 
     private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
@@ -150,6 +151,7 @@ internal object WebteIzleResolverBank {
         "filemoon.to" to "Filemoon",
         "filemoon.sx" to "Filemoon",
         "filemoon.in" to "Filemoon",
+        "bysezoxexe.com" to "Filemoon",
         "pixeldrain.com" to "PixelDrain",
         "pixeldrain.dev" to "PixelDrain",
         "ok.ru" to "OK.ru",
@@ -182,8 +184,18 @@ internal object WebteIzleResolverBank {
         else -> label.substringBefore(" iframe").substringBefore(" m3u8").trim()
     }
 
-    /** Dedup keys retain query tokens but ignore URL fragments and normalize host casing. */
+    /**
+     * Stable final-stream key. Signed CDN URLs often change only expiry/token/signature query
+     * values on each identical embed request. Ignore those volatile keys for comparison while
+     * retaining the first full URL (including its valid signature) for playback.
+     */
     internal fun emittedMediaKey(language: String, rawUrl: String): String {
+        val volatileQueryKeys = setOf(
+            "token", "access_token", "auth", "authorization", "signature", "sig",
+            "expires", "expiry", "exp", "hdnts", "policy", "key-pair-id", "jwt",
+            "session", "sessionid", "nonce", "timestamp", "ts", "cache", "cachebust",
+            "rand", "random", "ip", "hash", "secure", "st", "e", "s"
+        )
         val normalized = runCatching {
             val uri = URI(rawUrl)
             val scheme = uri.scheme?.lowercase() ?: return@runCatching rawUrl.substringBefore('#')
@@ -191,7 +203,33 @@ internal object WebteIzleResolverBank {
             val defaultPort = (scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)
             val port = if (uri.port >= 0 && !defaultPort) ":" + uri.port.toString() else ""
             val path = uri.normalize().rawPath.orEmpty()
-            val query = uri.rawQuery?.let { "?" + it }.orEmpty()
+            val isPlaylist = path.substringAfterLast('.', "").lowercase() in setOf("m3u8", "mpd")
+            val stablePlaybackKeys = setOf(
+                "id", "video", "videoid", "episode", "episodeid", "file", "filename",
+                "quality", "variant", "audio", "lang", "language", "track", "type",
+                "format", "source", "playlist", "stream", "v", "height", "width", "url"
+            )
+            val stableQuery = uri.rawQuery.orEmpty()
+                .split('&')
+                .filter { it.isNotBlank() }
+                .filter { pair ->
+                    val key = pair.substringBefore('=').lowercase()
+                        .replace(Regex("""[^a-z0-9_\-]"""), "")
+                    if (isPlaylist) {
+                        // For master playlists, CDN auth/nonce/cache keys are routinely refreshed
+                        // for the same stream. Keep only parameters that identify the actual track.
+                        key in stablePlaybackKeys
+                    } else {
+                        key !in volatileQueryKeys &&
+                            !key.startsWith("utm_") &&
+                            !key.startsWith("x-amz-") &&
+                            !key.startsWith("x-goog-") &&
+                            !key.startsWith("cf_")
+                    }
+                }
+                .sorted()
+                .joinToString("&")
+            val query = if (stableQuery.isBlank()) "" else "?" + stableQuery
             scheme + "://" + host + port + path + query
         }.getOrDefault(rawUrl.substringBefore('#'))
         return languageBucket(language) + "|" + normalized
@@ -208,8 +246,8 @@ internal object WebteIzleResolverBank {
         val host = hostOf(url) ?: return listOf(url)
         val targets = when {
             family.equals("Filemoon", ignoreCase = true) &&
-                host in setOf("filemoon.to", "filemoon.sx", "filemoon.in") ->
-                listOf("filemoon.to", "filemoon.sx", "filemoon.in")
+                host in setOf("bysezoxexe.com", "filemoon.to", "filemoon.sx", "filemoon.in") ->
+                listOf("bysezoxexe.com", "filemoon.to", "filemoon.sx", "filemoon.in")
             family.equals("OK.ru", ignoreCase = true) &&
                 host in setOf("ok.ru", "m.ok.ru", "odnoklassniki.ru") ->
                 listOf("odnoklassniki.ru", "ok.ru", "m.ok.ru")
@@ -448,8 +486,8 @@ internal object WebteIzleResolverBank {
                     }
                     "filemoon" -> add(
                         38,
-                        "https://filemoon.sx/e/$playerId",
-                        "observed filemoon(id, ...) call; /e/id template hypothesis from public provider reference",
+                        "https://bysezoxexe.com/e/$playerId",
+                        "observed filemoon(id, ...) call; public WebteIzle-provider reference maps it to bysezoxexe.com/e/id",
                         WebteIzleCandidateKind.PLAYER
                     )
                     "okru" -> add(
@@ -468,6 +506,7 @@ internal object WebteIzleResolverBank {
             val playerId = match.groupValues[2]
             when (family) {
                 "filemoon" -> {
+                    add(42, "https://bysezoxexe.com/e/" + playerId, "observed filemoon(id) config; public WebteIzle-provider wrapper template", WebteIzleCandidateKind.PLAYER)
                     add(42, "https://filemoon.to/e/" + playerId, "observed filemoon(id) config; native CloudStream .to extractor variant", WebteIzleCandidateKind.PLAYER)
                     add(42, "https://filemoon.sx/e/" + playerId, "observed filemoon(id) config; native CloudStream .sx extractor variant", WebteIzleCandidateKind.PLAYER)
                     add(42, "https://filemoon.in/e/" + playerId, "observed filemoon(id) config; native CloudStream .in extractor variant", WebteIzleCandidateKind.PLAYER)
