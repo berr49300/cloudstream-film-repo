@@ -192,10 +192,80 @@ class SelcukFlix : MainAPI() {
         return emptyList()
     }
 
-    private fun normalizePoster(raw: String?): String? =
-        raw?.let { canonicalSiteUrl(it) ?: SelcukFlixResolverBank.normalizeUrl(it, mainUrl) }
+    private fun normalizePoster(raw: String?, baseUrl: String = mainUrl): String? {
+        if (raw.isNullOrBlank()) return null
+        val value = raw.trim()
+        val url = if (value.startsWith("http://", true) ||
+            value.startsWith("https://", true) || value.startsWith("//") ||
+            value.startsWith("selcukflix.app", true)
+        ) {
+            canonicalSiteUrl(value) ?: SelcukFlixResolverBank.normalizeUrl(value, baseUrl)
+        } else {
+            SelcukFlixResolverBank.normalizeUrl(value, baseUrl)
+        } ?: return null
+        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+        if (listOf("placeholder", "no-poster", "no_poster", "poster-not-found",
+                "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) return null
+        if (Regex("""(?i)\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
+        return url
+    }
 
-    private fun asSearchResponse(item: JsonNode): SearchResponse? {
+    private fun posterForItem(item: JsonNode): String? {
+        // Explicit poster/face fields must win over backdrop or generic image fields.
+        val directPoster = item.textField(
+            "object_poster_url", "poster_url", "posterUrl", "poster_path", "posterPath",
+            "object_face_url", "face_url", "faceUrl", "poster", "face",
+            "cover_url", "cover", "thumbnail_url", "thumbnailUrl", "thumbnail", "thumb_url", "thumb"
+        )?.let(::normalizePoster)
+        if (directPoster != null) return directPoster
+
+        // Search nested API objects before falling back to a generic image/backdrop field.
+        val nested = SelcukFlixResolverBank.findPosterUrl(item, mainUrl)?.let(::normalizePoster)
+        if (nested != null) return nested
+        return item.textField("image_url", "imageUrl", "image", "backdrop_url", "backdrop", "banner")
+            ?.let(::normalizePoster)
+    }
+
+    private fun posterFromImage(image: org.jsoup.nodes.Element?, baseUrl: String = mainUrl): String? {
+        if (image == null) return null
+        val values = listOf(
+            image.attr("data-src"),
+            image.attr("data-lazy-src"),
+            image.attr("data-original"),
+            image.attr("data-original-src"),
+            image.attr("data-lazy"),
+            image.attr("data-url"),
+            image.attr("src"),
+            image.attr("srcset"),
+            image.attr("data-srcset")
+        )
+        for (value in values) {
+            if (value.isBlank()) continue
+            val candidates = if (value.contains(",")) {
+                value.split(",").map { it.trim().substringBefore(' ') }
+            } else {
+                listOf(value.trim().substringBefore(' '))
+            }
+            for (candidate in candidates) {
+                val normalized = normalizePoster(candidate, baseUrl)
+                if (normalized != null) return normalized
+            }
+        }
+        return null
+    }
+
+    private fun posterFromDocument(document: org.jsoup.nodes.Document, baseUrl: String): String? {
+        val meta = document.select(
+            "meta[property=og:image], meta[property=og:image:url], meta[name=twitter:image], meta[name=twitter:image:src]"
+        ).mapNotNull { normalizePoster(it.attr("content"), baseUrl) }.firstOrNull()
+        if (meta != null) return meta
+        document.select("img").forEach { image ->
+            posterFromImage(image, baseUrl)?.let { return it }
+        }
+        return null
+    }
+
+    private fun asSearchResponse(item: JsonNode, posterOverride: String? = null): SearchResponse? {
         val title = item.textField(
             "object_name", "object_alternative_name", "used_title",
             "original_title", "originalTitle", "culture_title", "cultureTitle",
@@ -203,10 +273,7 @@ class SelcukFlix : MainAPI() {
         ) ?: return null
         val rawUrl = item.textField("used_slug", "usedSlug", "slug", "url", "link") ?: return null
         val url = canonicalSiteUrl(rawUrl) ?: return null
-        val poster = normalizePoster(item.textField(
-            "object_poster_url", "object_face_url", "poster_url", "face_url",
-            "posterUrl", "poster", "image", "thumbnail"
-        ))
+        val poster = posterForItem(item) ?: normalizePoster(posterOverride)
         val score = item.textField("imdb_point", "imdbPoint", "object_related_imdb_point", "rating", "score")
         val typeText = item.textField("used_type", "type", "contentType", "itemType").orEmpty().lowercase()
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
@@ -257,7 +324,33 @@ class SelcukFlix : MainAPI() {
         params["currentPageCount"] = "24"
 
         val root = requestApi("/api/bg/$endpoint", params, "$mainUrl/kesfet")
-        val items = resultArray(root).mapNotNull(::asSearchResponse).distinctBy { it.url }
+        val sourceItems = resultArray(root)
+        val mapped = mutableListOf<SearchResponse>()
+        var detailPosterLookups = 0
+        sourceItems.forEach { item ->
+            val initial = asSearchResponse(item) ?: return@forEach
+            var response = initial
+            // The new-series API sometimes omits poster fields while the detail page still has
+            // og:image/lazy image data. Use a bounded first-page fallback, never one request per
+            // item across every category/page.
+            if (page == 1 && endpoint == "findSeries" && filters.isEmpty() &&
+                initial.posterUrl.isNullOrBlank() && detailPosterLookups < 8
+            ) {
+                detailPosterLookups++
+                val poster = runCatching {
+                    val detailHtml = loadPageHtml(initial.url, "poster fallback")
+                    posterFromDocument(Jsoup.parse(detailHtml, initial.url), initial.url)
+                }.getOrNull()
+                if (!poster.isNullOrBlank()) response = asSearchResponse(item, poster) ?: initial
+                android.util.Log.d(
+                    "SelcukFlixPoster",
+                    if (!poster.isNullOrBlank()) "Detail fallback poster found for a missing series poster."
+                    else "Detail fallback had no usable poster for a missing series poster."
+                )
+            }
+            mapped += response
+        }
+        val items = mapped.distinctBy { it.url }
         val hasMore = root.field("pagination")?.field("hasMore")?.asBoolean()
             ?: root.field("hasMore")?.asBoolean()
             ?: (items.size >= 24)
@@ -310,9 +403,7 @@ class SelcukFlix : MainAPI() {
         } else {
             href.substringBefore("/sezon-").substringBefore("/bolum-")
         }
-        val poster = normalizePoster(anchor.selectFirst("img")?.let {
-            it.attr("data-src").ifBlank { it.attr("data-lazy-src").ifBlank { it.attr("src") } }
-        })
+        val poster = posterFromImage(anchor.selectFirst("img"))
         return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { posterUrl = poster }
     }
 
@@ -365,8 +456,7 @@ class SelcukFlix : MainAPI() {
                         .ifBlank { anchor.text() }
                         .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
                     if (title.isBlank()) return@forEach
-                    val poster = normalizePoster(image?.attr("data-src").orEmpty()
-                        .ifBlank { image?.attr("data-lazy-src").orEmpty().ifBlank { image?.attr("src").orEmpty() } })
+                    val poster = posterFromImage(image)
                     result += if (uriPath.startsWith("/film/")) {
                         newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
                     } else {
@@ -491,13 +581,7 @@ class SelcukFlix : MainAPI() {
             ?: document.selectFirst("meta[property=og:description]")?.attr("content")?.trim()
             ?: document.selectFirst("meta[name=description]")?.attr("content")?.trim()
 
-        val poster = normalizePoster(
-            item?.textField("poster_url", "posterUrl", "poster", "image")
-                ?: document.selectFirst("meta[property=og:image]")?.attr("content")
-                ?: document.selectFirst("img[alt]")?.let { image ->
-                    image.attr("data-src").ifBlank { image.attr("data-lazy-src").ifBlank { image.attr("src") } }
-                }
-        )
+        val poster = item?.let(::posterForItem) ?: posterFromDocument(document, canonicalUrl)
 
         val year = item?.textField("release_year", "releaseYear", "year")?.toIntOrNull()
             ?: Regex("""(19|20)\d{2}""").find(title)?.value?.toIntOrNull()
@@ -586,10 +670,19 @@ class SelcukFlix : MainAPI() {
 
         fun walk(node: JsonNode) {
             if (node.isObject) {
-                val content = node.textField(
+                val contentKeys = listOf(
                     "source_content", "sourceContent", "sourceUrl", "source_url",
                     "embedUrl", "embed_url", "videoUrl", "video_url"
                 )
+                val content = contentKeys.asSequence().mapNotNull { key ->
+                    val value = node.field(key) ?: return@mapNotNull null
+                    if (value.isNull) return@mapNotNull null
+                    when {
+                        value.isTextual -> value.asText().trim().takeIf { it.isNotBlank() && it != "null" }
+                        value.isContainerNode -> value.toString()
+                        else -> null
+                    }
+                }.firstOrNull()
                 if (!content.isNullOrBlank()) {
                     // Preserve the player's own label and audio/language variant so a dubbed
                     // source is not hidden behind a generic "Kaynak 1" entry.
@@ -752,25 +845,63 @@ class SelcukFlix : MainAPI() {
     ): Boolean {
         val episodeUrl = canonicalSiteUrl(data) ?: data
         val html = loadPageHtml(episodeUrl, "oynatıcı/kaynak")
-        val payload = SelcukFlixResolverBank.extractEmbeddedPayload(html)
-        val root = if (!payload.isNullOrBlank()) {
-            runCatching { mapper.readTree(payload) }.getOrNull()
-        } else {
-            null
-        }
+        val pageDocument = Jsoup.parse(html, episodeUrl)
+        val decodedPayload = SelcukFlixResolverBank.extractEmbeddedPayload(html)
 
-        val sources = root?.let(::collectSourceItems).orEmpty()
-        val sourceItems = if (sources.isNotEmpty()) sources else listOf(
-            SourceItem(payload ?: html, "Sayfa verisi")
-        )
+        // Do not let one stale/missing page-state field suppress all other discovery paths.
+        // Each surface is scanned independently and the resolver IDs remain attached to outputs.
+        val payloadSurfaces = linkedMapOf<String, String>()
+        if (!decodedPayload.isNullOrBlank()) payloadSurfaces["Decoded page payload"] = decodedPayload
+        pageDocument.selectFirst("script#__NEXT_DATA__")?.let { script ->
+            val text = script.data().ifBlank { script.html() }
+            if (text.isNotBlank()) payloadSurfaces.putIfAbsent("Next.js page state", text)
+        }
+        pageDocument.select("script").forEachIndexed { index, script ->
+            val text = script.data().ifBlank { script.html() }
+            if (text.isNotBlank() && Regex(
+                    """(?is)(source_content|sourceContent|openPlayer|source2\.php|iframe\.php|player|manifest|m3u8|mpd)"""
+                ).containsMatchIn(text)
+            ) {
+                payloadSurfaces.putIfAbsent("Embedded player script ${index + 1}", text)
+            }
+        }
+        payloadSurfaces.putIfAbsent("Raw detail HTML", html)
+
+        val sourceItems = mutableListOf<SourceItem>()
+        payloadSurfaces.forEach { (surfaceName, surfaceText) ->
+            val parsed = runCatching { mapper.readTree(surfaceText) }.getOrNull()
+            val structured = parsed?.let(::collectSourceItems).orEmpty()
+            structured.forEach { item ->
+                sourceItems += SourceItem(item.content, "$surfaceName • ${item.label}")
+            }
+            // Keep the entire surface as an independent fallback for HTML/JSON/script/escaped URL parsers.
+            sourceItems += SourceItem(surfaceText, surfaceName)
+        }
 
         var totalResolved = 0
         val manifestChecked = mutableSetOf<String>()
         val playerCache = mutableMapOf<String, List<ExtractorLink>>()
         val sourceCache = mutableMapOf<String, List<SelcukResolverCandidate>>()
-        val contentXIframesResolved = mutableSetOf<String>()
+        val contentXCache = mutableMapOf<String, List<ExtractorLink>>()
+        val processedCandidates = mutableSetOf<String>()
+        val emittedResolverLinks = mutableSetOf<String>()
 
-        sourceItems.forEachIndexed { sourceIndex, source ->
+        suspend fun emitUnresolvedPlayerProbe(candidate: SelcukResolverCandidate, label: String) {
+            // The user explicitly needs to try each discovered route manually. If all installed
+            // extractors fail, expose the observed player URL as a clearly marked probe instead
+            // of returning an empty source list. This is NOT reported as resolved media.
+            val probeLabel = "$label • PROBE ONLY (player URL, media NOT verified)"
+            val probeKey = candidate.id.toString() + "|" + candidate.url + "|" + candidate.referer + "|probe"
+            if (!emittedResolverLinks.add(probeKey)) return
+            callback(newExtractorLink(name, probeLabel, candidate.url, null) {
+                this.referer = candidate.referer
+                this.headers = browserHeaders + mapOf("Referer" to candidate.referer)
+                this.quality = Qualities.Unknown.value
+            })
+            totalResolved += 1
+        }
+
+        sourceItems.distinctBy { it.label + "|" + it.content }.forEachIndexed { sourceIndex, source ->
             SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
                 subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url) {
                     headers = browserHeaders + mapOf("Referer" to episodeUrl)
@@ -783,80 +914,105 @@ class SelcukFlix : MainAPI() {
                     source.content,
                     episodeUrl,
                     mainUrl,
-                    fromObservedApi = true
+                    fromObservedApi = source.label.contains("source", true) ||
+                        source.label.contains("API", true) ||
+                        source.label.contains("Pichive", true)
                 )
             }
-            // The observed source_content response may contain escaped iframe markup that a generic
-            // HTML selector will not recognize. Recover only iframe URLs actually present there.
+            // These are additional independently named discoveries, not replacements for IDs
+            // that found the same iframe through HTML, JSON, script, or a player configuration.
             val sourceIframes = SelcukFlixResolverBank.extractSourceIframes(source.content, episodeUrl)
             val allInitial = (
-                initialCandidates.filterNot { it.url in sourceIframes } +
-                    sourceIframes.map { iframe ->
-                        SelcukResolverCandidate(
-                            id = 15,
-                            url = iframe,
-                            kind = SelcukMediaKind.PLAYER,
-                            referer = episodeUrl,
-                            note = "observed source_content iframe"
-                        )
-                    }
-                ).distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer }
+                initialCandidates + sourceIframes.map { iframe ->
+                    SelcukResolverCandidate(
+                        id = 15,
+                        url = iframe,
+                        kind = SelcukMediaKind.PLAYER,
+                        referer = episodeUrl,
+                        note = "observed source_content iframe"
+                    )
+                }
+            ).distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer + "|" + it.note }
             val withPichive = expandPichiveCandidates(allInitial, episodeUrl, subtitleCallback)
             val candidates = expandNestedIframeCandidates(withPichive, episodeUrl)
             if (candidates.isEmpty()) {
                 android.util.Log.w(
                     "SelcukFlix",
-                    "No iframe or media URL found in source item " + (sourceIndex + 1) +
-                        "; source schema may have changed."
+                    "No iframe or media URL found in surface " + (sourceIndex + 1) +
+                        " (${source.label}); source schema or request flow may have changed."
                 )
             }
 
             candidates.forEach { candidate ->
                 val label = sourceLabel(candidate, source)
                 if (SelcukFlixResolverBank.isYouTubeUrl(candidate.url)) return@forEach
+                val candidateKey = candidate.id.toString() + "|" + candidate.url + "|" + candidate.referer
+                if (!processedCandidates.add(candidateKey)) return@forEach
 
-                // ContentX/Pichive iframe.php hosts are dynamic; resolve the observed URL directly
-                // rather than relying on an extractor registry hostname match.
+                // ContentX/Pichive iframe.php hosts are dynamic. Cache the network result per
+                // URL + header context, but emit a separately named result for each discovery ID.
                 if (SelcukFlixContentXSourceParser.canHandle(candidate.url)) {
-                    if (!contentXIframesResolved.add(candidate.url)) return@forEach
-                    val before = totalResolved
-                    try {
-                        SelcukFlixContentXExtractor().getUrl(
-                            candidate.url,
-                            candidate.referer.ifBlank { episodeUrl },
-                            subtitleCallback
-                        ) { link ->
-                            if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) {
-                                callback(link)
-                                totalResolved += 1
+                    val contextKey = candidate.url + "|" + candidate.referer
+                    val resolvedLinks = contentXCache[contextKey] ?: run {
+                        val collected = mutableListOf<ExtractorLink>()
+                        try {
+                            SelcukFlixContentXExtractor().getUrl(
+                                candidate.url,
+                                candidate.referer.ifBlank { episodeUrl },
+                                subtitleCallback
+                            ) { link ->
+                                if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
                             }
+                        } catch (_: Exception) {
+                            android.util.Log.w(
+                                "SelcukFlixContentX",
+                                "Observed iframe resolver failed for resolver " +
+                                    candidate.id.toString().padStart(2, '0') +
+                                    "; URL and token omitted from log."
+                            )
                         }
-                    } catch (_: Exception) {
-                        android.util.Log.w(
-                            "SelcukFlixContentX",
-                            "Observed iframe resolver failed; iframe URL and token omitted from log."
-                        )
+                        collected.distinctBy { it.url to it.type }.also { contentXCache[contextKey] = it }
                     }
-                    if (totalResolved == before) {
+                    if (resolvedLinks.isEmpty()) {
                         android.util.Log.w(
                             "SelcukFlixContentX",
-                            "No media file was emitted by the ContentX source API for this iframe."
+                            "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: no media file emitted for this request context."
                         )
+                        emitUnresolvedPlayerProbe(candidate, label)
+                    }
+                    resolvedLinks.forEach { link ->
+                        val emitKey = candidateKey + "|" + link.url + "|" + link.type
+                        if (!emittedResolverLinks.add(emitKey)) return@forEach
+                        callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
+                            this.referer = link.referer.ifBlank { candidate.referer }
+                            this.quality = link.quality
+                            this.headers = link.headers
+                            this.extractorData = link.extractorData
+                        })
+                        totalResolved += 1
                     }
                     return@forEach
                 }
 
                 val directLinkType = directType(candidate.url)
                 if (directLinkType != null) {
-                    callback(newExtractorLink(name, label, candidate.url, directLinkType) {
-                        this.referer = candidate.referer
-                        this.quality = Qualities.Unknown.value
-                    })
-                    totalResolved += 1
+                    val emitKey = candidateKey + "|" + candidate.url + "|" + directLinkType
+                    if (emittedResolverLinks.add(emitKey)) {
+                        callback(newExtractorLink(name, label, candidate.url, directLinkType) {
+                            this.referer = candidate.referer
+                            this.quality = Qualities.Unknown.value
+                            this.headers = browserHeaders + mapOf("Referer" to candidate.referer)
+                        })
+                        totalResolved += 1
+                    }
 
                     if (directLinkType == ExtractorLinkType.M3U8 && manifestChecked.add(candidate.url)) {
                         val manifestBody = try {
-                            app.get(candidate.url, referer = candidate.referer).text
+                            app.get(
+                                candidate.url,
+                                headers = browserHeaders + mapOf("Referer" to candidate.referer),
+                                referer = candidate.referer
+                            ).text
                         } catch (_: Exception) {
                             ""
                         }
@@ -866,11 +1022,16 @@ class SelcukFlix : MainAPI() {
                             SelcukFlixResolverBank.extractHlsVariants(manifestBody, candidate.url)
                                 .forEach { variant ->
                                     val variantLabel = sourceLabel(variant, source)
-                                    callback(newExtractorLink(name, variantLabel, variant.url, ExtractorLinkType.M3U8) {
-                                        this.referer = candidate.url
-                                        this.quality = Qualities.Unknown.value
-                                    })
-                                    totalResolved += 1
+                                    val variantKey = variant.id.toString() + "|" + variant.url + "|" +
+                                        variant.referer + "|" + variant.note
+                                    if (emittedResolverLinks.add(variantKey + "|" + variant.url)) {
+                                        callback(newExtractorLink(name, variantLabel, variant.url, ExtractorLinkType.M3U8) {
+                                            this.referer = candidate.url
+                                            this.quality = Qualities.Unknown.value
+                                            this.headers = browserHeaders + mapOf("Referer" to candidate.url)
+                                        })
+                                        totalResolved += 1
+                                    }
                                 }
                             SelcukFlixResolverBank.extractHlsSubtitles(manifestBody, candidate.url)
                                 .forEach { subtitle ->
@@ -908,16 +1069,16 @@ class SelcukFlix : MainAPI() {
                     } catch (_: Exception) {
                         android.util.Log.d(
                             "SelcukFlix",
-                            "Resolver candidate failed; URL and query parameters intentionally omitted."
+                            "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)} failed; URL and query parameters intentionally omitted."
                         )
                     }
-                    val safe = collected.distinctBy { it.url to it.type }
-                    playerCache[playerKey] = safe
-                    safe
+                    collected.distinctBy { it.url to it.type }.also { playerCache[playerKey] = it }
                 }
 
                 if (resolvedLinks.isNotEmpty()) {
                     resolvedLinks.forEach { link ->
+                        val emitKey = candidateKey + "|" + link.url + "|" + link.type
+                        if (!emittedResolverLinks.add(emitKey)) return@forEach
                         callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
                             this.referer = link.referer.ifBlank { candidate.referer }
                             this.quality = link.quality
@@ -929,8 +1090,11 @@ class SelcukFlix : MainAPI() {
                 } else {
                     android.util.Log.d(
                         "SelcukFlix",
-                        "Candidate did not resolve to media; no placeholder video link emitted."
+                        "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: candidate did not resolve to media; exposing a probe-only player URL."
                     )
+                    if (candidate.kind in setOf(SelcukMediaKind.PLAYER, SelcukMediaKind.UNKNOWN)) {
+                        emitUnresolvedPlayerProbe(candidate, label)
+                    }
                 }
             }
         }

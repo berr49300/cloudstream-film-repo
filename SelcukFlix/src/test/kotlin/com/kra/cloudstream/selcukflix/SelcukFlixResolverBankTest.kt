@@ -329,6 +329,35 @@ class SelcukFlixResolverBankTest {
     }
 
     @Test
+    fun findsNestedPosterAliasesAndPrefersPosterOverBackdrop() {
+        val root = ObjectMapper().readTree(
+            """{
+              "content": {
+                "backdrop_url": "/images/title-backdrop.jpg",
+                "metadata": {
+                  "object_poster_url": "/storage/posters/feature-poster.webp"
+                }
+              }
+            }"""
+        )
+        assertEquals(
+            "https://selcukflix.app/storage/posters/feature-poster.webp",
+            SelcukFlixResolverBank.findPosterUrl(root, "https://selcukflix.app")
+        )
+    }
+
+    @Test
+    fun posterFinderRejectsKnownPlaceholderAndHandlesProtocolRelativeUrl() {
+        val placeholder = ObjectMapper().readTree(
+            """{"poster_url": "/assets/no-poster.jpg", "image_url": "//cdn.example/real-cover.webp"}"""
+        )
+        assertEquals(
+            "https://cdn.example/real-cover.webp",
+            SelcukFlixResolverBank.findPosterUrl(placeholder, "https://selcukflix.app")
+        )
+    }
+
+    @Test
     fun latestEpisodeFiltersMatchCardMetadata() {
         assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("episode-card category-anime", "anime"))
         assertFalse(SelcukFlixResolverBank.matchesEpisodeFilter("episode-card category-drama", "anime"))

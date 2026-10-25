@@ -2,11 +2,11 @@
 
 - Requested site: https://selcukflix.app/
 - Provider module: \`SelcukFlix\`
-- Module version: 1 (experimental / status 3)
+- Module version: 4 (experimental / status 3)
 - Investigation date: 2026-10-25
 - Scope: separate module only; no existing provider files were changed.
 - Live site access from this environment: BLOCKED (web retrieval returned HTTP 403).
-- Current CI: PASS for PR run https://github.com/berr49300/cloudstream-film-repo/actions/runs/40183788567
+- Previous CI: PASS for v1/v2 baseline; v4 changes are under review in PR pending creation.
 - Actual playback in CloudStream: NOT TESTED.
 
 ## Evidence ledger
@@ -91,9 +91,17 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 - Repository validator: PASS.
 - Generated test artifact: \`cloudstream-plugin-build\`, artifact ID \`12595570904\`, expires 2026-11-01 10:13:58 UTC. Artifact can be downloaded from the Actions run; it is not published to the builds branch.
 - Real live site data and device playback/audio/subtitle rendering: NOT TESTED.
-- PR #40 remains OPEN; main/builds have not been changed.
+- v3 was merged and published from PR #42 on 2026-10-25. The v4 source-probe/poster branch is separate; do not treat it as published until Actions and builds/plugins.json confirm it.
 
-## Third-party prior-art review
+## v4 source-probe and poster hardening (2026-10-25)
+
+- Source loading scans the decrypted payload, Next.js state, player-related script blocks and raw HTML independently.
+- Candidate IDs remain visible. The raw Pichive source and the hypothesis `m.php` → `master.m3u8` are separate candidates; iframe and site-origin referer contexts remain separate.
+- If an observed player URL fails through the installed extractor, it is still exposed as a clearly marked `PROBE ONLY (player URL, media NOT verified)` entry under the original discovery ID. This makes it manually testable instead of silently returning no links; it is not claimed to be playable media.
+- Poster lookup prioritizes poster/face fields, recursively checks nested fields, considers lazy-load/srcset attributes and OG/Twitter image metadata, rejects common placeholders, and attempts a bounded detail-page fallback for up to 8 missing posters in the unfiltered first-page latest-series list.
+- Regression tests cover nested poster aliases/placeholders and separate raw/derived media candidates.
+- CI: PASS for code commit `9837f4d08c9a51b4f32de2339d39d28350a13c4a` — https://github.com/berr49300/cloudstream-film-repo/actions/runs/40195467117 (unit tests, `.cs3` build and repository validator passed; publish step skipped because this is a PR). An earlier run had a transient Gradle snapshot dependency resolution failure; the successful run completed afterward. Real live `.app` response and CloudStream playback remain BLOCKED / NOT TESTED from this environment.
+\n## Third-party prior-art review
 
 - Older source: https://github.com/nikyokki/nik-cloudstream/tree/master/SelcukFlix — GPL-3.0; points at the former \`selcukflix.net\` domain.
 - Current-domain source: https://github.com/SafakStream/SafakStream-Extensions/tree/main/SelcukFlix — GPL-3.0; references \`selcukflix.app\` and the Pichive-style player flow.
