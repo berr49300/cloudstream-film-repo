@@ -198,7 +198,7 @@ class SelcukFlix : MainAPI() {
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
         if (listOf("placeholder", "no-poster", "no_poster", "poster-not-found",
                 "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) return null
-        if (Regex("""(?i)\\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
+        if (Regex("""(?i)\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
         return url
     }
 
@@ -229,9 +229,9 @@ class SelcukFlix : MainAPI() {
         for (value in values) {
             if (value.isBlank()) continue
             val candidates = if (value.contains(",")) {
-                value.split(",").map { it.trim().substringBefore(Regex("""\\s+""")) }
+                value.split(",").map { it.trim().substringBefore(' ') }
             } else {
-                listOf(value.trim().substringBefore(Regex("""\\s+""")))
+                listOf(value.trim().substringBefore(' '))
             }
             for (candidate in candidates) {
                 val normalized = normalizePoster(candidate)
