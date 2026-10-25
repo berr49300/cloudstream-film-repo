@@ -192,8 +192,65 @@ class SelcukFlix : MainAPI() {
         return emptyList()
     }
 
-    private fun normalizePoster(raw: String?): String? =
-        raw?.let { canonicalSiteUrl(it) ?: SelcukFlixResolverBank.normalizeUrl(it, mainUrl) }
+    private fun normalizePoster(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val url = canonicalSiteUrl(raw) ?: SelcukFlixResolverBank.normalizeUrl(raw, mainUrl) ?: return null
+        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+        if (listOf("placeholder", "no-poster", "no_poster", "poster-not-found",
+                "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) return null
+        if (Regex("""(?i)\\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
+        return url
+    }
+
+    private fun posterForItem(item: JsonNode): String? {
+        val direct = item.textField(
+            "object_poster_url", "object_face_url", "poster_url", "face_url",
+            "objectPosterUrl", "objectFaceUrl", "posterUrl", "faceUrl",
+            "poster_path", "posterPath", "image_url", "imageUrl", "image",
+            "thumbnail_url", "thumbnailUrl", "thumbnail", "thumb_url", "cover_url", "cover",
+            "backdrop_url", "backdrop", "banner"
+        )?.let(::normalizePoster)
+        return direct ?: SelcukFlixResolverBank.findPosterUrl(item, mainUrl)?.let(::normalizePoster)
+    }
+
+    private fun posterFromImage(image: org.jsoup.nodes.Element?): String? {
+        if (image == null) return null
+        val values = listOf(
+            image.attr("data-src"),
+            image.attr("data-lazy-src"),
+            image.attr("data-original"),
+            image.attr("data-original-src"),
+            image.attr("data-lazy"),
+            image.attr("data-url"),
+            image.attr("src"),
+            image.attr("srcset"),
+            image.attr("data-srcset")
+        )
+        for (value in values) {
+            if (value.isBlank()) continue
+            val candidates = if (value.contains(",")) {
+                value.split(",").map { it.trim().substringBefore(Regex("""\\s+""")) }
+            } else {
+                listOf(value.trim().substringBefore(Regex("""\\s+""")))
+            }
+            for (candidate in candidates) {
+                val normalized = normalizePoster(candidate)
+                if (normalized != null) return normalized
+            }
+        }
+        return null
+    }
+
+    private fun posterFromDocument(document: org.jsoup.nodes.Document, baseUrl: String): String? {
+        val meta = document.selectFirst(
+            "meta[property=og:image], meta[property=og:image:url], meta[name=twitter:image], meta[name=twitter:image:src]"
+        )?.attr("content")?.let(::normalizePoster)
+        if (meta != null) return meta
+        document.select("img").forEach { image ->
+            posterFromImage(image)?.let { return it }
+        }
+        return null
+    }
 
     private fun asSearchResponse(item: JsonNode): SearchResponse? {
         val title = item.textField(
@@ -203,10 +260,7 @@ class SelcukFlix : MainAPI() {
         ) ?: return null
         val rawUrl = item.textField("used_slug", "usedSlug", "slug", "url", "link") ?: return null
         val url = canonicalSiteUrl(rawUrl) ?: return null
-        val poster = normalizePoster(item.textField(
-            "object_poster_url", "object_face_url", "poster_url", "face_url",
-            "posterUrl", "poster", "image", "thumbnail"
-        ))
+        val poster = posterForItem(item)
         val score = item.textField("imdb_point", "imdbPoint", "object_related_imdb_point", "rating", "score")
         val typeText = item.textField("used_type", "type", "contentType", "itemType").orEmpty().lowercase()
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
@@ -310,9 +364,7 @@ class SelcukFlix : MainAPI() {
         } else {
             href.substringBefore("/sezon-").substringBefore("/bolum-")
         }
-        val poster = normalizePoster(anchor.selectFirst("img")?.let {
-            it.attr("data-src").ifBlank { it.attr("data-lazy-src").ifBlank { it.attr("src") } }
-        })
+        val poster = posterFromImage(anchor.selectFirst("img"))
         return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { posterUrl = poster }
     }
 
@@ -365,8 +417,7 @@ class SelcukFlix : MainAPI() {
                         .ifBlank { anchor.text() }
                         .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
                     if (title.isBlank()) return@forEach
-                    val poster = normalizePoster(image?.attr("data-src").orEmpty()
-                        .ifBlank { image?.attr("data-lazy-src").orEmpty().ifBlank { image?.attr("src").orEmpty() } })
+                    val poster = posterFromImage(image)
                     result += if (uriPath.startsWith("/film/")) {
                         newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
                     } else {
@@ -491,13 +542,7 @@ class SelcukFlix : MainAPI() {
             ?: document.selectFirst("meta[property=og:description]")?.attr("content")?.trim()
             ?: document.selectFirst("meta[name=description]")?.attr("content")?.trim()
 
-        val poster = normalizePoster(
-            item?.textField("poster_url", "posterUrl", "poster", "image")
-                ?: document.selectFirst("meta[property=og:image]")?.attr("content")
-                ?: document.selectFirst("img[alt]")?.let { image ->
-                    image.attr("data-src").ifBlank { image.attr("data-lazy-src").ifBlank { image.attr("src") } }
-                }
-        )
+        val poster = item?.let(::posterForItem) ?: posterFromDocument(document, canonicalUrl)
 
         val year = item?.textField("release_year", "releaseYear", "year")?.toIntOrNull()
             ?: Regex("""(19|20)\d{2}""").find(title)?.value?.toIntOrNull()
