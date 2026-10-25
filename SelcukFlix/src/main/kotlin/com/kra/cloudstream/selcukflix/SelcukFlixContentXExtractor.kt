@@ -24,7 +24,16 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         val host    = base.substringAfter("://").substringAfter("four.").substringAfter("sn.").substringBefore(".")
             .replaceFirstChar { it.uppercase() }
         val extRef  = referer ?: "$base/"
-        val iSource = app.get(tamUrl, referer = extRef).text
+        val iSource = try {
+            app.get(tamUrl, referer = extRef).text
+        } catch (_: Exception) {
+            Log.w("SelcukFlixContentX", "Player iframe request failed; URL omitted.")
+            return
+        }
+        if (SelcukFlixResolverBank.isAccessChallenge(iSource)) {
+            Log.w("SelcukFlixContentX", "Player iframe returned an access challenge; no bypass attempted.")
+            return
+        }
 
         val subtitleTracks = SelcukFlixContentXSubtitleParser.parse(iSource, tamUrl)
         subtitleTracks.forEach { track ->
@@ -64,7 +73,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
     private fun linkType(url: String): ExtractorLinkType? = when {
         url.contains(".m3u8", true) -> ExtractorLinkType.M3U8
         url.contains(".mpd", true) -> ExtractorLinkType.DASH
-        Regex("""(?i)\\.(mp4|m4v|webm|mkv|avi|mov)(?:$|[?#])""").containsMatchIn(url) -> ExtractorLinkType.VIDEO
+        Regex("""(?i)\.(mp4|m4v|webm|mkv|avi|mov)(?:$|[?#])""").containsMatchIn(url) -> ExtractorLinkType.VIDEO
         else -> null
     }
 
