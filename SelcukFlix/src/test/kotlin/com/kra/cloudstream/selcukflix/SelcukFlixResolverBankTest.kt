@@ -1,6 +1,10 @@
 package com.kra.cloudstream.selcukflix
 
 import java.util.Base64
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,9 +14,9 @@ class SelcukFlixResolverBankTest {
     @Test
     fun resolverCatalogKeepsAllThirtySevenIds() {
         val catalog = SelcukFlixResolverBank.resolverCatalog()
-        assertEquals((1..37).toList(), catalog.map { it.first })
+        assertEquals((1..39).toList(), catalog.map { it.first })
         assertEquals("Html5SourceResolver", catalog.first().second)
-        assertEquals("ManualNetworkEvidenceResolver", catalog.last().second)
+        assertEquals("PichiveMasterPlaylistResolver", catalog.last().second)
     }
 
     @Test
@@ -133,4 +137,59 @@ class SelcukFlixResolverBankTest {
         assertEquals("Turkish", subtitles.single().language)
         assertEquals("https://selcukflix.app/captions/tr.vtt", subtitles.single().url)
     }
+
+    @Test
+    fun decryptsCurrentSitePayloadEnvelope() {
+        val plain = """{"result":[{"used_slug":"dizi/demo","original_title":"Demo"}]}"""
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
+        val key = Base64.getEncoder().encodeToString(digest).take(32).toByteArray(Charsets.UTF_8)
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(ByteArray(16)))
+        val encoded = Base64.getEncoder().encodeToString(cipher.doFinal(plain.toByteArray(Charsets.UTF_8)))
+
+        assertEquals(plain, SelcukFlixResolverBank.decodeSitePayload(encoded))
+    }
+
+    @Test
+    fun discoversPichiveTokenAndSourceApiWithoutGuessingHost() {
+        val iframeUrl = "https://four.pichive.online/iframe.php?v=shorttoken123"
+        val html = """<script>openPlayer('this_is_a_long_observed_player_token_12345', true)</script>"""
+        val token = SelcukFlixResolverBank.extractPichiveToken(html)
+
+        assertEquals("this_is_a_long_observed_player_token_12345", token)
+        assertEquals(
+            "https://four.pichive.online/source2.php?v=this_is_a_long_observed_player_token_12345",
+            SelcukFlixResolverBank.pichiveSourceApiUrl(iframeUrl, token!!)
+        )
+        assertFalse(SelcukFlixResolverBank.isPichiveIframe("https://unrelated.example/iframe.php?v=abc"))
+    }
+
+    @Test
+    fun producesSeparatePichiveRawAndDerivedPlaylistResolverIds() {
+        val response = """
+            {
+              "state": true,
+              "playlist": [
+                {
+                  "title": "Türkçe Dublaj",
+                  "sources": [
+                    {"file": "https://four.pichive.online/media/m.php?key=fixture", "label": "HD"}
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+        val candidates = SelcukFlixResolverBank.extractPichiveSourceCandidates(
+            response,
+            "https://four.pichive.online/iframe.php?v=fixture"
+        )
+
+        assertTrue(candidates.any { it.id == 38 && it.url.endsWith("m.php?key=fixture") })
+        assertTrue(candidates.any {
+            it.id == 39 && it.kind == SelcukMediaKind.HLS &&
+                it.url.endsWith("master.m3u8?key=fixture")
+        })
+    }
+
 }
