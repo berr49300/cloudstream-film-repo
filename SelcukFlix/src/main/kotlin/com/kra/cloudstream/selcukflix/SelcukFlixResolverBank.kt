@@ -27,6 +27,14 @@ internal data class SelcukSubtitleCandidate(
     val url: String
 )
 
+internal data class SelcukEpisodeRecord(
+    val url: String,
+    val name: String?,
+    val season: Int?,
+    val episode: Int?,
+    val posterUrl: String?
+)
+
 /**
  * Site-isolated resolver test bank.
  *
@@ -87,6 +95,66 @@ internal object SelcukFlixResolverBank {
     private val subtitleExtensionRegex = Regex("""(?i)\.(vtt|srt|ass|ssa)(?:$|[?#])""")
     private val likelyPlayerPath = Regex("""(?i)(embed|player|watch|/e/|/video|iframe|stream|manifest|playlist)""")
     private val base64Regex = Regex("""(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/_-]{24,}={0,2})(?![A-Za-z0-9+/=_-])""")
+
+    private fun JsonNode.jsonField(name: String): JsonNode? {
+        if (!isObject) return null
+        val iterator = fields()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key.equals(name, ignoreCase = true)) return entry.value
+        }
+        return null
+    }
+
+    private fun JsonNode.jsonText(vararg names: String): String? {
+        for (name in names) {
+            val value = jsonField(name) ?: continue
+            if (value.isNull || value.isContainerNode) continue
+            val text = value.asText().trim()
+            if (text.isNotBlank() && text != "null") return text
+        }
+        return null
+    }
+
+    private fun JsonNode.jsonChildren(): List<JsonNode> = when {
+        isArray -> elements().asSequence().toList()
+        isObject -> fields().asSequence().map { it.value }.toList()
+        else -> emptyList()
+    }
+
+    fun parseEpisodeRecords(root: JsonNode, mainUrl: String): List<SelcukEpisodeRecord> {
+        val related = root.jsonField("relatedResults") ?: return emptyList()
+        val seasonResponse = related.jsonField("getSerieSeasonAndEpisodes") ?: return emptyList()
+        // Current .app responses wrap seasons in result and use snake_case field names.
+        val seasons = seasonResponse.jsonField("result") ?: seasonResponse.jsonField("seasons")
+            ?: return emptyList()
+        val records = mutableListOf<SelcukEpisodeRecord>()
+        var fallbackEpisode = 0
+        seasons.jsonChildren().forEach { season ->
+            val seasonNo = season.jsonText("season_no", "seasonNo", "seasonNumber", "number")?.toIntOrNull()
+            val episodeNodes = season.jsonField("episodes") ?: return@forEach
+            episodeNodes.jsonChildren().forEach { episode ->
+                val rawSlug = episode.jsonText("used_slug", "usedSlug", "slug", "url", "link")
+                    ?: return@forEach
+                val episodeUrl = normalizeSiteUrl(rawSlug, mainUrl) ?: return@forEach
+                fallbackEpisode++
+                val episodeNo = episode.jsonText("episode_no", "episodeNo", "episodeNumber", "number")
+                    ?.toIntOrNull() ?: fallbackEpisode
+                val posterRaw = episode.jsonText("poster_url", "posterUrl", "poster")
+                val poster = posterRaw?.let { normalizeSiteUrl(it, mainUrl) ?: normalizeUrl(it, mainUrl) }
+                records += SelcukEpisodeRecord(
+                    url = episodeUrl,
+                    name = episode.jsonText("episode_text", "epText", "episodeTitle", "title", "name"),
+                    season = seasonNo,
+                    episode = episodeNo,
+                    posterUrl = poster
+                )
+            }
+        }
+        return records.sortedWith(
+            compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
+        ).distinctBy { it.url }
+    }
 
     fun resolverName(id: Int): String = resolverNames[id] ?: "UnknownResolver"
 
