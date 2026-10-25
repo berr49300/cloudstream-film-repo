@@ -53,8 +53,6 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          # JitPack occasionally returns transient 5xx/521 errors for the CloudStream
-          # Gradle plugin snapshot. Retry dependency resolution before marking the build failed.
           attempt=1
           until gradle testDebugUnitTest make makePluginsJson --stacktrace; do
             if [ "$attempt" -ge 3 ]; then
@@ -62,7 +60,7 @@ jobs:
               exit 1
             fi
             delay=$((attempt * 20))
-            echo "Gradle build attempt $attempt failed; retrying after ${delay}s (JitPack/network transient failures may recover)."
+            echo "Gradle build attempt $attempt failed; retrying after ${delay}s."
             sleep "$delay"
             attempt=$((attempt + 1))
           done
@@ -102,7 +100,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish validated build to builds branch
+    name: Publish and verify builds branch artifacts
     needs: build
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
     runs-on: ubuntu-latest
@@ -146,7 +144,14 @@ jobs:
           index = json.loads(Path("publish/plugins.json").read_text(encoding="utf-8"))
           if not isinstance(index, list) or not index:
               raise SystemExit("plugins.json is empty or has an unexpected format")
-          print(f"Publishing {len(index)} index entries and {len(list(Path('publish').glob('*.cs3')))} .cs3 artifact(s)")
+          for item in index:
+              filename = item.get("url", "").rsplit("/", 1)[-1]
+              artifact = Path("publish") / filename
+              if not artifact.is_file():
+                  raise SystemExit(f"Manifest artifact missing from publish output: {filename}")
+              if artifact.stat().st_size != item.get("fileSize"):
+                  raise SystemExit(f"Artifact size mismatch before publish: {filename}")
+          print(f"Publishing {len(index)} index entries and {len(list(Path('publish').glob('*.cs3')))} .cs3 artifacts")
           PY
 
           git -C publish config user.name "github-actions[bot]"
@@ -154,7 +159,67 @@ jobs:
           git -C publish add -A
           if git -C publish diff --cached --quiet; then
             echo "No build output changes to publish."
-            exit 0
+          else
+            git -C publish commit -m "Publish CloudStream plugin for ${GITHUB_SHA::7}"
+            git -C publish push origin builds
           fi
-          git -C publish commit -m "Publish CloudStream plugin for ${GITHUB_SHA::7}"
-          git -C publish push origin builds
+
+      - name: Verify publicly served plugin files against manifest
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          manifest_url = "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/plugins.json"
+          def fetch(url):
+              request = urllib.request.Request(url, headers={"User-Agent": "CloudStream-Repo-Artifact-Check"})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return response.read()
+
+          last_error = None
+          for attempt in range(1, 6):
+              try:
+                  manifest_bytes = fetch(manifest_url)
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  if attempt == 5:
+                      raise SystemExit(f"Could not fetch published plugins.json: {last_error}")
+                  time.sleep(attempt * 5)
+
+          manifest = json.loads(manifest_bytes)
+          failures = []
+          for item in manifest:
+              url = item.get("url", "")
+              try:
+                  data = None
+                  last_error = None
+                  for attempt in range(1, 6):
+                      try:
+                          data = fetch(url)
+                          break
+                      except Exception as exc:
+                          last_error = exc
+                          if attempt < 5:
+                              time.sleep(attempt * 5)
+                  if data is None:
+                      raise RuntimeError(f"download failed: {last_error}")
+                  actual_size = len(data)
+                  expected_size = item.get("fileSize")
+                  actual_hash = "sha256-" + hashlib.sha256(data).hexdigest()
+                  expected_hash = item.get("fileHash")
+                  if actual_size != expected_size or actual_hash != expected_hash:
+                      raise RuntimeError(
+                          f"metadata mismatch: size {actual_size}/{expected_size}, "
+                          f"hash {actual_hash}/{expected_hash}"
+                      )
+                  print(f"PASS {item.get('internalName')}: public download, size and SHA-256 match")
+              except Exception as exc:
+                  failures.append(f"{item.get('internalName')}: {exc}")
+          if failures:
+              raise SystemExit("Published artifact verification failed:\n" + "\n".join(failures))
+          print("All public plugin downloads match the published manifest.")
+          PY
