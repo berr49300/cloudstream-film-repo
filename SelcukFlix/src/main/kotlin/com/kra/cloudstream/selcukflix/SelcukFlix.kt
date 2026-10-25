@@ -243,7 +243,7 @@ class SelcukFlix : MainAPI() {
             "imdbPointMax" to "10",
             "categoryIdsComma" to "",
             "countryIdsComma" to "",
-            "orderType" to "1",
+            "orderType" to "date_desc",
             "languageId" to "-1",
             "currentPage" to page.toString(),
             "currentPageCount" to "24",
@@ -266,7 +266,8 @@ class SelcukFlix : MainAPI() {
     private fun latestEpisodeCard(anchor: org.jsoup.nodes.Element): SearchResponse? {
         val href = canonicalSiteUrl(anchor.attr("href")) ?: return null
         val path = runCatching { URI(href).path.orEmpty() }.getOrDefault("")
-        if (!path.contains("/bolum-")) return null
+        val isEpisode = path.contains("/bolum-")
+        if (!isEpisode && !path.startsWith("/dizi/")) return null
         val heading = anchor.selectFirst("h3, h2, [data-title]")?.text()?.trim()
             .takeUnless { it.isNullOrBlank() }
             ?: anchor.selectFirst("img")?.let { it.attr("alt").trim() }
@@ -283,10 +284,16 @@ class SelcukFlix : MainAPI() {
         if (mode == "foreign" && !Regex("""altyazı|subtitled|yabancı""").containsMatchIn(combined)) return null
 
         val title = if (episodeLabel.isBlank()) heading else "$heading - $episodeLabel"
+        val seriesUrl = if (isEpisode) {
+            // Keep the episode URL so the loader can map it back using FindedType/series metadata.
+            href
+        } else {
+            href.substringBefore(Regex("/sezon-|/bolum-"))
+        }
         val poster = normalizePoster(anchor.selectFirst("img")?.let {
             it.attr("data-src").ifBlank { it.attr("data-lazy-src").ifBlank { it.attr("src") } }
         })
-        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
+        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { posterUrl = poster }
     }
 
     private var currentEpisodeFilter: String = "all"
@@ -296,7 +303,8 @@ class SelcukFlix : MainAPI() {
 
         val episodeFilter = request.data.startsWith("episodes|")
         currentEpisodeFilter = if (episodeFilter) request.data.substringAfter("|") else "all"
-        val base = if (episodeFilter) "$mainUrl/tum-bolumler"
+        // The site shows "Güncel Bölümler" as a homepage section; do not assume a hidden route.
+        val base = if (episodeFilter) "$mainUrl/"
             else (canonicalSiteUrl(request.data) ?: request.data)
         val pageUrl = if (page > 1) {
             base + (if (base.contains("?")) "&" else "?") + "page=" + page
@@ -307,8 +315,8 @@ class SelcukFlix : MainAPI() {
 
         val latestEpisodes = base.endsWith("/tum-bolumler")
         if (latestEpisodes) {
-            document.select("a[href*='/bolum-']")
-                .filter { it.selectFirst("h3, h2, img") != null }
+            document.select("a[href*='/bolum-'], a[href*='/dizi/']")
+                .filter { it.selectFirst("h3, h2, img, [data-title]") != null }
                 .forEach { anchor -> latestEpisodeCard(anchor)?.let(result::add) }
         } else {
             val nextDataText = document.selectFirst("script#__NEXT_DATA__")?.data()
