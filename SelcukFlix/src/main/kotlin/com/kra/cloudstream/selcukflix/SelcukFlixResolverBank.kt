@@ -562,8 +562,8 @@ internal object SelcukFlixResolverBank {
         }.forEach { line ->
             val uri = Regex("""(?i)\bURI="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
                 ?: return@forEach
-            val language = Regex("""(?i)\bLANGUAGE="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
-                ?: Regex("""(?i)\bNAME="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
+            val language = Regex("""(?i)\bNAME="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
+                ?: Regex("""(?i)\bLANGUAGE="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
                 ?: "Unknown"
             val url = normalizeUrl(uri, manifestUrl) ?: return@forEach
             result.putIfAbsent(url, SelcukSubtitleCandidate(language, url))
@@ -583,8 +583,8 @@ internal object SelcukFlixResolverBank {
             if (isYouTubeUrl(url)) return@forEach
             val kind = track.attr("kind").lowercase()
             if (kind.isBlank() || kind in setOf("subtitles", "captions") || subtitleExtensionRegex.containsMatchIn(url)) {
-                val language = track.attr("srclang").ifBlank {
-                    track.attr("label").ifBlank { "Unknown" }
+                val language = track.attr("label").ifBlank {
+                    track.attr("srclang").ifBlank { "Unknown" }
                 }
                 result.putIfAbsent(url, SelcukSubtitleCandidate(language, url))
             }
