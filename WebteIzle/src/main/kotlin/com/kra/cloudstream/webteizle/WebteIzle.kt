@@ -297,7 +297,8 @@ class WebteIzle : MainAPI() {
                                     "42 • FilemoonHostVariantResolver • $langName"
                                 hostFamily.equals("OK.ru", ignoreCase = true) || candidate.playerHint.equals("OK.ru", ignoreCase = true) ->
                                     "43 • OkRuHostVariantResolver • $langName"
-                                candidate.playerHint.equals("Pixel", ignoreCase = true) && hostFamily == null ->
+                                hostFamily.equals("PixelDrain", ignoreCase = true) ||
+                                    candidate.playerHint.equals("Pixel", ignoreCase = true) ->
                                     "44 • PixelObservedPlayerResolver • $langName"
                                 attempt.resolverId == 17 -> baseLabel
                                 else -> "$baseLabel → 17 • ExtractorRegistryResolver"
