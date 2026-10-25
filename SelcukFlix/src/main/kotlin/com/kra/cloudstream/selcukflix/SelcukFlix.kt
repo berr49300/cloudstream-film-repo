@@ -145,10 +145,17 @@ class SelcukFlix : MainAPI() {
         params: Map<String, String> = emptyMap(),
         referrer: String = "$mainUrl/"
     ): JsonNode {
+        val encodedParams = params.entries.joinToString("&") { entry ->
+            URLEncoder.encode(entry.key, "UTF-8") + "=" + URLEncoder.encode(entry.value, "UTF-8")
+        }
+        val requestPath = path + when {
+            encodedParams.isBlank() -> ""
+            path.contains("?") -> "&$encodedParams"
+            else -> "?$encodedParams"
+        }
         val body = try {
             app.post(
-                mainUrl.trimEnd('/') + path,
-                params = params,
+                mainUrl.trimEnd('/') + requestPath,
                 headers = apiHeaders + ("Referer" to referrer),
                 referer = referrer
             ).text
@@ -421,7 +428,7 @@ class SelcukFlix : MainAPI() {
         var pageRoot = pageDataResult(root)
 
         // "Güncel Bölümler" links point to episode URLs. Resolve those to their owning series.
-        if (pageRoot?.textField("FindedType").equals("Episodes", ignoreCase = true)) {
+        if (pageRoot?.textField("FindedType").orEmpty().equals("Episodes", ignoreCase = true)) {
             val related = pageRoot?.field("RelatedResults") ?: pageRoot?.field("relatedResults")
             val seriesSlug = related?.field("getSeriesDetail")?.field("result")
                 ?.textField("used_slug", "usedSlug", "slug")
@@ -576,7 +583,9 @@ class SelcukFlix : MainAPI() {
     ): List<SelcukResolverCandidate> {
         val output = input.toMutableList()
         val pichiveFrames = input.filter {
-            it.id == 15 && SelcukFlixResolverBank.isPichiveIframe(it.url)
+            it.id == 15 &&
+                SelcukFlixResolverBank.isPichiveIframe(it.url) &&
+                !SelcukFlixContentXSourceParser.canHandle(it.url)
         }.distinctBy { it.url }.take(8)
 
         for (frame in pichiveFrames) {
