@@ -53,7 +53,19 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          gradle testDebugUnitTest make makePluginsJson --stacktrace
+          # JitPack occasionally returns transient 5xx/521 errors for the CloudStream
+          # Gradle plugin snapshot. Retry dependency resolution before marking the build failed.
+          attempt=1
+          until gradle testDebugUnitTest make makePluginsJson --stacktrace; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "Build failed after $attempt attempts. Inspect the Gradle log above; if JitPack is still unavailable this is an upstream dependency outage."
+              exit 1
+            fi
+            delay=$((attempt * 20))
+            echo "Gradle build attempt $attempt failed; retrying after ${delay}s (JitPack/network transient failures may recover)."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+          done
           test -s build/plugins.json
           python -m json.tool repo.json >/dev/null
           python -m json.tool build/plugins.json >/dev/null
