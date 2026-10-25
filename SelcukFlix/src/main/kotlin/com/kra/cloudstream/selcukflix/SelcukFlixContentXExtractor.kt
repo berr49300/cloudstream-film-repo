@@ -106,13 +106,17 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val apiUrl = "$base/source2.php?v=" + java.net.URLEncoder.encode(token, "UTF-8")
+        // source2.php is called by the embedding page in the established ContentX flow.
+        // Send the original page/site referer here; the final media URL keeps its own player
+        // referer variants below.
+        val sourceApiReferer = contextReferer.ifBlank { "https://selcukflix.app/" }
         val apiHeaders = iframeHeaders + mapOf(
             "Accept" to "application/json, text/plain, */*",
             "X-Requested-With" to "XMLHttpRequest",
-            "Referer" to iframe
+            "Referer" to sourceApiReferer
         )
         val vidSource = try {
-            app.get(apiUrl, headers = apiHeaders, referer = iframe).text
+            app.get(apiUrl, headers = apiHeaders, referer = sourceApiReferer).text
         } catch (_: Exception) {
             android.util.Log.w("SelcukFlixContentX", "$name source API request failed.")
             return
