@@ -134,3 +134,12 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - Player: follows the normal `iframe.php?v=TOKEN` -> `source2.php?v=TOKEN` request path, emits every media file returned by the ordinary source response, discovers declared subtitle tracks, and follows both the primary player token and an explicitly labeled Turkish-dub token when present. Wrapped site payloads are tried using both known client-side payload encodings. No URL, key, source ID or media host is synthesized when not present in a response; CAPTCHA/Cloudflare challenges are not bypassed.
 - Regression coverage includes malformed URLs, nested current page payloads, episode field mapping, observed iframe extraction, source API media declarations, player token/dub-token parsing, subtitle variants and access-challenge rejection.
 - Verification status: CI unit/build/packaging must pass before publishing; live `.app` endpoints and actual audio/subtitle/video output on a real CloudStream device remain NOT TESTED because the inspection environment cannot fetch the live domain. The user should retest v3 and provide a fresh diagnostic if any particular source host remains unavailable.
+
+
+## SelcukFlix v4 source probe and poster recovery (2026-10-25)
+
+- Resolver path: scans decoded page payload, Next.js state, player-related script blocks and raw HTML independently; resolver IDs are preserved even when candidates resolve to the same underlying media URL.
+- ContentX/Pichive: maintains caller-supplied referer variants and emits separately numbered raw-file and derived `m.php` → `master.m3u8` candidate names. The derived URL is still a hypothesis until manually played.
+- Posters: use explicit poster/face fields first, recursively inspect nested API objects, parse lazy-load/srcset and OG/Twitter image metadata, reject known placeholders, and attempt a bounded detail-page fallback for at most 8 missing posters on the unfiltered first-page series catalog.
+- Added fixture tests for nested/placeholder poster discovery and raw/derived media candidate IDs.
+- V4 CI result: NOT TESTED until its pull-request workflow completes. Real site data and user-device video/subtitle/poster rendering: NOT TESTED; no access-control or DRM bypass is attempted.
