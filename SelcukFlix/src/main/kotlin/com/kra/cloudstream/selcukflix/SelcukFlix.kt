@@ -280,27 +280,31 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    private fun episodesFrom(root: JsonNode): List<Episode> {
-        val related = root.field("relatedResults") ?: root.field("RelatedResults") ?: return emptyList()
-        val seasonsNode = related.field("getSerieSeasonAndEpisodes")?.field("seasons")
+    internal fun episodesFrom(root: JsonNode): List<Episode> {
+        val related = root.field("relatedResults") ?: return emptyList()
+        val seasonResponse = related.field("getSerieSeasonAndEpisodes") ?: return emptyList()
+        // Current SelcukFlix .app payloads wrap the season list in "result" (older payloads may name it "seasons").
+        val seasonsNode = seasonResponse.field("result") ?: seasonResponse.field("seasons")
             ?: return emptyList()
         val entries = mutableListOf<Triple<Int, Int, Episode>>()
         var fallbackIndex = 0
         seasonsNode.children().forEach { seasonNode ->
-            val seasonNumber = seasonNode.textField("seasonNo", "seasonNumber", "number")?.toIntOrNull()
+            val seasonNumber = seasonNode.textField("season_no", "seasonNo", "seasonNumber", "number")
+                ?.toIntOrNull()
             val episodesNode = seasonNode.field("episodes") ?: return@forEach
             episodesNode.children().forEach { episodeNode ->
-                val episodeUrl = canonicalSiteUrl(episodeNode.textField("usedSlug", "slug", "url", "link"))
-                    ?: return@forEach
+                val episodeUrl = canonicalSiteUrl(
+                    episodeNode.textField("used_slug", "usedSlug", "slug", "url", "link")
+                ) ?: return@forEach
                 fallbackIndex += 1
-                val episodeNumber = episodeNode.textField("episodeNo", "episodeNumber", "number")
+                val episodeNumber = episodeNode.textField("episode_no", "episodeNo", "episodeNumber", "number")
                     ?.toIntOrNull() ?: fallbackIndex
-                val episodeName = episodeNode.textField("epText", "episodeTitle", "title", "name")
+                val episodeName = episodeNode.textField("episode_text", "epText", "episodeTitle", "title", "name")
                 val episode = newEpisode(episodeUrl) {
                     name = episodeName
                     season = seasonNumber
                     episode = episodeNumber
-                    posterUrl = normalizePoster(episodeNode.textField("posterUrl", "poster"))
+                    posterUrl = normalizePoster(episodeNode.textField("poster_url", "posterUrl", "poster"))
                 }
                 entries += Triple(seasonNumber ?: 0, episodeNumber, episode)
             }
