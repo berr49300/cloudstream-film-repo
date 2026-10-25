@@ -422,4 +422,19 @@ class WebteIzleResolverBankTest {
         assertTrue(okru.contains("https://m.ok.ru/videoembed/12345?from=ok"))
     }
 
+
+    @Test
+    fun pixelFunctionMapsOnlyAnObservedIdToTheDocumentedPixelDrainPath() {
+        val attempts = WebteIzleResolverBank.inspect(
+            html = """<div>pixel('PIXEL789abc')</div>""",
+            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
+            hintedPlayerName = "Pixel"
+        )
+        val pixel = attempts.first { it.resolverId == 44 }
+
+        assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.com/u/PIXEL789abc" })
+        assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.dev/u/PIXEL789abc" })
+        assertEquals("PixelDrain", WebteIzleResolverBank.playerFamily("https://pixeldrain.com/u/PIXEL789abc"))
+    }
+
 }
