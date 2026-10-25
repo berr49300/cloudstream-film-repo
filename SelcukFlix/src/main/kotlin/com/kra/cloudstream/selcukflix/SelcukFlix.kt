@@ -7,7 +7,6 @@ import com.lagradost.cloudstream3.utils.*
 import org.jsoup.Jsoup
 import java.net.URI
 import java.net.URLEncoder
-import java.util.Calendar
 
 class SelcukFlix : MainAPI() {
     override var mainUrl = "https://selcukflix.app"
@@ -38,50 +37,17 @@ class SelcukFlix : MainAPI() {
         "Referer" to "https://selcukflix.app/"
     )
 
+    // These four public HTML routes are the catalog routes used by the current site.
+    // Do not advertise guessed /api/bg/findMovies or /findSeries endpoints as catalog rows.
     override val mainPage = mainPageOf(
         "episodes|all" to "Güncel Bölümler • Tümü",
-        "episodes|foreign" to "Güncel Bölümler • Yabancı Dizi",
-        "episodes|dub" to "Güncel Bölümler • Dublaj Dizi",
-        "episodes|anime" to "Güncel Bölümler • Animeler",
-        "api|findMovies" to "Yeni Eklenen Filmler",
-        "api|findMovies|imdbPointMin=6.9" to "IMDb 6.9 Üstü",
-        "api|findMovies|countryCodesComma=TR" to "Yerli Filmler",
+        "episodes|foreign" to "Güncel Bölümler • Altyazılı",
+        "episodes|dub" to "Güncel Bölümler • Dublaj",
+        "episodes|anime" to "Güncel Bölümler • Anime",
+        "$mainUrl/dizi-izle" to "Yeni Diziler",
         "$mainUrl/film-izle" to "Yeni Filmler",
-        "api|findSeries" to "Yeni Eklenen Diziler",
-        "$mainUrl/dizi-izle" to "Yabancı Diziler",
-        "$mainUrl/kesfet" to "Keşfet",
-        "$mainUrl/trend" to "Trend Diziler",
-        "api|findSeries|countryIdsComma=21,26" to "Asya / Kore Dizileri",
-        "api|findSeries|categoryIdsComma=17" to "Anime Dizileri",
-        "api|findSeries|categoryIdsComma=9" to "Aksiyon Dizileri",
-        "api|findSeries|categoryIdsComma=5" to "Bilim Kurgu Dizileri",
-        "api|findSeries|categoryIdsComma=4" to "Komedi Dizileri",
-        "api|findSeries|categoryIdsComma=2" to "Dram Dizileri",
-        "api|findSeries|categoryIdsComma=12" to "Fantastik Diziler",
-        "api|findSeries|categoryIdsComma=18" to "Gerilim Dizileri",
-        "api|findSeries|categoryIdsComma=8" to "Korku Dizileri",
-        "api|findSeries|categoryIdsComma=3" to "Gizem Dizileri",
-        "api|findSeries|categoryIdsComma=24" to "Macera Dizileri",
-        "api|findSeries|categoryIdsComma=7" to "Romantik Diziler",
-        "api|findSeries|categoryIdsComma=1" to "Suç Dizileri",
-        "api|findSeries|categoryIdsComma=15" to "Aile Dizileri",
-        "api|findSeries|categoryIdsComma=26" to "Savaş Dizileri",
-        "api|findSeries|categoryIdsComma=11" to "Western Diziler",
-        "api|findMovies|categoryIdsComma=59" to "Aksiyon Filmleri",
-        "api|findMovies|categoryIdsComma=66" to "Bilim Kurgu Filmleri",
-        "api|findMovies|categoryIdsComma=45" to "Komedi Filmleri",
-        "api|findMovies|categoryIdsComma=48" to "Dram Filmleri",
-        "api|findMovies|categoryIdsComma=61" to "Fantastik Filmler",
-        "api|findMovies|categoryIdsComma=68" to "Gerilim Filmleri",
-        "api|findMovies|categoryIdsComma=63" to "Korku Filmleri",
-        "api|findMovies|categoryIdsComma=51" to "Gizem Filmleri",
-        "api|findMovies|categoryIdsComma=60" to "Macera Filmleri",
-        "api|findMovies|categoryIdsComma=65" to "Romantik Filmler",
-        "api|findMovies|categoryIdsComma=46" to "Suç Filmleri",
-        "api|findMovies|categoryIdsComma=49" to "Aile Filmleri",
-        "api|findMovies|categoryIdsComma=44" to "Animasyon Filmleri",
-        "api|findMovies|categoryIdsComma=69" to "Savaş Filmleri",
-        "api|findMovies|categoryIdsComma=78" to "Western Filmler"
+        "$mainUrl/trend" to "Trend",
+        "$mainUrl/kesfet" to "Keşfet"
     )
 
     private data class SourceItem(val content: String, val label: String)
@@ -285,76 +251,16 @@ class SelcukFlix : MainAPI() {
         return if (isSeries && !isMovie) {
             newTvSeriesSearchResponse(title, url, TvType.TvSeries) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.score = Score.from10(score)
             }
         } else {
             newMovieSearchResponse(title, url, TvType.Movie) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.score = Score.from10(score)
             }
         }
-    }
-
-    private suspend fun getApiCategory(page: Int, request: MainPageRequest): HomePageResponse {
-        val pieces = request.data.split("|")
-        val endpoint = pieces.getOrNull(1)?.takeIf { it in setOf("findMovies", "findSeries") }
-            ?: throw ErrorLoadingException("SelcukFlix kategori uç noktası tanınmadı.")
-        val filters = linkedMapOf<String, String>()
-        pieces.drop(2).forEach { part ->
-            val at = part.indexOf('=')
-            if (at > 0) filters[part.substring(0, at)] = part.substring(at + 1)
-        }
-        val params = linkedMapOf(
-            "releaseYearStart" to "1900",
-            "releaseYearEnd" to Calendar.getInstance().get(Calendar.YEAR).toString(),
-            "imdbPointMin" to "0",
-            "imdbPointMax" to "10",
-            "categoryIdsComma" to "",
-            "countryIdsComma" to "",
-            "orderType" to "date_desc",
-            "languageId" to "-1",
-            "currentPage" to page.toString(),
-            "currentPageCount" to "24",
-            "queryStr" to "",
-            "categorySlugsComma" to "",
-            "countryCodesComma" to ""
-        ).apply { putAll(filters) }
-        // Page values are internal controls, not category overrides.
-        params["currentPage"] = page.toString()
-        params["currentPageCount"] = "24"
-
-        val root = requestApi("/api/bg/$endpoint", params, "$mainUrl/kesfet")
-        val sourceItems = resultArray(root)
-        val mapped = mutableListOf<SearchResponse>()
-        var detailPosterLookups = 0
-        sourceItems.forEach { item ->
-            val initial = asSearchResponse(item) ?: return@forEach
-            var response = initial
-            // The new-series API sometimes omits poster fields while the detail page still has
-            // og:image/lazy image data. Use a bounded first-page fallback, never one request per
-            // item across every category/page.
-            if (page == 1 && endpoint == "findSeries" && filters.isEmpty() &&
-                initial.posterUrl.isNullOrBlank() && detailPosterLookups < 8
-            ) {
-                detailPosterLookups++
-                val poster = runCatching {
-                    val detailHtml = loadPageHtml(initial.url, "poster fallback")
-                    posterFromDocument(Jsoup.parse(detailHtml, initial.url), initial.url)
-                }.getOrNull()
-                if (!poster.isNullOrBlank()) response = asSearchResponse(item, poster) ?: initial
-                android.util.Log.d(
-                    "SelcukFlixPoster",
-                    if (!poster.isNullOrBlank()) "Detail fallback poster found for a missing series poster."
-                    else "Detail fallback had no usable poster for a missing series poster."
-                )
-            }
-            mapped += response
-        }
-        val items = mapped.distinctBy { it.url }
-        val hasMore = root.field("pagination")?.field("hasMore")?.asBoolean()
-            ?: root.field("hasMore")?.asBoolean()
-            ?: (items.size >= 24)
-        return newHomePageResponse(request.name, items, hasNext = hasMore && items.isNotEmpty())
     }
 
     private fun episodeMetadataText(
@@ -404,14 +310,15 @@ class SelcukFlix : MainAPI() {
             href.substringBefore("/sezon-").substringBefore("/bolum-")
         }
         val poster = posterFromImage(anchor.selectFirst("img"))
-        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) { posterUrl = poster }
+        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) {
+            posterUrl = poster
+            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+        }
     }
 
     private var currentEpisodeFilter: String = "all"
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        if (request.data.startsWith("api|")) return getApiCategory(page, request)
-
         val episodeFilter = request.data.startsWith("episodes|")
         currentEpisodeFilter = if (episodeFilter) request.data.substringAfter("|") else "all"
         // The site shows "Güncel Bölümler" as a homepage section; do not assume a hidden route.
@@ -458,15 +365,67 @@ class SelcukFlix : MainAPI() {
                     if (title.isBlank()) return@forEach
                     val poster = posterFromImage(image)
                     result += if (uriPath.startsWith("/film/")) {
-                        newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
+                        newMovieSearchResponse(title, href, TvType.Movie) {
+                            posterUrl = poster
+                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+                        }
                     } else {
-                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
+                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                            posterUrl = poster
+                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+                        }
                     }
                 }
             }
         }
 
         val unique = result.distinctBy { it.url }
+
+        // If initialSeries supplied metadata without poster aliases, reuse the image on the
+        // visible catalogue card before issuing any detail request. This avoids unnecessary
+        // per-item network calls and repairs the common nested-card/data-URL variant.
+        if (!episodeFilter && page == 1) {
+            val cardPosters = linkedMapOf<String, String>()
+            document.select("a[href*='/dizi/'], a[href*='/film/']").forEach { anchor ->
+                val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                val cardPath = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
+                if (cardPath.contains("/sezon-") || cardPath.contains("/bolum-")) return@forEach
+                val poster = posterFromImage(anchor.selectFirst("img"), href) ?: return@forEach
+                cardPosters.putIfAbsent(href, poster)
+            }
+            unique.forEach { item ->
+                if (item.posterUrl.isNullOrBlank()) {
+                    val poster = cardPosters[item.url]
+                    if (!poster.isNullOrBlank()) {
+                        item.posterUrl = poster
+                        item.posterHeaders = browserHeaders + ("Referer" to "$mainUrl/")
+                    }
+                }
+            }
+        }
+
+        // Only fetch a small, bounded set of detail pages for posters that are still missing.
+        val routePath = runCatching { URI(base).path.orEmpty().lowercase() }.getOrDefault("")
+        if (!episodeFilter && page == 1 && routePath in setOf("/dizi-izle", "/film-izle")) {
+            var detailLookups = 0
+            unique.forEach { item ->
+                if (detailLookups >= 8) return@forEach
+                if (!item.posterUrl.isNullOrBlank()) return@forEach
+                detailLookups++
+                val poster = runCatching {
+                    val detailHtml = loadPageHtml(item.url, "katalog poster fallback")
+                    posterFromDocument(Jsoup.parse(detailHtml, item.url), item.url)
+                }.getOrNull()
+                if (!poster.isNullOrBlank()) {
+                    item.posterUrl = poster
+                    item.posterHeaders = browserHeaders + ("Referer" to item.url)
+                    android.util.Log.d("SelcukFlixPoster", "Recovered a missing poster from a detail-page image.")
+                } else {
+                    android.util.Log.d("SelcukFlixPoster", "No detail-page poster was available for a missing poster.")
+                }
+            }
+        }
+
         return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
     }
 
@@ -648,6 +607,7 @@ class SelcukFlix : MainAPI() {
         return if (isSeries) {
             newTvSeriesLoadResponse(title, canonicalUrl, TvType.TvSeries, episodes) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.year = year
                 this.plot = description
                 this.tags = tags
@@ -656,6 +616,7 @@ class SelcukFlix : MainAPI() {
         } else {
             newMovieLoadResponse(title, canonicalUrl, TvType.Movie, canonicalUrl) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.year = year
                 this.plot = description
                 this.tags = tags
@@ -714,17 +675,23 @@ class SelcukFlix : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit
     ): List<SelcukResolverCandidate> {
         val output = input.toMutableList()
+        // Run the dedicated source2.php strategy for both the episode-page and
+        // site-origin referer contexts. The generic iframe extractor also handles iframe.php,
+        // so excluding its URLs here silently disabled this independent resolver path.
         val pichiveFrames = input.filter {
-            it.id == 15 &&
-                SelcukFlixResolverBank.isPichiveIframe(it.url) &&
-                !SelcukFlixContentXSourceParser.canHandle(it.url)
-        }.distinctBy { it.url }.take(8)
+            it.id in setOf(15, 33) && SelcukFlixResolverBank.isPichiveIframe(it.url)
+        }.distinctBy { it.url + "|" + it.referer }.take(12)
 
         for (frame in pichiveFrames) {
             val iframeHtml = try {
                 // Use the normal embedding-page referer once. If the site responds with a challenge,
                 // mark it BLOCKED instead of trying alternate headers, mirrors, or challenge workarounds.
-                app.get(frame.url, headers = browserHeaders, referer = episodeUrl).text
+                val frameReferer = frame.referer.ifBlank { episodeUrl }
+                app.get(
+                    frame.url,
+                    headers = browserHeaders + mapOf("Referer" to frameReferer),
+                    referer = frameReferer
+                ).text
             } catch (_: Exception) {
                 android.util.Log.w(
                     "SelcukFlix",
@@ -758,7 +725,8 @@ class SelcukFlix : MainAPI() {
                     apiUrl,
                     headers = browserHeaders + mapOf(
                         "Accept" to "application/json, text/plain, */*",
-                        "X-Requested-With" to "XMLHttpRequest"
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to frame.url
                     ),
                     referer = frame.url
                 ).text
@@ -971,7 +939,7 @@ class SelcukFlix : MainAPI() {
                                     "; URL and token omitted from log."
                             )
                         }
-                        collected.distinctBy { it.url to it.type }.also { contentXCache[contextKey] = it }
+                        collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }.also { contentXCache[contextKey] = it }
                     }
                     if (resolvedLinks.isEmpty()) {
                         android.util.Log.w(
@@ -981,7 +949,7 @@ class SelcukFlix : MainAPI() {
                         emitUnresolvedPlayerProbe(candidate, label)
                     }
                     resolvedLinks.forEach { link ->
-                        val emitKey = candidateKey + "|" + link.url + "|" + link.type
+                        val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
                         if (!emittedResolverLinks.add(emitKey)) return@forEach
                         callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
                             this.referer = link.referer.ifBlank { candidate.referer }
@@ -1072,12 +1040,12 @@ class SelcukFlix : MainAPI() {
                             "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)} failed; URL and query parameters intentionally omitted."
                         )
                     }
-                    collected.distinctBy { it.url to it.type }.also { playerCache[playerKey] = it }
+                    collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }.also { playerCache[playerKey] = it }
                 }
 
                 if (resolvedLinks.isNotEmpty()) {
                     resolvedLinks.forEach { link ->
-                        val emitKey = candidateKey + "|" + link.url + "|" + link.type
+                        val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
                         if (!emittedResolverLinks.add(emitKey)) return@forEach
                         callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
                             this.referer = link.referer.ifBlank { candidate.referer }

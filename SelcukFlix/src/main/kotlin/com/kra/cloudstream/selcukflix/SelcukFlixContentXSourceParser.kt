@@ -83,14 +83,27 @@ internal object SelcukFlixContentXSourceParser {
         val fragment = url.substringAfter("#", "").takeIf { "#" in url }?.let { "#$it" }.orEmpty()
         val pathAndQuery = beforeFragment.substringBefore("?")
         val query = beforeFragment.substringAfter("?", "").takeIf { "?" in beforeFragment }?.let { "?$it" }.orEmpty()
-        if (Regex("""(?i)/m\.php$""").containsMatchIn(pathAndQuery)) {
-            val transformed = pathAndQuery.replace(Regex("""(?i)m\.php$"""), "master.m3u8") + query + fragment
+
+        // m.php is the common Pichive endpoint. Some observed player variants expose a
+        // differently named PHP wrapper; keep the original URL and add a separately labelled
+        // master-playlist hypothesis rather than replacing the only candidate.
+        val transformedPath = when {
+            Regex("""(?i)/m\.php$""").containsMatchIn(pathAndQuery) ->
+                pathAndQuery.replace(Regex("""(?i)/m\.php$"""), "/master.m3u8")
+            Regex("""(?i)/[^/]+\.[a-z0-9_-]+\.php$""").containsMatchIn(pathAndQuery) ->
+                pathAndQuery.replace(Regex("""(?i)/[^/]+\.[a-z0-9_-]+\.php$"""), "/master.m3u8")
+            Regex("""(?i)/[^/]+\.php$""").containsMatchIn(pathAndQuery) ->
+                pathAndQuery.replace(Regex("""(?i)/[^/]+\.php$"""), "/master.m3u8")
+            else -> null
+        }
+        if (transformedPath != null) {
+            val transformed = transformedPath + query + fragment
             val normalized = SelcukFlixResolverBank.normalizeUrl(transformed, baseUrl)
             if (normalized != null && normalized != url) {
                 result += SelcukFlixResolvedMediaCandidate(
                     derivedResolverId,
                     normalized,
-                    "PichiveMasterPlaylistResolver • m.php → master.m3u8"
+                    "PichiveMasterPlaylistResolver • PHP endpoint → master.m3u8 (hypothesis)"
                 )
             }
         }

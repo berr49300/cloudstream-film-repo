@@ -366,4 +366,17 @@ class SelcukFlixResolverBankTest {
         assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("any episode", "all"))
     }
 
+    @Test
+    fun keepsRawPhpFileAndAddsSeparateMasterPlaylistHypothesis() {
+        val raw = "https://four.pichive.online/media/video.m3u8.php?key=fixture"
+        val candidates = SelcukFlixContentXSourceParser.mediaFileCandidates(
+            raw,
+            "https://four.pichive.online/source2.php?v=fixture"
+        )
+        assertTrue(candidates.any { it.resolverId == 38 && it.url == raw })
+        assertTrue(candidates.any {
+            it.resolverId == 39 && it.url == "https://four.pichive.online/media/master.m3u8?key=fixture"
+        })
+    }
+
 }
