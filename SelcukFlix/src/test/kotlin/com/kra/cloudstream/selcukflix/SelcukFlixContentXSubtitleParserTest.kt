@@ -82,7 +82,7 @@ class SelcukFlixContentXSourceParserTest {
         assertTrue(SelcukFlixContentXSourceParser.canHandle("https://four.pichive.online/iframe.php?v=sample"))
         assertTrue(!SelcukFlixContentXSourceParser.canHandle("https://four.pichive.online/embed/sample"))
 
-        val page = """window.openPlayer('sub_token_123456789', true); data = ,\"dub_token_987654321\",\"Türkçe Dublaj\""""
+        val page = "window.openPlayer('sub_token_123456789', true); data = ,\\\"dub_token_987654321\\\",\\\"Türkçe Dublaj\\\""
         val tokens = SelcukFlixContentXSourceParser.playerTokens(page)
         assertEquals(2, tokens.size)
         assertEquals("sub_token_123456789", tokens[0].token)
