@@ -203,17 +203,29 @@ internal object WebteIzleResolverBank {
             val defaultPort = (scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)
             val port = if (uri.port >= 0 && !defaultPort) ":" + uri.port.toString() else ""
             val path = uri.normalize().rawPath.orEmpty()
+            val isPlaylist = path.substringAfterLast('.', "").lowercase() in setOf("m3u8", "mpd")
+            val stablePlaybackKeys = setOf(
+                "id", "video", "videoid", "episode", "episodeid", "file", "filename",
+                "quality", "variant", "audio", "lang", "language", "track", "type",
+                "format", "source", "playlist", "stream", "v", "height", "width", "url"
+            )
             val stableQuery = uri.rawQuery.orEmpty()
                 .split('&')
                 .filter { it.isNotBlank() }
-                .filterNot { pair ->
+                .filter { pair ->
                     val key = pair.substringBefore('=').lowercase()
                         .replace(Regex("""[^a-z0-9_\-]"""), "")
-                    key in volatileQueryKeys ||
-                        key.startsWith("utm_") ||
-                        key.startsWith("x-amz-") ||
-                        key.startsWith("x-goog-") ||
-                        key.startsWith("cf_")
+                    if (isPlaylist) {
+                        // For master playlists, CDN auth/nonce/cache keys are routinely refreshed
+                        // for the same stream. Keep only parameters that identify the actual track.
+                        key in stablePlaybackKeys
+                    } else {
+                        key !in volatileQueryKeys &&
+                            !key.startsWith("utm_") &&
+                            !key.startsWith("x-amz-") &&
+                            !key.startsWith("x-goog-") &&
+                            !key.startsWith("cf_")
+                    }
                 }
                 .sorted()
                 .joinToString("&")
