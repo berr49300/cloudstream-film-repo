@@ -407,15 +407,43 @@ class SelcukFlix : MainAPI() {
             }
         }
 
-    override suspend fun load(url: String): LoadResponse {
-        val canonicalUrl = canonicalSiteUrl(url)
-            ?: throw ErrorLoadingException("Geçersiz SelcukFlix içerik adresi.")
-        val html = loadPageHtml(canonicalUrl, "detay")
-        val document = Jsoup.parse(html, canonicalUrl)
+    private fun pageDataResult(root: JsonNode?): JsonNode? =
+        root?.field("content")?.field("result")
+            ?: root?.field("Content")?.field("Result")
+            ?: root
 
-        // Prefer the visible page's metadata; decrypted hydration data is a fallback when present.
-        val root = runCatching { decodedPageRoot(html) }.getOrNull()
-        val item = root?.field("contentItem") ?: root?.field("ContentItem") ?: root
+    override suspend fun load(url: String): LoadResponse {
+        var canonicalUrl = canonicalSiteUrl(url)
+            ?: throw ErrorLoadingException("Geçersiz SelcukFlix içerik adresi.")
+        var html = loadPageHtml(canonicalUrl, "detay")
+        var document = Jsoup.parse(html, canonicalUrl)
+        var root = runCatching { decodedPageRoot(html) }.getOrNull()
+        var pageRoot = pageDataResult(root)
+
+        // "Güncel Bölümler" links point to episode URLs. Resolve those to their owning series.
+        if (pageRoot?.textField("FindedType").equals("Episodes", ignoreCase = true)) {
+            val related = pageRoot?.field("RelatedResults") ?: pageRoot?.field("relatedResults")
+            val seriesSlug = related?.field("getSeriesDetail")?.field("result")
+                ?.textField("used_slug", "usedSlug", "slug")
+                ?: related?.field("seriesDetail")?.field("result")
+                    ?.textField("used_slug", "usedSlug", "slug")
+            val seriesUrl = canonicalSiteUrl(seriesSlug)
+            if (seriesUrl != null && seriesUrl != canonicalUrl) {
+                canonicalUrl = seriesUrl
+                html = loadPageHtml(canonicalUrl, "dizi detay")
+                document = Jsoup.parse(html, canonicalUrl)
+                root = runCatching { decodedPageRoot(html) }.getOrNull()
+                pageRoot = pageDataResult(root)
+            }
+        }
+
+        // Current hydrated pages use content.result.FindedResult.result; legacy page data is a fallback.
+        val item = pageRoot?.field("FindedResult")?.field("result")
+            ?: pageRoot?.field("contentItem")
+            ?: pageRoot?.field("ContentItem")
+            ?: root?.field("contentItem")
+            ?: root?.field("ContentItem")
+            ?: pageRoot
         val title = item?.textField("original_title", "originalTitle", "culture_title", "cultureTitle", "title", "name")
             ?: document.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
                 ?.removeSuffix(" izle")
@@ -488,8 +516,13 @@ class SelcukFlix : MainAPI() {
         // Prefer the site's structured episode payload; use season-page HTML as a fallback.
         val episodes = root?.let(::episodesFrom)?.takeIf { it.isNotEmpty() } ?: htmlEpisodes
         val path = runCatching { URI(canonicalUrl).path.orEmpty().lowercase() }.getOrDefault("")
-        val isSeries = path.startsWith("/dizi/") || seasonLinks.isNotEmpty() ||
-            episodes.isNotEmpty() || root?.field("relatedResults")?.field("getSerieSeasonAndEpisodes") != null
+        val findedType = pageRoot?.textField("FindedType").orEmpty()
+        val isMovie = findedType.equals("Movies", ignoreCase = true) ||
+            (findedType.isBlank() && path.startsWith("/film/"))
+        val isSeries = !isMovie && (
+            findedType.isNotBlank() || path.startsWith("/dizi/") || seasonLinks.isNotEmpty() ||
+                episodes.isNotEmpty() || pageRoot?.field("RelatedResults")?.field("getSerieSeasonAndEpisodes") != null
+            )
 
         return if (isSeries) {
             newTvSeriesLoadResponse(title, canonicalUrl, TvType.TvSeries, episodes) {
