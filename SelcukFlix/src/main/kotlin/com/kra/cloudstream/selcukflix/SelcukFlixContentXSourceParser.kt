@@ -14,7 +14,9 @@ internal object SelcukFlixContentXSourceParser {
         val uri = URI(url)
         uri.scheme?.lowercase() in setOf("http", "https") &&
             uri.path.orEmpty().endsWith("/iframe.php", ignoreCase = true) &&
-            uri.rawQuery.orEmpty().split("&").any { it.substringBefore("=") == "v" }
+            uri.rawQuery.orEmpty().split("&").any {
+                java.net.URLDecoder.decode(it.substringBefore("="), "UTF-8").equals("v", ignoreCase = true)
+            }
     }.getOrDefault(false)
 
     fun playerTokens(rawPage: String): List<SelcukFlixPlayerToken> {
