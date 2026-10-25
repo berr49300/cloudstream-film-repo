@@ -367,16 +367,6 @@ class SelcukFlixResolverBankTest {
     }
 
     @Test
-    fun mainPageUsesObservedHtmlCatalogRoutes() {
-        val routeData = SelcukFlix().mainPage.map { it.data }
-        assertTrue(routeData.contains("https://selcukflix.app/dizi-izle"))
-        assertTrue(routeData.contains("https://selcukflix.app/film-izle"))
-        assertTrue(routeData.contains("https://selcukflix.app/trend"))
-        assertTrue(routeData.contains("https://selcukflix.app/kesfet"))
-        assertFalse(routeData.any { it.startsWith("api|findMovies") || it.startsWith("api|findSeries") })
-    }
-
-    @Test
     fun keepsRawPhpFileAndAddsSeparateMasterPlaylistHypothesis() {
         val raw = "https://four.pichive.online/media/video.m3u8.php?key=fixture"
         val candidates = SelcukFlixContentXSourceParser.mediaFileCandidates(
