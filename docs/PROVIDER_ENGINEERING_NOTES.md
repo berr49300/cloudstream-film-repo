@@ -140,6 +140,7 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 
 - Resolver path: scans decoded page payload, Next.js state, player-related script blocks and raw HTML independently; resolver IDs are preserved even when candidates resolve to the same underlying media URL.
 - ContentX/Pichive: maintains caller-supplied referer variants and emits separately numbered raw-file and derived `m.php` → `master.m3u8` candidate names. The derived URL is still a hypothesis until manually played.
+- When a discovered player URL does not resolve through installed extractors, the provider emits a `PROBE ONLY (player URL, media NOT verified)` candidate under its original discovery ID. This is a diagnostic/manual-test entry, not a playback-success claim.
 - Posters: use explicit poster/face fields first, recursively inspect nested API objects, parse lazy-load/srcset and OG/Twitter image metadata, reject known placeholders, and attempt a bounded detail-page fallback for at most 8 missing posters on the unfiltered first-page series catalog.
 - Added fixture tests for nested/placeholder poster discovery and raw/derived media candidate IDs.
 - V4 CI result: NOT TESTED until its pull-request workflow completes. Real site data and user-device video/subtitle/poster rendering: NOT TESTED; no access-control or DRM bypass is attempted.
