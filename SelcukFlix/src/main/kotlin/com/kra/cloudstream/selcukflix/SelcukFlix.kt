@@ -203,14 +203,19 @@ class SelcukFlix : MainAPI() {
     }
 
     private fun posterForItem(item: JsonNode): String? {
-        val direct = item.textField(
-            "object_poster_url", "object_face_url", "poster_url", "face_url",
-            "objectPosterUrl", "objectFaceUrl", "posterUrl", "faceUrl",
-            "poster_path", "posterPath", "image_url", "imageUrl", "image",
-            "thumbnail_url", "thumbnailUrl", "thumbnail", "thumb_url", "cover_url", "cover",
-            "backdrop_url", "backdrop", "banner"
+        // Explicit poster/face fields must win over backdrop or generic image fields.
+        val directPoster = item.textField(
+            "object_poster_url", "poster_url", "posterUrl", "poster_path", "posterPath",
+            "object_face_url", "face_url", "faceUrl", "poster", "face",
+            "cover_url", "cover", "thumbnail_url", "thumbnailUrl", "thumbnail", "thumb_url", "thumb"
         )?.let(::normalizePoster)
-        return direct ?: SelcukFlixResolverBank.findPosterUrl(item, mainUrl)?.let(::normalizePoster)
+        if (directPoster != null) return directPoster
+
+        // Search nested API objects before falling back to a generic image/backdrop field.
+        val nested = SelcukFlixResolverBank.findPosterUrl(item, mainUrl)?.let(::normalizePoster)
+        if (nested != null) return nested
+        return item.textField("image_url", "imageUrl", "image", "backdrop_url", "backdrop", "banner")
+            ?.let(::normalizePoster)
     }
 
     private fun posterFromImage(image: org.jsoup.nodes.Element?): String? {
@@ -242,9 +247,9 @@ class SelcukFlix : MainAPI() {
     }
 
     private fun posterFromDocument(document: org.jsoup.nodes.Document, baseUrl: String): String? {
-        val meta = document.selectFirst(
+        val meta = document.select(
             "meta[property=og:image], meta[property=og:image:url], meta[name=twitter:image], meta[name=twitter:image:src]"
-        )?.attr("content")?.let(::normalizePoster)
+        ).mapNotNull { normalizePoster(it.attr("content")) }.firstOrNull()
         if (meta != null) return meta
         document.select("img").forEach { image ->
             posterFromImage(image)?.let { return it }
@@ -252,7 +257,7 @@ class SelcukFlix : MainAPI() {
         return null
     }
 
-    private fun asSearchResponse(item: JsonNode): SearchResponse? {
+    private fun asSearchResponse(item: JsonNode, posterOverride: String? = null): SearchResponse? {
         val title = item.textField(
             "object_name", "object_alternative_name", "used_title",
             "original_title", "originalTitle", "culture_title", "cultureTitle",
@@ -260,7 +265,7 @@ class SelcukFlix : MainAPI() {
         ) ?: return null
         val rawUrl = item.textField("used_slug", "usedSlug", "slug", "url", "link") ?: return null
         val url = canonicalSiteUrl(rawUrl) ?: return null
-        val poster = posterForItem(item)
+        val poster = posterForItem(item) ?: normalizePoster(posterOverride)
         val score = item.textField("imdb_point", "imdbPoint", "object_related_imdb_point", "rating", "score")
         val typeText = item.textField("used_type", "type", "contentType", "itemType").orEmpty().lowercase()
         val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
@@ -311,7 +316,33 @@ class SelcukFlix : MainAPI() {
         params["currentPageCount"] = "24"
 
         val root = requestApi("/api/bg/$endpoint", params, "$mainUrl/kesfet")
-        val items = resultArray(root).mapNotNull(::asSearchResponse).distinctBy { it.url }
+        val sourceItems = resultArray(root)
+        val mapped = mutableListOf<SearchResponse>()
+        var detailPosterLookups = 0
+        sourceItems.forEach { item ->
+            val initial = asSearchResponse(item) ?: return@forEach
+            var response = initial
+            // The new-series API sometimes omits poster fields while the detail page still has
+            // og:image/lazy image data. Use a bounded first-page fallback, never one request per
+            // item across every category/page.
+            if (page == 1 && endpoint == "findSeries" && filters.isEmpty() &&
+                initial.posterUrl.isNullOrBlank() && detailPosterLookups < 8
+            ) {
+                detailPosterLookups++
+                val poster = runCatching {
+                    val detailHtml = loadPageHtml(initial.url, "poster fallback")
+                    posterFromDocument(Jsoup.parse(detailHtml, initial.url), initial.url)
+                }.getOrNull()
+                if (!poster.isNullOrBlank()) response = asSearchResponse(item, poster) ?: initial
+                android.util.Log.d(
+                    "SelcukFlixPoster",
+                    if (!poster.isNullOrBlank()) "Detail fallback poster found for a missing series poster."
+                    else "Detail fallback had no usable poster for a missing series poster."
+                )
+            }
+            mapped += response
+        }
+        val items = mapped.distinctBy { it.url }
         val hasMore = root.field("pagination")?.field("hasMore")?.asBoolean()
             ?: root.field("hasMore")?.asBoolean()
             ?: (items.size >= 24)
