@@ -329,6 +329,24 @@ class SelcukFlixResolverBankTest {
     }
 
     @Test
+    fun acceptsPichiveSource2FileWhenStatePlaylistEnvelopeIsMissing() {
+        val response = """{"file":"https://four.pichive.online/media/m.php?key=fixture"}"""
+        val candidates = SelcukFlixResolverBank.extractPichiveSourceCandidates(
+            response,
+            "https://four.pichive.online/iframe.php?v=fixture"
+        )
+
+        assertTrue(candidates.any {
+            it.id == 38 && it.kind == SelcukMediaKind.HLS &&
+                it.url.endsWith("m.php?key=fixture")
+        })
+        assertTrue(candidates.any {
+            it.id == 39 && it.kind == SelcukMediaKind.HLS &&
+                it.url.endsWith("master.m3u8?key=fixture")
+        })
+    }
+
+    @Test
     fun findsNestedPosterAliasesAndPrefersPosterOverBackdrop() {
         val root = ObjectMapper().readTree(
             """{
