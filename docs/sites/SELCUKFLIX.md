@@ -100,7 +100,7 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 - If an observed player URL fails through the installed extractor, it is still exposed as a clearly marked `PROBE ONLY (player URL, media NOT verified)` entry under the original discovery ID. This makes it manually testable instead of silently returning no links; it is not claimed to be playable media.
 - Poster lookup prioritizes poster/face fields, recursively checks nested fields, considers lazy-load/srcset attributes and OG/Twitter image metadata, rejects common placeholders, and attempts a bounded detail-page fallback for up to 8 missing posters in the unfiltered first-page latest-series list.
 - Regression tests cover nested poster aliases/placeholders and separate raw/derived media candidates.
-- CI: first run BLOCKED by Gradle dependency resolution (`com.github.recloudstream:gradle:-SNAPSHOT` not found); retry/push run is pending. Real live `.app` response and CloudStream playback remain BLOCKED / NOT TESTED from this environment.
+- CI: PASS for code commit `9837f4d08c9a51b4f32de2339d39d28350a13c4a` — https://github.com/berr49300/cloudstream-film-repo/actions/runs/40195467117 (unit tests, `.cs3` build and repository validator passed; publish step skipped because this is a PR). An earlier run had a transient Gradle snapshot dependency resolution failure; the successful run completed afterward. Real live `.app` response and CloudStream playback remain BLOCKED / NOT TESTED from this environment.
 \n## Third-party prior-art review
 
 - Older source: https://github.com/nikyokki/nik-cloudstream/tree/master/SelcukFlix — GPL-3.0; points at the former \`selcukflix.net\` domain.
