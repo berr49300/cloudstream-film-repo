@@ -112,3 +112,11 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - The web inspection environment received 404 on the observed player wrapper link. Treat this as an inspection-context limitation until a real request with the episode referer is captured; do not label it a confirmed site-wide outage.
 - Build success is not runtime success. DDizi's code is now marked experimental while series matching, pagination and the bounded player wrapper resolver are being tested. Record current link emission, playable media type, request referer, video/audio output and subtitles separately.
 
+
+
+## SelcukFlix malformed detail URLs and encrypted app payload (2026-10-25)
+
+- User-visible symptom: CloudStream displayed `https://selcukflix.appdizi/carrie` and failed with `UnknownHostException`, while the website homepage itself rendered. The detail URL passed to CloudStream was malformed; that failure occurs before any player extraction.
+- Root-cause corrections: a site-owned URL normalizer now repairs the missing slash before known `/dizi/` and `/film/` paths, canonicalizes legacy SelcukFlix domains to the configured `.app` origin, and has regression tests for absolute, relative and malformed URLs. The page/API payload decryptor now uses the current public client-side AES key documented by maintained SelcukFlix `.app` provider implementations rather than the previous unverified derived-key hypothesis.
+- Link handling now reports failure when no source candidate was actually emitted instead of treating non-empty page text as playback success. Plugin version was incremented to 2.
+- Verification status: deterministic regression fixtures were added. Live `.app` response inspection remains BLOCKED in this environment (the public web fetch failed), and actual playback/subtitles on the user's CloudStream device remain NOT TESTED. No CAPTCHA/Cloudflare bypass was added.
