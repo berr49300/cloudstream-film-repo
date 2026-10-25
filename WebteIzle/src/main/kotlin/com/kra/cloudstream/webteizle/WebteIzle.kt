@@ -293,6 +293,7 @@ class WebteIzle : MainAPI() {
                             val host = runCatching { java.net.URI(candidate.url).host }.getOrNull() ?: "unknown-player"
                             val hostFamily = WebteIzleResolverBank.playerFamily(candidate.url)
                             val family = hostFamily ?: candidate.playerHint
+                            val playerLabel = family?.let { "$it ($host)" } ?: host
                             val routeLabel = when {
                                 hostFamily.equals("VidMoly", ignoreCase = true) ||
                                     candidate.playerHint.equals("VidMoly", ignoreCase = true) -> "41 • VidMoly"
@@ -304,7 +305,6 @@ class WebteIzle : MainAPI() {
                                     candidate.playerHint.equals("Pixel", ignoreCase = true) -> "44 • Pixel"
                                 else -> "17 • $playerLabel"
                             }
-                            val playerLabel = family?.let { "$it ($host)" } ?: host
                             val sourceQuality = WebteIzleResolverBank.validQualityHint(fallbackQuality)
                             val qualityLabel = sourceQuality?.toString()?.plus("p") ?: "Auto"
                             // loadExtractor's callback is non-suspending, while this provider's
