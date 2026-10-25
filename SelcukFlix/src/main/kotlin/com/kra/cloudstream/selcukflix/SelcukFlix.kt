@@ -288,7 +288,7 @@ class SelcukFlix : MainAPI() {
             // Keep the episode URL so the loader can map it back using FindedType/series metadata.
             href
         } else {
-            href.substringBefore(Regex("/sezon-|/bolum-"))
+            href.substringBefore("/sezon-").substringBefore("/bolum-")
         }
         val poster = normalizePoster(anchor.selectFirst("img")?.let {
             it.attr("data-src").ifBlank { it.attr("data-lazy-src").ifBlank { it.attr("src") } }
@@ -313,7 +313,7 @@ class SelcukFlix : MainAPI() {
         val document = Jsoup.parse(html, pageUrl)
         val result = mutableListOf<SearchResponse>()
 
-        val latestEpisodes = base.endsWith("/tum-bolumler")
+        val latestEpisodes = episodeFilter
         if (latestEpisodes) {
             document.select("a[href*='/bolum-'], a[href*='/dizi/']")
                 .filter { it.selectFirst("h3, h2, img, [data-title]") != null }
