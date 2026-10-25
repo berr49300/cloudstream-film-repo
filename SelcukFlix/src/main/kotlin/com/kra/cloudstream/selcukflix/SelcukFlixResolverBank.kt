@@ -5,7 +5,6 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Jsoup
 import java.net.URI
 import java.util.Base64
-import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -28,6 +27,14 @@ internal data class SelcukSubtitleCandidate(
     val url: String
 )
 
+internal data class SelcukEpisodeRecord(
+    val url: String,
+    val name: String?,
+    val season: Int?,
+    val episode: Int?,
+    val posterUrl: String?
+)
+
 /**
  * Site-isolated resolver test bank.
  *
@@ -36,6 +43,7 @@ internal data class SelcukSubtitleCandidate(
  * compare each discovery path independently in CloudStream.
  */
 internal object SelcukFlixResolverBank {
+    private const val sitePayloadAesKey = "9bYMCNQiWsXIYFWYAu7EkdsSbmGBTyUI"
     private val mapper = jacksonObjectMapper()
 
     private val resolverNames = mapOf(
@@ -87,6 +95,66 @@ internal object SelcukFlixResolverBank {
     private val subtitleExtensionRegex = Regex("""(?i)\.(vtt|srt|ass|ssa)(?:$|[?#])""")
     private val likelyPlayerPath = Regex("""(?i)(embed|player|watch|/e/|/video|iframe|stream|manifest|playlist)""")
     private val base64Regex = Regex("""(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/_-]{24,}={0,2})(?![A-Za-z0-9+/=_-])""")
+
+    private fun JsonNode.jsonField(name: String): JsonNode? {
+        if (!isObject) return null
+        val iterator = fields()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key.equals(name, ignoreCase = true)) return entry.value
+        }
+        return null
+    }
+
+    private fun JsonNode.jsonText(vararg names: String): String? {
+        for (name in names) {
+            val value = jsonField(name) ?: continue
+            if (value.isNull || value.isContainerNode) continue
+            val text = value.asText().trim()
+            if (text.isNotBlank() && text != "null") return text
+        }
+        return null
+    }
+
+    private fun JsonNode.jsonChildren(): List<JsonNode> = when {
+        isArray -> elements().asSequence().toList()
+        isObject -> fields().asSequence().map { it.value }.toList()
+        else -> emptyList()
+    }
+
+    fun parseEpisodeRecords(root: JsonNode, mainUrl: String): List<SelcukEpisodeRecord> {
+        val related = root.jsonField("relatedResults") ?: return emptyList()
+        val seasonResponse = related.jsonField("getSerieSeasonAndEpisodes") ?: return emptyList()
+        // Current .app responses wrap seasons in result and use snake_case field names.
+        val seasons = seasonResponse.jsonField("result") ?: seasonResponse.jsonField("seasons")
+            ?: return emptyList()
+        val records = mutableListOf<SelcukEpisodeRecord>()
+        var fallbackEpisode = 0
+        seasons.jsonChildren().forEach { season ->
+            val seasonNo = season.jsonText("season_no", "seasonNo", "seasonNumber", "number")?.toIntOrNull()
+            val episodeNodes = season.jsonField("episodes") ?: return@forEach
+            episodeNodes.jsonChildren().forEach { episode ->
+                val rawSlug = episode.jsonText("used_slug", "usedSlug", "slug", "url", "link")
+                    ?: return@forEach
+                val episodeUrl = normalizeSiteUrl(rawSlug, mainUrl) ?: return@forEach
+                fallbackEpisode++
+                val episodeNo = episode.jsonText("episode_no", "episodeNo", "episodeNumber", "number")
+                    ?.toIntOrNull() ?: fallbackEpisode
+                val posterRaw = episode.jsonText("poster_url", "posterUrl", "poster")
+                val poster = posterRaw?.let { normalizeSiteUrl(it, mainUrl) ?: normalizeUrl(it, mainUrl) }
+                records += SelcukEpisodeRecord(
+                    url = episodeUrl,
+                    name = episode.jsonText("episode_text", "epText", "episodeTitle", "title", "name"),
+                    season = seasonNo,
+                    episode = episodeNo,
+                    posterUrl = poster
+                )
+            }
+        }
+        return records.sortedWith(
+            compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
+        ).distinctBy { it.url }
+    }
 
     fun resolverName(id: Int): String = resolverNames[id] ?: "UnknownResolver"
 
@@ -143,15 +211,10 @@ internal object SelcukFlixResolverBank {
             ?: return null
 
         return runCatching {
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
-            val encodedDigest = Base64.getEncoder().encodeToString(digest)
-            // The page's client-side payload format uses the first 32 Base64 characters as AES-256 key bytes.
-            val keyBytes = encodedDigest.take(32).toByteArray(Charsets.UTF_8)
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(
                 Cipher.DECRYPT_MODE,
-                SecretKeySpec(keyBytes, "AES"),
+                SecretKeySpec(sitePayloadAesKey.toByteArray(Charsets.UTF_8), "AES"),
                 IvParameterSpec(ByteArray(16))
             )
             String(cipher.doFinal(cipherBytes), Charsets.UTF_8).trim().takeIf { decoded ->
@@ -620,6 +683,35 @@ internal object SelcukFlixResolverBank {
         return host == "youtube.com" || host.endsWith(".youtube.com") ||
             host == "youtu.be" || host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||
             host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+    }
+
+    /**
+     * Normalizes SelcukFlix-owned page URLs and repairs malformed host/path joins observed in
+     * CloudStream errors (for example: https://selcukflix.appdizi/carrie).
+     * Player/media hosts must continue to use normalizeUrl(), not this site-specific adapter.
+     */
+    fun normalizeSiteUrl(raw: String?, mainUrl: String): String? {
+        if (raw.isNullOrBlank()) return null
+        val input = normalizeEscapes(raw.trim().trim('"', '\'')).trimEnd(',', ';')
+        val withScheme = if (input.startsWith("//")) "https:$input" else input
+        val brokenRoute = Regex("""(?i)^(https?://)?(www\.)?selcukflix\.app(dizi|film)(/.*)?$""")
+        val repaired = brokenRoute.replace(withScheme) { match ->
+            val scheme = match.groups[1]?.value ?: "https://"
+            val www = match.groups[2]?.value.orEmpty()
+            val route = match.groupValues[3]
+            val suffix = match.groups[4]?.value.orEmpty()
+            "${scheme}${www}selcukflix.app/${route}${suffix}"
+        }
+        val absolute = normalizeUrl(repaired, mainUrl) ?: return null
+        val uri = runCatching { URI(absolute) }.getOrNull() ?: return null
+        val host = uri.host.orEmpty().lowercase().removePrefix("www.")
+        if (host in setOf("selcukflix.net", "selcukflix.com", "selcukflix.co")) {
+            val path = uri.rawPath?.takeIf { it.isNotBlank() } ?: "/"
+            val query = uri.rawQuery?.let { "?" + it }.orEmpty()
+            val fragment = uri.rawFragment?.let { "#" + it }.orEmpty()
+            return mainUrl.trimEnd('/') + path + query + fragment
+        }
+        return absolute
     }
 
     fun normalizeUrl(raw: String?, baseUrl: String): String? {

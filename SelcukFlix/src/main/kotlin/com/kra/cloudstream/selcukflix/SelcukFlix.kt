@@ -34,14 +34,12 @@ class SelcukFlix : MainAPI() {
         "Accept-Language" to "tr-TR,tr;q=0.9,en;q=0.8",
         "X-Requested-With" to "XMLHttpRequest",
         "Origin" to "https://selcukflix.app",
-        "Referer" to "https://selcukflix.app/mobil-arama"
+        "Referer" to "https://selcukflix.app/"
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/dizi-izle" to "Yeni Diziler",
         "$mainUrl/film-izle" to "Yeni Filmler",
-        "$mainUrl/trend" to "Trend",
-        "$mainUrl/kesfet" to "Keşfet"
+        "$mainUrl/dizi-izle" to "Yeni Diziler"
     )
 
     private data class SourceItem(val content: String, val label: String)
@@ -87,20 +85,8 @@ class SelcukFlix : MainAPI() {
         return true
     }
 
-    private fun canonicalSiteUrl(raw: String?): String? {
-        if (raw.isNullOrBlank()) return null
-        val absolute = SelcukFlixResolverBank.normalizeUrl(raw, mainUrl) ?: return null
-        val uri = runCatching { URI(absolute) }.getOrNull() ?: return null
-        val host = uri.host.orEmpty().lowercase().removePrefix("www.")
-        val legacyHosts = setOf("selcukflix.net", "selcukflix.com", "selcukflix.co")
-        if (host in legacyHosts) {
-            val suffix = (uri.rawPath ?: "/") +
-                (uri.rawQuery?.let { "?" + it } ?: "") +
-                (uri.rawFragment?.let { "#" + it } ?: "")
-            return mainUrl.trimEnd('/') + suffix
-        }
-        return absolute
-    }
+    private fun canonicalSiteUrl(raw: String?): String? =
+        SelcukFlixResolverBank.normalizeSiteUrl(raw, mainUrl)
 
     private fun responsePayload(body: String): String {
         if (SelcukFlixResolverBank.isAccessChallenge(body)) {
@@ -118,7 +104,7 @@ class SelcukFlix : MainAPI() {
             app.post(
                 mainUrl.trimEnd('/') + path,
                 headers = apiHeaders,
-                referer = mainUrl.trimEnd('/') + "/mobil-arama"
+                referer = mainUrl.trimEnd('/') + "/"
             ).text
         } catch (error: Exception) {
             val detail = error.message.orEmpty()
@@ -133,7 +119,7 @@ class SelcukFlix : MainAPI() {
             }
             val kind = error.javaClass.simpleName.ifBlank { "NetworkError" }
             throw ErrorLoadingException(
-                "SelcukFlix API isteği başarısız ($kind). /api/bg/searchContent .app üzerinde canlı doğrulanamadı."
+                "SelcukFlix /api/bg/searchcontent API isteği başarısız ($kind)."
             )
         }
         if (isBlocked(body, path)) {
@@ -193,7 +179,7 @@ class SelcukFlix : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = canonicalSiteUrl(request.data) ?: request.data
         val pageUrl = if (page > 1) {
-            base + (if (base.contains("?")) "&" else "?") + "sayfa=" + page
+            base + (if (base.contains("?")) "&" else "?") + "page=" + page
         } else {
             base
         }
@@ -248,7 +234,7 @@ class SelcukFlix : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val root = requestApi("/api/bg/searchContent?searchterm=" + encoded)
+        val root = requestApi("/api/bg/searchcontent?searchterm=" + encoded)
         val state = root.field("state")
         if (state != null && state.isBoolean && !state.asBoolean()) {
             throw ErrorLoadingException("SelcukFlix arama API'si başarısız yanıt döndürdü.")
@@ -292,35 +278,15 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    private fun episodesFrom(root: JsonNode): List<Episode> {
-        val related = root.field("relatedResults") ?: root.field("RelatedResults") ?: return emptyList()
-        val seasonsNode = related.field("getSerieSeasonAndEpisodes")?.field("seasons")
-            ?: return emptyList()
-        val entries = mutableListOf<Triple<Int, Int, Episode>>()
-        var fallbackIndex = 0
-        seasonsNode.children().forEach { seasonNode ->
-            val seasonNumber = seasonNode.textField("seasonNo", "seasonNumber", "number")?.toIntOrNull()
-            val episodesNode = seasonNode.field("episodes") ?: return@forEach
-            episodesNode.children().forEach { episodeNode ->
-                val episodeUrl = canonicalSiteUrl(episodeNode.textField("usedSlug", "slug", "url", "link"))
-                    ?: return@forEach
-                fallbackIndex += 1
-                val episodeNumber = episodeNode.textField("episodeNo", "episodeNumber", "number")
-                    ?.toIntOrNull() ?: fallbackIndex
-                val episodeName = episodeNode.textField("epText", "episodeTitle", "title", "name")
-                val episode = newEpisode(episodeUrl) {
-                    name = episodeName
-                    season = seasonNumber
-                    episode = episodeNumber
-                    posterUrl = normalizePoster(episodeNode.textField("posterUrl", "poster"))
-                }
-                entries += Triple(seasonNumber ?: 0, episodeNumber, episode)
+    private fun episodesFrom(root: JsonNode): List<Episode> =
+        SelcukFlixResolverBank.parseEpisodeRecords(root, mainUrl).map { record ->
+            newEpisode(record.url) {
+                name = record.name
+                season = record.season
+                episode = record.episode
+                posterUrl = record.posterUrl
             }
         }
-        return entries.sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
-            .map { it.third }
-            .distinctBy { it.data }
-    }
 
     override suspend fun load(url: String): LoadResponse {
         val canonicalUrl = canonicalSiteUrl(url)
@@ -397,9 +363,11 @@ class SelcukFlix : MainAPI() {
             }
         }
 
-        val episodes = episodeEntries
+        val htmlEpisodes = episodeEntries
             .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
             .map { it.third }
+        // Prefer the site's structured episode payload; use season-page HTML as a fallback.
+        val episodes = root?.let(::episodesFrom)?.takeIf { it.isNotEmpty() } ?: htmlEpisodes
         val path = runCatching { URI(canonicalUrl).path.orEmpty().lowercase() }.getOrDefault("")
         val isSeries = path.startsWith("/dizi/") || seasonLinks.isNotEmpty() ||
             episodes.isNotEmpty() || root?.field("relatedResults")?.field("getSerieSeasonAndEpisodes") != null
@@ -722,6 +690,9 @@ class SelcukFlix : MainAPI() {
             "Resolver test bank emitted " + totalResolved +
                 " candidate link(s). A listed candidate is not proof of successful playback."
         )
-        return totalResolved > 0 || sourceItems.isNotEmpty()
+        if (totalResolved == 0) {
+            android.util.Log.w("SelcukFlix", "No playable/source candidate was emitted for this page.")
+        }
+        return totalResolved > 0
     }
 }

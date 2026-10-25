@@ -1,7 +1,7 @@
 package com.kra.cloudstream.selcukflix
 
 import java.util.Base64
-import java.security.MessageDigest
+import com.fasterxml.jackson.databind.ObjectMapper
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -11,6 +11,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SelcukFlixResolverBankTest {
+    @Test
+    fun repairsMalformedSelcukFlixPageUrls() {
+        val base = "https://selcukflix.app"
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("https://selcukflix.appdizi/carrie", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("selcukflix.appdizi/carrie", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/film/example",
+            SelcukFlixResolverBank.normalizeSiteUrl("https://selcukflix.appfilm/example", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("dizi/carrie", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("https://selcukflix.net/dizi/carrie", base)
+        )
+    }
+
     @Test
     fun resolverCatalogKeepsAllThirtySevenIds() {
         val catalog = SelcukFlixResolverBank.resolverCatalog()
@@ -34,6 +59,42 @@ class SelcukFlixResolverBankTest {
         assertTrue(results.any { it.id == 33 && it.url == "https://embed.example/e/abc123" })
         assertTrue(results.any { it.id == 36 && it.url == "https://embed.example/e/abc123" })
         assertTrue(results.all { it.url.startsWith("https://") })
+    }
+
+    @Test
+    fun parsesCurrentSnakeCaseSeasonAndEpisodePayload() {
+        val root = ObjectMapper().readTree(
+            """
+            {
+              "RelatedResults": {
+                "getSerieSeasonAndEpisodes": {
+                  "result": [
+                    {
+                      "season_no": 2,
+                      "episodes": [
+                        {"episode_no": 2, "episode_text": "İkinci Bölüm", "used_slug": "dizi/carrie/2-sezon-2-bolum"},
+                        {"episode_no": 1, "episode_text": "İlk Bölüm", "used_slug": "dizi/carrie/2-sezon-1-bolum"}
+                      ]
+                    },
+                    {
+                      "season_no": 1,
+                      "episodes": [
+                        {"episode_no": 1, "episode_text": "Pilot", "used_slug": "dizi/carrie/1-sezon-1-bolum"}
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+            """.trimIndent()
+        )
+
+        val episodes = SelcukFlixResolverBank.parseEpisodeRecords(root, "https://selcukflix.app")
+        assertEquals(listOf(1, 2, 2), episodes.map { it.season })
+        assertEquals(listOf(1, 1, 2), episodes.map { it.episode })
+        assertEquals("https://selcukflix.app/dizi/carrie/1-sezon-1-bolum", episodes.first().url)
+        assertEquals("Pilot", episodes.first().name)
+        assertEquals(3, episodes.size)
     }
 
     @Test
@@ -141,9 +202,7 @@ class SelcukFlixResolverBankTest {
     @Test
     fun decryptsCurrentSitePayloadEnvelope() {
         val plain = """{"result":[{"used_slug":"dizi/demo","original_title":"Demo"}]}"""
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
-        val key = Base64.getEncoder().encodeToString(digest).take(32).toByteArray(Charsets.UTF_8)
+        val key = "9bYMCNQiWsXIYFWYAu7EkdsSbmGBTyUI".toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(ByteArray(16)))
         val encoded = Base64.getEncoder().encodeToString(cipher.doFinal(plain.toByteArray(Charsets.UTF_8)))
