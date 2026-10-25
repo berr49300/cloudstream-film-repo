@@ -337,7 +337,7 @@ class SelcukFlix : MainAPI() {
                         .ifBlank { anchor.text() }
                         .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
                     if (title.isBlank()) return@forEach
-                    val poster = normalizePoster(image?.attr("data-src")
+                    val poster = normalizePoster(image?.attr("data-src").orEmpty()
                         .ifBlank { image?.attr("data-lazy-src").orEmpty().ifBlank { image?.attr("src").orEmpty() } })
                     result += if (uriPath.startsWith("/film/")) {
                         newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
@@ -859,9 +859,11 @@ class SelcukFlix : MainAPI() {
                             candidate.url,
                             candidate.referer,
                             { sub ->
-                                subtitleCallback(newSubtitleFile("35 • " + sub.lang, sub.url) {
-                                    headers = sub.headers.ifEmpty { mapOf("Referer" to candidate.url) }
-                                })
+                                subtitleCallback(
+                                    SubtitleFile(sub.lang, sub.url).apply {
+                                        headers = sub.headers ?: mapOf("Referer" to candidate.url)
+                                    }
+                                )
                             }
                         ) { link ->
                             if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
