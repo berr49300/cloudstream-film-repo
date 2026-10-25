@@ -2,11 +2,11 @@
 
 - Requested site: https://selcukflix.app/
 - Provider module: \`SelcukFlix\`
-- Module version: 1 (experimental / status 3)
+- Module version: 4 (experimental / status 3)
 - Investigation date: 2026-10-25
 - Scope: separate module only; no existing provider files were changed.
 - Live site access from this environment: BLOCKED (web retrieval returned HTTP 403).
-- Current CI: PASS for PR run https://github.com/berr49300/cloudstream-film-repo/actions/runs/40183788567
+- Previous CI: PASS for v1/v2 baseline; v4 changes are under review in PR pending creation.
 - Actual playback in CloudStream: NOT TESTED.
 
 ## Evidence ledger
@@ -91,9 +91,9 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 - Repository validator: PASS.
 - Generated test artifact: \`cloudstream-plugin-build\`, artifact ID \`12595570904\`, expires 2026-11-01 10:13:58 UTC. Artifact can be downloaded from the Actions run; it is not published to the builds branch.
 - Real live site data and device playback/audio/subtitle rendering: NOT TESTED.
-- PR #40 remains OPEN; main/builds have not been changed.
+- v3 was merged and published from PR #42 on 2026-10-25. The v4 source-probe/poster branch is separate; do not treat it as published until Actions and builds/plugins.json confirm it.
 
-## Third-party prior-art review
+## v4 source-probe and poster hardening (2026-10-25)\n\n- Source loading now scans the decrypted payload, Next.js state, player-related script blocks and raw HTML independently so one missing payload surface cannot suppress every other source search.\n- Candidate IDs remain visible in the CloudStream source name, including separate raw Pichive file and the hypothesis `m.php` → `master.m3u8` candidate. Episode-page and site-origin referer contexts remain separate for manual testing.\n- Poster lookup now prioritizes explicit poster/face fields, recursively checks nested fields, considers lazy-load/srcset attributes and OG/Twitter image metadata, rejects common placeholders, and uses a bounded detail-page fallback for up to 8 missing posters in the unfiltered first-page latest-series list.\n- Regression tests added for nested poster aliases/placeholders and separate raw/derived media candidates.\n- Status: code changed on working branch; CI and device validation not yet run for v4. Live `.app` response and CloudStream playback remain BLOCKED/NOT TESTED from this environment.\n\n## Third-party prior-art review
 
 - Older source: https://github.com/nikyokki/nik-cloudstream/tree/master/SelcukFlix — GPL-3.0; points at the former \`selcukflix.net\` domain.
 - Current-domain source: https://github.com/SafakStream/SafakStream-Extensions/tree/main/SelcukFlix — GPL-3.0; references \`selcukflix.app\` and the Pichive-style player flow.
