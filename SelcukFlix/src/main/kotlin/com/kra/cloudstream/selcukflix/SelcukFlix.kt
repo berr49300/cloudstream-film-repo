@@ -42,6 +42,7 @@ class SelcukFlix : MainAPI() {
         "episodes|all" to "Güncel Bölümler • Tümü",
         "episodes|foreign" to "Güncel Bölümler • Yabancı Dizi",
         "episodes|dub" to "Güncel Bölümler • Dublaj Dizi",
+        "episodes|anime" to "Güncel Bölümler • Animeler",
         "api|findMovies" to "Yeni Eklenen Filmler",
         "api|findMovies|imdbPointMin=6.9" to "IMDb 6.9 Üstü",
         "api|findMovies|countryCodesComma=TR" to "Yerli Filmler",
@@ -263,6 +264,29 @@ class SelcukFlix : MainAPI() {
         return newHomePageResponse(request.name, items, hasNext = hasMore && items.isNotEmpty())
     }
 
+    private fun episodeMetadataText(
+        anchor: org.jsoup.nodes.Element,
+        heading: String,
+        episodeLabel: String
+    ): String {
+        val parts = mutableListOf(heading, episodeLabel)
+        var element: org.jsoup.nodes.Element? = anchor
+        val metadataAttributes = listOf(
+            "class", "id", "data-type", "data-category", "data-genre",
+            "data-language", "data-lang", "data-version", "data-filter", "data-tab",
+            "aria-label", "title"
+        )
+        repeat(3) {
+            val current = element ?: return@repeat
+            parts += current.text()
+            metadataAttributes.forEach { attribute ->
+                if (current.hasAttr(attribute)) parts += current.attr(attribute)
+            }
+            element = current.parent()
+        }
+        return parts.joinToString(" ").lowercase()
+    }
+
     private fun latestEpisodeCard(anchor: org.jsoup.nodes.Element): SearchResponse? {
         val href = canonicalSiteUrl(anchor.attr("href")) ?: return null
         val path = runCatching { URI(href).path.orEmpty() }.getOrDefault("")
@@ -275,13 +299,9 @@ class SelcukFlix : MainAPI() {
         if (heading.isBlank()) return null
         val episodeLabel = anchor.selectFirst("h3 + div, h3 + span, .episode-info, .episode-title")
             ?.text()?.trim().orEmpty()
-        val subtitle = anchor.text().trim() + " " +
-            anchor.parent()?.text().orEmpty() + " " +
-            anchor.parent()?.parent()?.text().orEmpty()
         val mode = currentEpisodeFilter
-        val combined = "$heading $episodeLabel $subtitle".lowercase()
-        if (mode == "dub" && !Regex("""dublaj|dubbed|türkçe ses""").containsMatchIn(combined)) return null
-        if (mode == "foreign" && !Regex("""altyazı|subtitled|yabancı""").containsMatchIn(combined)) return null
+        val combined = episodeMetadataText(anchor, heading, episodeLabel)
+        if (!SelcukFlixResolverBank.matchesEpisodeFilter(combined, mode)) return null
 
         val title = if (episodeLabel.isBlank()) heading else "$heading - $episodeLabel"
         val seriesUrl = if (isEpisode) {
