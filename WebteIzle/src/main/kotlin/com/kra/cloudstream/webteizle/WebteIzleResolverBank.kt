@@ -111,7 +111,7 @@ internal object WebteIzleResolverBank {
     )
     // Some legacy player fragments expose only functionName('id') with no second argument.
     private val alternativePlayerConfigRegex = Regex(
-        """(?i)\b(filemoon|okru)\s*\(\s*['"]([^'"]{3,512})['"]"""
+        """(?i)\b(filemoon|okru|pixel)\s*\(\s*['"]([^'"]{3,512})['"]"""
     )
     private val repeatedHexEscapesRegex = Regex("""(?i)^(?:\\x[0-9a-f]{2}){8,}$""")
     private val plainHexPayloadRegex = Regex("""(?i)^[0-9a-f]{40,}$""")
@@ -213,6 +213,9 @@ internal object WebteIzleResolverBank {
             family.equals("OK.ru", ignoreCase = true) &&
                 host in setOf("ok.ru", "m.ok.ru", "odnoklassniki.ru") ->
                 listOf("odnoklassniki.ru", "ok.ru", "m.ok.ru")
+            family.equals("PixelDrain", ignoreCase = true) &&
+                host in setOf("pixeldrain.com", "pixeldrain.dev") ->
+                listOf("pixeldrain.com", "pixeldrain.dev")
             else -> return listOf(url)
         }
         val authorityPattern = Regex("(?i)(://)(?:www\\.)?" + Regex.escape(host))
@@ -473,6 +476,10 @@ internal object WebteIzleResolverBank {
                     add(43, "https://odnoklassniki.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream Odnoklassniki extractor variant", WebteIzleCandidateKind.PLAYER)
                     add(43, "https://ok.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream OK.ru extractor variant", WebteIzleCandidateKind.PLAYER)
                     add(43, "https://m.ok.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream mobile extractor variant", WebteIzleCandidateKind.PLAYER)
+                }
+                "pixel" -> {
+                    add(44, "https://pixeldrain.com/u/" + playerId, "observed pixel(id) config; WebteIzle public-provider reference maps Pixel to PixelDrain /u/id", WebteIzleCandidateKind.PLAYER)
+                    add(44, "https://pixeldrain.dev/u/" + playerId, "observed pixel(id) config; PixelDrain alternate host for native extractor compatibility", WebteIzleCandidateKind.PLAYER)
                 }
             }
         }
