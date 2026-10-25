@@ -200,6 +200,29 @@ internal object WebteIzleResolverBank {
     /** Alternative list ordinals (for example 1/2) are not video resolutions. */
     internal fun validQualityHint(value: Int?): Int? = value?.takeIf { it in 144..4320 }
 
+    /**
+     * Generates only known native-extractor host variants for an already observed Filemoon or
+     * OK.ru player URL. Path, query/signature and fragment are preserved; no IDs/hosts are guessed.
+     */
+    internal fun playerHostVariants(url: String, family: String?): List<String> {
+        val host = hostOf(url) ?: return listOf(url)
+        val targets = when {
+            family.equals("Filemoon", ignoreCase = true) &&
+                host in setOf("filemoon.to", "filemoon.sx", "filemoon.in") ->
+                listOf("filemoon.to", "filemoon.sx", "filemoon.in")
+            family.equals("OK.ru", ignoreCase = true) &&
+                host in setOf("ok.ru", "m.ok.ru", "odnoklassniki.ru") ->
+                listOf("odnoklassniki.ru", "ok.ru", "m.ok.ru")
+            else -> return listOf(url)
+        }
+        val authorityPattern = Regex("(?i)(://)(?:www\\.)?" + Regex.escape(host))
+        return (listOf(url) + targets.filterNot { it == host }.mapNotNull { target ->
+            val pattern = authorityPattern
+            if (!pattern.containsMatchIn(url)) null
+            else pattern.replace(url) { match -> match.groupValues[1] + target }
+        }).distinct()
+    }
+
     /** Detects visible access challenges; detection is diagnostic, never a bypass. */
     internal fun isAccessChallenge(html: String): Boolean =
         Regex(
