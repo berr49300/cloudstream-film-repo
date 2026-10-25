@@ -1,6 +1,7 @@
 package com.kra.cloudstream.selcukflix
 
 import java.util.Base64
+import com.fasterxml.jackson.databind.ObjectMapper
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -58,6 +59,42 @@ class SelcukFlixResolverBankTest {
         assertTrue(results.any { it.id == 33 && it.url == "https://embed.example/e/abc123" })
         assertTrue(results.any { it.id == 36 && it.url == "https://embed.example/e/abc123" })
         assertTrue(results.all { it.url.startsWith("https://") })
+    }
+
+    @Test
+    fun parsesCurrentSnakeCaseSeasonAndEpisodePayload() {
+        val root = ObjectMapper().readTree(
+            """
+            {
+              "RelatedResults": {
+                "getSerieSeasonAndEpisodes": {
+                  "result": [
+                    {
+                      "season_no": 2,
+                      "episodes": [
+                        {"episode_no": 2, "episode_text": "İkinci Bölüm", "used_slug": "dizi/carrie/2-sezon-2-bolum"},
+                        {"episode_no": 1, "episode_text": "İlk Bölüm", "used_slug": "dizi/carrie/2-sezon-1-bolum"}
+                      ]
+                    },
+                    {
+                      "season_no": 1,
+                      "episodes": [
+                        {"episode_no": 1, "episode_text": "Pilot", "used_slug": "dizi/carrie/1-sezon-1-bolum"}
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+            """.trimIndent()
+        )
+
+        val episodes = SelcukFlix().episodesFrom(root)
+        assertEquals(listOf(1, 2, 2), episodes.map { it.season })
+        assertEquals(listOf(1, 1, 2), episodes.map { it.episode })
+        assertEquals("https://selcukflix.app/dizi/carrie/1-sezon-1-bolum", episodes.first().data)
+        assertEquals("Pilot", episodes.first().name)
+        assertEquals(3, episodes.size)
     }
 
     @Test
