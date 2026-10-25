@@ -40,12 +40,24 @@ internal object SelcukFlixContentXSourceParser {
     fun mediaFiles(rawResponse: String, baseUrl: String): List<String> {
         if (rawResponse.isBlank() || SelcukFlixResolverBank.isAccessChallenge(rawResponse)) return emptyList()
         val normalized = decodePlayerEscapes(rawResponse)
+        val payloads = linkedSetOf(normalized)
+        val responseValue = Regex("""(?is)["']?response["']?\s*:\s*["']((?:\\.|[^"'])+)["']""")
+            .find(normalized)?.groupValues?.getOrNull(1)
+        if (!responseValue.isNullOrBlank()) {
+            payloads += decodePlayerEscapes(responseValue)
+            SelcukFlixResolverBank.decodeSitePayload(responseValue)?.let(payloads::add)
+        }
+        SelcukFlixResolverBank.decodeSitePayload(normalized)?.let(payloads::add)
+
         val found = linkedSetOf<String>()
         val filePattern = Regex("""(?is)['"]?file['"]?\s*[:=]\s*['"]((?:\\.|[^'"])+)['"]""")
-        filePattern.findAll(normalized).forEach { match ->
-            val raw = match.groupValues.getOrNull(1).orEmpty()
-            if (raw.isBlank() || canBeSubtitle(raw)) return@forEach
-            SelcukFlixResolverBank.normalizeUrl(raw, baseUrl)?.let(found::add)
+        payloads.forEach { payload ->
+            if (SelcukFlixResolverBank.isAccessChallenge(payload)) return@forEach
+            filePattern.findAll(decodePlayerEscapes(payload)).forEach { match ->
+                val raw = match.groupValues.getOrNull(1).orEmpty()
+                if (raw.isBlank() || canBeSubtitle(raw)) return@forEach
+                SelcukFlixResolverBank.normalizeUrl(raw, baseUrl)?.let(found::add)
+            }
         }
         return found.toList()
     }
