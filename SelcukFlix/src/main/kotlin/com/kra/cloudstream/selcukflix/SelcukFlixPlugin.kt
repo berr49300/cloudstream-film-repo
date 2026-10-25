@@ -8,5 +8,6 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class SelcukFlixPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(SelcukFlix())
+        registerExtractorAPI(SelcukFlixContentXExtractor())
     }
 }
