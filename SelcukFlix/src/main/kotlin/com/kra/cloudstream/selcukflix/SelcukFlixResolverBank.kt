@@ -710,9 +710,37 @@ internal object SelcukFlixResolverBank {
         iframeUrl: String
     ): List<SelcukResolverCandidate> {
         if (responseText.isBlank() || isAccessChallenge(responseText)) return emptyList()
-        val root = runCatching { mapper.readTree(responseText) }.getOrNull() ?: return emptyList()
-        if (root.get("state")?.asBoolean(false) != true) return emptyList()
-        val playlist = root.get("playlist")?.takeIf { it.isArray } ?: return emptyList()
+        fun mediaKind(url: String): SelcukMediaKind {
+            val detected = classify(url)
+            // Pichive's source2.php frequently returns a PHP HLS endpoint without a media suffix.
+            // Its established integration treats the declared "file" value as an HLS source.
+            return if (detected in setOf(SelcukMediaKind.HLS, SelcukMediaKind.DASH, SelcukMediaKind.VIDEO)) {
+                detected
+            } else {
+                SelcukMediaKind.HLS
+            }
+        }
+
+        fun fallbackCandidates(): List<SelcukResolverCandidate> =
+            SelcukFlixContentXSourceParser.mediaFiles(responseText, iframeUrl)
+                .flatMap { file ->
+                    SelcukFlixContentXSourceParser.mediaFileCandidates(file, iframeUrl)
+                }
+                .filterNot { isYouTubeUrl(it.url) }
+                .map { candidate ->
+                    SelcukResolverCandidate(
+                        id = candidate.resolverId,
+                        url = candidate.url,
+                        kind = mediaKind(candidate.url),
+                        referer = iframeUrl,
+                        note = "source2 flexible-file fallback • " + candidate.label
+                    )
+                }
+                .distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer }
+
+        val root = runCatching { mapper.readTree(responseText) }.getOrNull() ?: return fallbackCandidates()
+        if (root.get("state")?.asBoolean(false) != true) return fallbackCandidates()
+        val playlist = root.get("playlist")?.takeIf { it.isArray } ?: return fallbackCandidates()
         val result = linkedMapOf<String, SelcukResolverCandidate>()
 
         playlist.forEach { track ->
@@ -730,7 +758,7 @@ internal object SelcukFlixResolverBank {
                 val rawCandidate = SelcukResolverCandidate(
                     id = 38,
                     url = absolute,
-                    kind = classify(absolute, forcePlayerContext = true),
+                    kind = mediaKind(absolute),
                     referer = iframeUrl,
                     note = "raw endpoint • $detail"
                 )
@@ -746,7 +774,7 @@ internal object SelcukFlixResolverBank {
                 } else {
                     absolute
                 }
-                val kind = classify(masterUrl, forcePlayerContext = true)
+                val kind = mediaKind(masterUrl)
                 if (masterUrl != absolute || kind in setOf(SelcukMediaKind.HLS, SelcukMediaKind.DASH, SelcukMediaKind.VIDEO)) {
                     val playlistCandidate = SelcukResolverCandidate(
                         id = 39,
