@@ -102,10 +102,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=webteizle.info",
-        "fileHash": "sha256-c13755c4a816de8d33987bb773ca12131aa7628466c551a40e98ffe5dbe66adf",
+        "fileHash": "sha256-a9269bbf06572dfcb047bf66dffbd98f6a460c4abb7a798f44638e657de0b0dc",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 93918,
+        "fileSize": 32851,
         "status": 1,
         "language": "tr",
         "authors": [
@@ -114,9 +114,9 @@
         "tvTypes": [
             "Movie"
         ],
-        "version": 4,
+        "version": 5,
         "internalName": "WebteIzle",
-        "description": "WebteIzle: sade kaynak listesi ve alternatif oynat\u0131c\u0131 \u00e7\u00f6z\u00fcmleme testi",
+        "description": "WebteIzle: VidMoly i\u00e7in tek Dublaj ve tek Altyaz\u0131 kayna\u011f\u0131",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/WebteIzle.cs3",
         "name": "WebteIzle"
     }
