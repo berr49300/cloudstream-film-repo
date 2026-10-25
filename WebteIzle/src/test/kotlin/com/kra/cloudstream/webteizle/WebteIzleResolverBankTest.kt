@@ -446,7 +446,7 @@ class WebteIzleResolverBankTest {
         )
         val sameStream = WebteIzleResolverBank.emittedMediaKey(
             "DLS Dublaj",
-            "https://CDN.example/hls/master.m3u8?id=episode7&token=def&expires=2000"
+            "https://CDN.example/hls/master.m3u8?cacheBust=fresh&opaqueSig=def&id=episode7"
         )
         val differentEpisode = WebteIzleResolverBank.emittedMediaKey(
             "Dublaj",
