@@ -89,7 +89,7 @@ internal object SelcukFlixResolverBank {
         39 to "PichiveMasterPlaylistResolver"
     )
 
-    private val urlRegex = Regex("""(?i)(?:https?:)?//[^\s"'<>\\]+""")
+    private val urlRegex = Regex("""(?i)(?:https?:)?//[^\s"'<>\]+""")
     private val mediaExtensionRegex = Regex(
         """(?i)\.(m3u8|mpd|mp4|m4v|webm|mkv|avi|mov)(?:$|[?#])"""
     )
@@ -186,7 +186,7 @@ internal object SelcukFlixResolverBank {
                 normalizeUrl(raw, baseUrl)?.let(found::add)
             }
             // A few responses keep quotes escaped even after outer JSON has been decoded.
-            val escapedSrc = Regex("""(?is)<iframe\b[^>]*?\bsrc\s*=\s*\\?["']([^"'\\]+)""")
+            val escapedSrc = Regex("""(?is)<iframe\b[^>]*?\bsrc\s*=\s*\?["']([^"'\]+)""")
             escapedSrc.findAll(normalized).forEach { match ->
                 normalizeUrl(match.groupValues[1], baseUrl)?.let(found::add)
             }
@@ -239,11 +239,11 @@ internal object SelcukFlixResolverBank {
         val value = metadata.lowercase()
         return when (filter.lowercase()) {
             "all", "" -> true
-            "dub" -> Regex("""(?i)(dublaj|dubbed|turkish\\s*audio|türkçe[\\s_-]*ses|\\bdub\\b)""")
+            "dub" -> Regex("""(?i)(dublaj|dubbed|turkish\s*audio|türkçe[\s_-]*ses|\bdub\b)""")
                 .containsMatchIn(value)
-            "foreign" -> Regex("""(?i)(altyazı|altyazılı|subtitled|original\\s*audio|yabancı(?:\\s+dizi)?|\\bsub\\b)""")
+            "foreign" -> Regex("""(?i)(altyazı|altyazılı|subtitled|original\s*audio|yabancı(?:\s+dizi)?|\bsub\b)""")
                 .containsMatchIn(value)
-            "anime" -> Regex("""(?i)(anime|animeler|japon[\\s_-]*animasyon|japanese[\\s_-]*animation)""")
+            "anime" -> Regex("""(?i)(anime|animeler|japon[\s_-]*animasyon|japanese[\s_-]*animation)""")
                 .containsMatchIn(value)
             else -> true
         }
@@ -492,8 +492,8 @@ internal object SelcukFlixResolverBank {
         val scripts = doc.select("script").map { it.data().ifBlank { it.html() } }
         scripts.forEach { script ->
             addUrlsFromText(8, script)
-            if (script.contains("\\/") || script.contains("\\u0026", true) ||
-                script.contains("\\x26", true)
+            if (script.contains("\/") || script.contains("\u0026", true) ||
+                script.contains("\x26", true)
             ) addUrlsFromText(9, script)
         }
         if (normalized != raw) addUrlsFromText(9, normalized)
@@ -855,12 +855,12 @@ internal object SelcukFlixResolverBank {
     }
 
     private fun normalizeEscapes(value: String): String = value
-        .replace("\\\\/", "/")
         .replace("\\/", "/")
-        .replace("\\u0026", "&", ignoreCase = true)
-        .replace("\\x26", "&", ignoreCase = true)
+        .replace("\/", "/")
+        .replace("\u0026", "&", ignoreCase = true)
+        .replace("\x26", "&", ignoreCase = true)
         .replace("&amp;", "&", ignoreCase = true)
-        .replace("\\u003d", "=", ignoreCase = true)
+        .replace("\u003d", "=", ignoreCase = true)
 }
 
 private fun JsonNode.fieldIgnoreCase(name: String): JsonNode? {
