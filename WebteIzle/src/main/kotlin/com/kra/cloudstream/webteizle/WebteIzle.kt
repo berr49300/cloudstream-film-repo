@@ -539,7 +539,9 @@ class WebteIzle : MainAPI() {
                             val mediaStrategyLabel = when {
                                 candidate.playerHint.equals("Filemoon", ignoreCase = true) -> "42 • FilemoonHostVariantResolver • $langName"
                                 candidate.playerHint.equals("OK.ru", ignoreCase = true) -> "43 • OkRuHostVariantResolver • $langName"
-                                candidate.playerHint.equals("Pixel", ignoreCase = true) -> "44 • PixelObservedPlayerResolver • $langName"
+                                candidate.playerHint.equals("Pixel", ignoreCase = true) ||
+                                    WebteIzleResolverBank.playerFamily(candidate.url).equals("PixelDrain", ignoreCase = true) ->
+                                    "44 • PixelObservedPlayerResolver • $langName"
                                 else -> baseLabel
                             }
                             val finalKey = WebteIzleResolverBank.emittedMediaKey(langName, candidate.url)
