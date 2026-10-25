@@ -1,6 +1,7 @@
 package com.kra.cloudstream.selcukflix
 
 import java.util.Base64
+import java.security.MessageDigest
 import com.fasterxml.jackson.databind.ObjectMapper
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -95,6 +96,68 @@ class SelcukFlixResolverBankTest {
         assertEquals("https://selcukflix.app/dizi/carrie/1-sezon-1-bolum", episodes.first().url)
         assertEquals("Pilot", episodes.first().name)
         assertEquals(3, episodes.size)
+    }
+
+    @Test
+    fun parsesEpisodeRecordsFromCurrentContentResultEnvelope() {
+        val root = ObjectMapper().readTree(
+            """
+            {
+              "content": {
+                "result": {
+                  "FindedType": "Series",
+                  "RelatedResults": {
+                    "getSerieSeasonAndEpisodes": {
+                      "result": [
+                        {
+                          "season_no": 1,
+                          "episodes": [
+                            {
+                              "episode_no": 1,
+                              "episode_text": "Pilot",
+                              "used_slug": "dizi/carrie/sezon-1/bolum-1"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+            """.trimIndent()
+        )
+        val episodes = SelcukFlixResolverBank.parseEpisodeRecords(root, "https://selcukflix.app")
+        assertEquals(1, episodes.size)
+        assertEquals("Pilot", episodes.single().name)
+        assertEquals(1, episodes.single().season)
+        assertEquals(1, episodes.single().episode)
+        assertEquals("https://selcukflix.app/dizi/carrie/sezon-1/bolum-1", episodes.single().url)
+    }
+
+    @Test
+    fun extractsOnlyIframeUrlsActuallyPresentInSourceContent() {
+        val payload = """
+            {
+              "content": {
+                "result": {
+                  "RelatedResults": {
+                    "getEpisodeSources": {
+                      "result": [
+                        {
+                          "source_content": "<iframe src=\\"https://four.pichive.online/iframe.php?v=sample\\" title=\\"player\\"></iframe>"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+        assertEquals(
+            listOf("https://four.pichive.online/iframe.php?v=sample"),
+            SelcukFlixResolverBank.extractSourceIframes(payload, "https://selcukflix.app/dizi/carrie/sezon-1/bolum-1")
+        )
     }
 
     @Test
@@ -205,6 +268,20 @@ class SelcukFlixResolverBankTest {
         val key = "9bYMCNQiWsXIYFWYAu7EkdsSbmGBTyUI".toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(ByteArray(16)))
+        val encoded = Base64.getEncoder().encodeToString(cipher.doFinal(plain.toByteArray(Charsets.UTF_8)))
+
+        assertEquals(plain, SelcukFlixResolverBank.decodeSitePayload(encoded))
+    }
+
+    @Test
+    fun decryptsAlternativeDerivedSitePayloadEnvelope() {
+        val plain = """{"content":{"result":{"FindedType":"Series"}}}"""
+        val derivedKey = Base64.getEncoder().encodeToString(
+            MessageDigest.getInstance("SHA-256")
+                .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
+        ).take(32).toByteArray(Charsets.UTF_8)
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(derivedKey, "AES"), IvParameterSpec(ByteArray(16)))
         val encoded = Base64.getEncoder().encodeToString(cipher.doFinal(plain.toByteArray(Charsets.UTF_8)))
 
         assertEquals(plain, SelcukFlixResolverBank.decodeSitePayload(encoded))
