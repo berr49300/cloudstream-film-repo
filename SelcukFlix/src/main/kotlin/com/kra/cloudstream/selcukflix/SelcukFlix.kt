@@ -429,12 +429,89 @@ class SelcukFlix : MainAPI() {
         return found.values.toList()
     }
 
+    private suspend fun expandPichiveCandidates(
+        input: List<SelcukResolverCandidate>,
+        episodeUrl: String,
+        subtitleCallback: (SubtitleFile) -> Unit
+    ): List<SelcukResolverCandidate> {
+        val output = input.toMutableList()
+        val pichiveFrames = input.filter {
+            it.id == 15 && SelcukFlixResolverBank.isPichiveIframe(it.url)
+        }.distinctBy { it.url }.take(8)
+
+        for (frame in pichiveFrames) {
+            val iframeHtml = try {
+                // Use the normal embedding-page referer once. If the site responds with a challenge,
+                // mark it BLOCKED instead of trying alternate headers, mirrors, or challenge workarounds.
+                app.get(frame.url, headers = browserHeaders, referer = episodeUrl).text
+            } catch (_: Exception) {
+                android.util.Log.w(
+                    "SelcukFlix",
+                    "38 • PichiveSourceApiResolver: BLOCKED/NOT TESTED at iframe request; no retry or challenge bypass."
+                )
+                continue
+            }
+            if (isBlocked(iframeHtml, "Pichive iframe")) continue
+
+            SelcukFlixResolverBank.extractSubtitles(iframeHtml, frame.url).forEach { subtitle ->
+                subtitleCallback(
+                    newSubtitleFile("35 • " + subtitle.language, subtitle.url) {
+                        headers = browserHeaders + mapOf("Referer" to frame.url)
+                    }
+                )
+            }
+
+            val token = SelcukFlixResolverBank.extractPichiveToken(iframeHtml)
+            if (token.isNullOrBlank()) {
+                android.util.Log.d(
+                    "SelcukFlix",
+                    "38 • PichiveSourceApiResolver: NOT FOUND; openPlayer token absent in non-challenge page."
+                )
+                continue
+            }
+
+            val apiUrl = SelcukFlixResolverBank.pichiveSourceApiUrl(frame.url, token)
+                ?: continue
+            val response = try {
+                app.get(
+                    apiUrl,
+                    headers = browserHeaders + mapOf(
+                        "Accept" to "application/json, text/plain, */*",
+                        "X-Requested-With" to "XMLHttpRequest"
+                    ),
+                    referer = frame.url
+                ).text
+            } catch (_: Exception) {
+                android.util.Log.w(
+                    "SelcukFlix",
+                    "38 • PichiveSourceApiResolver: source API request failed; request URL/token omitted."
+                )
+                continue
+            }
+
+            if (isBlocked(response, "Pichive source API")) continue
+            val parsed = SelcukFlixResolverBank.extractPichiveSourceCandidates(response, frame.url)
+            if (parsed.isEmpty()) {
+                android.util.Log.d(
+                    "SelcukFlix",
+                    "38 • PichiveSourceApiResolver: no recognized source entries in the normal API response."
+                )
+            }
+            output += parsed
+        }
+
+        return output.distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer + "|" + it.note }
+            .take(220)
+    }
+
     private suspend fun expandNestedIframeCandidates(
         input: List<SelcukResolverCandidate>,
         episodeUrl: String
     ): List<SelcukResolverCandidate> {
         val output = input.toMutableList()
-        val parents = input.filter { it.id == 15 }
+        val parents = input.filter {
+            it.id == 15 && !SelcukFlixResolverBank.isPichiveIframe(it.url)
+        }
             .distinctBy { it.url }
             .take(6)
         for (parent in parents) {
@@ -516,7 +593,8 @@ class SelcukFlix : MainAPI() {
                     fromObservedApi = true
                 )
             }
-            val candidates = expandNestedIframeCandidates(initialCandidates, episodeUrl)
+            val withPichive = expandPichiveCandidates(initialCandidates, episodeUrl, subtitleCallback)
+            val candidates = expandNestedIframeCandidates(withPichive, episodeUrl)
             if (candidates.isEmpty()) {
                 android.util.Log.w(
                     "SelcukFlix",
