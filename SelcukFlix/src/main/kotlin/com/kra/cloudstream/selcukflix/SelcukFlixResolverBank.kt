@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Jsoup
 import java.net.URI
 import java.util.Base64
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -122,8 +123,17 @@ internal object SelcukFlixResolverBank {
         else -> emptyList()
     }
 
+    private fun JsonNode.sitePageResult(): JsonNode =
+        jsonField("content")?.jsonField("result")
+            ?: jsonField("Content")?.jsonField("Result")
+            ?: this
+
     fun parseEpisodeRecords(root: JsonNode, mainUrl: String): List<SelcukEpisodeRecord> {
-        val related = root.jsonField("relatedResults") ?: return emptyList()
+        val page = root.sitePageResult()
+        val related = page.jsonField("RelatedResults")
+            ?: page.jsonField("relatedResults")
+            ?: root.jsonField("relatedResults")
+            ?: return emptyList()
         val seasonResponse = related.jsonField("getSerieSeasonAndEpisodes") ?: return emptyList()
         // Current .app responses wrap seasons in result and use snake_case field names.
         val seasons = seasonResponse.jsonField("result") ?: seasonResponse.jsonField("seasons")
@@ -144,7 +154,7 @@ internal object SelcukFlixResolverBank {
                 val poster = posterRaw?.let { normalizeSiteUrl(it, mainUrl) ?: normalizeUrl(it, mainUrl) }
                 records += SelcukEpisodeRecord(
                     url = episodeUrl,
-                    name = episode.jsonText("episode_text", "epText", "episodeTitle", "title", "name"),
+                    name = episode.jsonText("episode_text", "episode_text_tr", "epText", "episodeTitle", "subtitle", "text", "title", "name"),
                     season = seasonNo,
                     episode = episodeNo,
                     posterUrl = poster
@@ -154,6 +164,70 @@ internal object SelcukFlixResolverBank {
         return records.sortedWith(
             compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
         ).distinctBy { it.url }
+    }
+
+    /**
+     * Extracts real iframe src values inside the observed source_content/sourceContent fields.
+     * It is deliberately site-neutral after the source field is identified; iframe hosts are
+     * followed only when the returned URL was actually present in the response.
+     */
+    fun extractSourceIframes(rawPayload: String, baseUrl: String): List<String> {
+        if (rawPayload.isBlank() || isAccessChallenge(rawPayload)) return emptyList()
+        val found = linkedSetOf<String>()
+
+        fun readIframeMarkup(fragment: String) {
+            if (fragment.isBlank()) return
+            val normalized = normalizeEscapes(fragment)
+            val document = Jsoup.parseBodyFragment(normalized, baseUrl)
+            document.select("iframe[src], iframe[data-src], iframe[data-lazy-src]").forEach { frame ->
+                val raw = frame.attr("src").ifBlank {
+                    frame.attr("data-src").ifBlank { frame.attr("data-lazy-src") }
+                }
+                normalizeUrl(raw, baseUrl)?.let(found::add)
+            }
+            // A few responses keep quotes escaped even after outer JSON has been decoded.
+            val escapedSrc = Regex("""(?is)<iframe\\b[^>]*?\\bsrc\\s*=\\s*\\\\?["']([^"'\\]+)""")
+            escapedSrc.findAll(normalized).forEach { match ->
+                normalizeUrl(match.groupValues[1], baseUrl)?.let(found::add)
+            }
+        }
+
+        fun walk(node: JsonNode) {
+            when {
+                node.isObject -> {
+                    val fields = node.fields()
+                    while (fields.hasNext()) {
+                        val entry = fields.next()
+                        if (entry.key.equals("source_content", true) ||
+                            entry.key.equals("sourceContent", true) ||
+                            entry.key.equals("embed_url", true) ||
+                            entry.key.equals("embedUrl", true)
+                        ) {
+                            if (entry.value.isTextual) readIframeMarkup(entry.value.asText())
+                        } else if (entry.value.isContainerNode) {
+                            walk(entry.value)
+                        }
+                    }
+                }
+                node.isArray -> node.elements().asSequence().forEach(::walk)
+                node.isTextual -> {
+                    val text = node.asText()
+                    if (text.contains("<iframe", true)) readIframeMarkup(text)
+                    val decoded = decodeSitePayload(text)
+                    if (!decoded.isNullOrBlank() && decoded != text &&
+                        (decoded.contains("<iframe", true) || decoded.contains("source_content", true))
+                    ) {
+                        val nested = runCatching { mapper.readTree(decoded) }.getOrNull()
+                        if (nested != null) walk(nested) else readIframeMarkup(decoded)
+                    }
+                }
+            }
+        }
+
+        val root = runCatching { mapper.readTree(rawPayload) }.getOrNull()
+        if (root != null) walk(root)
+        readIframeMarkup(rawPayload)
+        return found.toList()
     }
 
     fun resolverName(id: Int): String = resolverNames[id] ?: "UnknownResolver"
@@ -210,20 +284,32 @@ internal object SelcukFlixResolverBank {
             ?: runCatching { Base64.getUrlDecoder().decode(value) }.getOrNull()
             ?: return null
 
-        return runCatching {
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                SecretKeySpec(sitePayloadAesKey.toByteArray(Charsets.UTF_8), "AES"),
-                IvParameterSpec(ByteArray(16))
-            )
-            String(cipher.doFinal(cipherBytes), Charsets.UTF_8).trim().takeIf { decoded ->
-                decoded.startsWith("{") || decoded.startsWith("[") ||
-                    decoded.contains("<iframe", ignoreCase = true) ||
-                    decoded.contains("m3u8", ignoreCase = true) ||
-                    decoded.contains("source_content", ignoreCase = true)
-            }
+        val derivedKey = runCatching {
+            Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("SHA-256")
+                    .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
+            ).take(32).toByteArray(Charsets.UTF_8)
         }.getOrNull()
+        val keys = listOfNotNull(sitePayloadAesKey.toByteArray(Charsets.UTF_8), derivedKey)
+            .distinctBy { String(it, Charsets.UTF_8) }
+
+        for (key in keys) {
+            val decoded = runCatching {
+                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    SecretKeySpec(key, "AES"),
+                    IvParameterSpec(ByteArray(16))
+                )
+                String(cipher.doFinal(cipherBytes), Charsets.UTF_8).trim()
+            }.getOrNull() ?: continue
+            val plausible = decoded.startsWith("{") || decoded.startsWith("[") ||
+                decoded.contains("<iframe", ignoreCase = true) ||
+                decoded.contains("m3u8", ignoreCase = true) ||
+                decoded.contains("source_content", ignoreCase = true)
+            if (plausible) return decoded
+        }
+        return null
     }
 
     fun decodeBase64Text(raw: String): String? {
