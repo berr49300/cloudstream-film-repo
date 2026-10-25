@@ -1,7 +1,6 @@
 package com.kra.cloudstream.selcukflix
 
 import java.util.Base64
-import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -11,6 +10,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SelcukFlixResolverBankTest {
+    @Test
+    fun repairsMalformedSelcukFlixPageUrls() {
+        val base = "https://selcukflix.app"
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("https://selcukflix.appdizi/carrie", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("selcukflix.appdizi/carrie", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/film/example",
+            SelcukFlixResolverBank.normalizeSiteUrl("https://selcukflix.appfilm/example", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("dizi/carrie", base)
+        )
+        assertEquals(
+            "https://selcukflix.app/dizi/carrie",
+            SelcukFlixResolverBank.normalizeSiteUrl("https://selcukflix.net/dizi/carrie", base)
+        )
+    }
+
     @Test
     fun resolverCatalogKeepsAllThirtySevenIds() {
         val catalog = SelcukFlixResolverBank.resolverCatalog()
@@ -141,9 +165,7 @@ class SelcukFlixResolverBankTest {
     @Test
     fun decryptsCurrentSitePayloadEnvelope() {
         val plain = """{"result":[{"used_slug":"dizi/demo","original_title":"Demo"}]}"""
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
-        val key = Base64.getEncoder().encodeToString(digest).take(32).toByteArray(Charsets.UTF_8)
+        val key = "9bYMCNQiWsXIYFWYAu7EkdsSbmGBTyUI".toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(ByteArray(16)))
         val encoded = Base64.getEncoder().encodeToString(cipher.doFinal(plain.toByteArray(Charsets.UTF_8)))
