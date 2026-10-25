@@ -122,3 +122,5 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - Verification status: deterministic regression fixtures were added. Live `.app` response inspection remains BLOCKED in this environment (the public web fetch failed), and actual playback/subtitles on the user's CloudStream device remain NOT TESTED. No CAPTCHA/Cloudflare bypass was added.
 
 - Follow-up source-schema fix: current `RelatedResults.getSerieSeasonAndEpisodes.result` objects use snake_case fields (`season_no`, `episode_no`, `episode_text`, `used_slug`). The parser now accepts those observed field names and includes a sorted, sanitized multi-season fixture. This prevents series detail pages from appearing empty when hydration data is available.
+
+- Endpoint/routes alignment: search now uses the observed lowercase `/api/bg/searchcontent` path and the site's root referer; pagination uses `page=` and the main-page list is limited to the verified `/film-izle` and `/dizi-izle` routes instead of assuming `/trend` and `/kesfet` are standalone routes.
