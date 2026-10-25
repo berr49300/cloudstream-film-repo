@@ -5,7 +5,6 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Jsoup
 import java.net.URI
 import java.util.Base64
-import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -36,6 +35,7 @@ internal data class SelcukSubtitleCandidate(
  * compare each discovery path independently in CloudStream.
  */
 internal object SelcukFlixResolverBank {
+    private const val sitePayloadAesKey = "9bYMCNQiWsXIYFWYAu7EkdsSbmGBTyUI"
     private val mapper = jacksonObjectMapper()
 
     private val resolverNames = mapOf(
@@ -143,15 +143,10 @@ internal object SelcukFlixResolverBank {
             ?: return null
 
         return runCatching {
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
-            val encodedDigest = Base64.getEncoder().encodeToString(digest)
-            // The page's client-side payload format uses the first 32 Base64 characters as AES-256 key bytes.
-            val keyBytes = encodedDigest.take(32).toByteArray(Charsets.UTF_8)
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(
                 Cipher.DECRYPT_MODE,
-                SecretKeySpec(keyBytes, "AES"),
+                SecretKeySpec(sitePayloadAesKey.toByteArray(Charsets.UTF_8), "AES"),
                 IvParameterSpec(ByteArray(16))
             )
             String(cipher.doFinal(cipherBytes), Charsets.UTF_8).trim().takeIf { decoded ->
@@ -620,6 +615,35 @@ internal object SelcukFlixResolverBank {
         return host == "youtube.com" || host.endsWith(".youtube.com") ||
             host == "youtu.be" || host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||
             host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+    }
+
+    /**
+     * Normalizes SelcukFlix-owned page URLs and repairs malformed host/path joins observed in
+     * CloudStream errors (for example: https://selcukflix.appdizi/carrie).
+     * Player/media hosts must continue to use normalizeUrl(), not this site-specific adapter.
+     */
+    fun normalizeSiteUrl(raw: String?, mainUrl: String): String? {
+        if (raw.isNullOrBlank()) return null
+        val input = normalizeEscapes(raw.trim().trim('"', '\'')).trimEnd(',', ';')
+        val withScheme = if (input.startsWith("//")) "https:$input" else input
+        val brokenRoute = Regex("""(?i)^(https?://)?(www\.)?selcukflix\.app(dizi|film)(/.*)?$""")
+        val repaired = brokenRoute.replace(withScheme) { match ->
+            val scheme = match.groups[1]?.value ?: "https://"
+            val www = match.groups[2]?.value.orEmpty()
+            val route = match.groupValues[3]
+            val suffix = match.groups[4]?.value.orEmpty()
+            "${scheme}${www}selcukflix.app/${route}${suffix}"
+        }
+        val absolute = normalizeUrl(repaired, mainUrl) ?: return null
+        val uri = runCatching { URI(absolute) }.getOrNull() ?: return null
+        val host = uri.host.orEmpty().lowercase().removePrefix("www.")
+        if (host in setOf("selcukflix.net", "selcukflix.com", "selcukflix.co")) {
+            val path = uri.rawPath?.takeIf { it.isNotBlank() } ?: "/"
+            val query = uri.rawQuery?.let { "?" + it }.orEmpty()
+            val fragment = uri.rawFragment?.let { "#" + it }.orEmpty()
+            return mainUrl.trimEnd('/') + path + query + fragment
+        }
+        return absolute
     }
 
     fun normalizeUrl(raw: String?, baseUrl: String): String? {
