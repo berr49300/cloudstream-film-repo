@@ -281,12 +281,30 @@ class WebteIzle : MainAPI() {
                     val baseLabel = "$id • ${attempt.resolverName} • $langName"
                     when (candidate.kind) {
                         WebteIzleCandidateKind.PLAYER -> {
+                            val sharedPlayerKey = WebteIzleResolverBank.emittedMediaKey(langName, candidate.url)
+                            if (!seenPlayerCandidates.add(sharedPlayerKey)) {
+                                android.util.Log.d(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: PLAYER_DUPLICATE_SUPPRESSED — already attempted for ${WebteIzleResolverBank.languageBucket(langName)}."
+                                )
+                                continue
+                            }
                             val host = runCatching { java.net.URI(candidate.url).host }.getOrNull() ?: "unknown-player"
-                            val routeLabel = if (attempt.resolverId == 17) baseLabel
-                                else "$baseLabel → 17 • ExtractorRegistryResolver"
-                            val family = WebteIzleResolverBank.playerFamily(candidate.url)
+                            val hostFamily = WebteIzleResolverBank.playerFamily(candidate.url)
+                            val family = hostFamily ?: candidate.playerHint
+                            val routeLabel = when {
+                                hostFamily.equals("Filemoon", ignoreCase = true) || candidate.playerHint.equals("Filemoon", ignoreCase = true) ->
+                                    "42 • FilemoonHostVariantResolver • $langName"
+                                hostFamily.equals("OK.ru", ignoreCase = true) || candidate.playerHint.equals("OK.ru", ignoreCase = true) ->
+                                    "43 • OkRuHostVariantResolver • $langName"
+                                candidate.playerHint.equals("Pixel", ignoreCase = true) && hostFamily == null ->
+                                    "44 • PixelObservedPlayerResolver • $langName"
+                                attempt.resolverId == 17 -> baseLabel
+                                else -> "$baseLabel → 17 • ExtractorRegistryResolver"
+                            }
                             val playerLabel = family?.let { "$it ($host)" } ?: host
-                            val qualityLabel = (fallbackQuality?.takeIf { it > 0 }?.toString() ?: "?") + "p"
+                            val sourceQuality = WebteIzleResolverBank.validQualityHint(fallbackQuality)
+                            val qualityLabel = sourceQuality?.toString()?.plus("p") ?: "Auto"
                             // loadExtractor's callback is non-suspending, while this provider's
                             // callback is suspend. Collect extractor results first, then emit them
                             // from the surrounding suspend function.
