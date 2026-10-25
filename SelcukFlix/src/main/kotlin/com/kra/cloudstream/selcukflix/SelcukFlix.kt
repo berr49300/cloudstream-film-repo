@@ -22,6 +22,12 @@ class SelcukFlix : MainAPI() {
     private val mapper by lazy { jacksonObjectMapper() }
 
     // This is intentionally a normal same-origin API request, not a Cloudflare bypass.
+    private val browserHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language" to "tr-TR,tr;q=0.9,en;q=0.8"
+    )
+
     private val apiHeaders = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept" to "application/json, text/plain, */*",
@@ -112,7 +118,7 @@ class SelcukFlix : MainAPI() {
             app.post(
                 mainUrl.trimEnd('/') + path,
                 headers = apiHeaders,
-                referer = mainUrl.trimEnd('/') + "/"
+                referer = mainUrl.trimEnd('/') + "/mobil-arama"
             ).text
         } catch (error: Exception) {
             val kind = error.javaClass.simpleName.ifBlank { "NetworkError" }
@@ -246,7 +252,7 @@ class SelcukFlix : MainAPI() {
 
     private suspend fun loadPageHtml(url: String, context: String): String {
         val html = try {
-            app.get(url, referer = mainUrl.trimEnd('/') + "/").text
+            app.get(url, headers = browserHeaders, referer = mainUrl.trimEnd('/') + "/").text
         } catch (error: Exception) {
             val kind = error.javaClass.simpleName.ifBlank { "NetworkError" }
             throw ErrorLoadingException("SelcukFlix sayfasına erişilemedi ($kind).")
@@ -297,37 +303,92 @@ class SelcukFlix : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val canonicalUrl = canonicalSiteUrl(url) ?: throw ErrorLoadingException("Geçersiz SelcukFlix içerik adresi.")
+        val canonicalUrl = canonicalSiteUrl(url)
+            ?: throw ErrorLoadingException("Geçersiz SelcukFlix içerik adresi.")
         val html = loadPageHtml(canonicalUrl, "detay")
-        val root = decodedPageRoot(html)
-        val item = root.field("contentItem") ?: root.field("ContentItem") ?: root
-        val originalTitle = item.textField("originalTitle", "title", "name")
-            ?: throw ErrorLoadingException("SelcukFlix detay verisinde başlık bulunamadı.")
-        val cultureTitle = item.textField("cultureTitle", "localizedTitle").orEmpty()
-        val title = if (cultureTitle.isNotBlank() && cultureTitle != originalTitle) {
-            originalTitle + " - " + cultureTitle
-        } else {
-            originalTitle
+        val document = Jsoup.parse(html, canonicalUrl)
+
+        // Prefer the visible page's metadata; decrypted hydration data is a fallback when present.
+        val root = runCatching { decodedPageRoot(html) }.getOrNull()
+        val item = root?.field("contentItem") ?: root?.field("ContentItem") ?: root
+        val title = item?.textField("original_title", "originalTitle", "culture_title", "cultureTitle", "title", "name")
+            ?: document.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
+                ?.removeSuffix(" izle")
+            ?: document.selectFirst("h1")?.text()?.trim()
+            ?: throw ErrorLoadingException("SelcukFlix detay sayfasında başlık bulunamadı.")
+
+        val description = item?.textField("description", "plot", "overview", "summary")
+            ?: document.selectFirst("meta[property=og:description]")?.attr("content")?.trim()
+            ?: document.selectFirst("meta[name=description]")?.attr("content")?.trim()
+
+        val poster = normalizePoster(
+            item?.textField("poster_url", "posterUrl", "poster", "image")
+                ?: document.selectFirst("meta[property=og:image]")?.attr("content")
+                ?: document.selectFirst("img[alt]")?.let { image ->
+                    image.attr("data-src").ifBlank { image.attr("data-lazy-src").ifBlank { image.attr("src") } }
+                }
+        )
+
+        val year = item?.textField("release_year", "releaseYear", "year")?.toIntOrNull()
+            ?: Regex("""(19|20)\d{2}""").find(title)?.value?.toIntOrNull()
+            ?: document.selectFirst("a[href^='/yil/']")?.text()?.toIntOrNull()
+        val tags = item?.textField("categories", "category", "genres")
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+        val rating = item?.textField("imdb_point", "imdbPoint", "rating", "score")
+        val duration = item?.textField("total_minutes", "totalMinutes", "duration", "runtime")?.toIntOrNull()
+
+        val seasonLinks = document.select("a[href*='/sezon-']")
+            .mapNotNull { anchor ->
+                val href = canonicalSiteUrl(anchor.attr("href")) ?: return@mapNotNull null
+                val path = runCatching { URI(href).path.orEmpty() }.getOrDefault("")
+                if (Regex("""/sezon-\d+$""", RegexOption.IGNORE_CASE).containsMatchIn(path)) href else null
+            }
+            .distinct()
+
+        val episodeEntries = mutableListOf<Triple<Int, Int, Episode>>()
+        val seenEpisodeUrls = mutableSetOf<String>()
+        for (seasonUrl in seasonLinks.take(40)) {
+            val seasonHtml = try {
+                loadPageHtml(seasonUrl, "sezon")
+            } catch (_: Exception) {
+                continue
+            }
+            val seasonDoc = Jsoup.parse(seasonHtml, seasonUrl)
+            seasonDoc.select("a[href*='/sezon-'][href*='/bolum-']").forEach { anchor ->
+                val episodeUrl = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                if (!seenEpisodeUrls.add(episodeUrl)) return@forEach
+                val uriPath = runCatching { URI(episodeUrl).path.orEmpty() }.getOrDefault("")
+                val nums = Regex("""/sezon-(\d+)/bolum-(\d+)""", RegexOption.IGNORE_CASE)
+                    .find(uriPath) ?: return@forEach
+                val seasonNo = nums.groupValues[1].toIntOrNull() ?: return@forEach
+                val episodeNo = nums.groupValues[2].toIntOrNull() ?: return@forEach
+                val episodeName = anchor.selectFirst("h2, h3, span")?.text()?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "$seasonNo. Sezon $episodeNo. Bölüm"
+                episodeEntries += Triple(
+                    seasonNo,
+                    episodeNo,
+                    newEpisode(episodeUrl) {
+                        name = episodeName
+                        season = seasonNo
+                        episode = episodeNo
+                    }
+                )
+            }
         }
-        val poster = normalizePoster(item.textField("posterUrl", "poster", "image"))
-        val plot = item.textField("description", "plot", "overview", "summary")
-        val year = item.textField("releaseYear", "year")?.toIntOrNull()
-        val tags = item.textField("categories", "category", "genres")
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-        val rating = item.textField("imdbPoint", "rating", "score")
-        val duration = item.textField("totalMinutes", "duration", "runtime")?.toIntOrNull()
-        val related = root.field("relatedResults") ?: root.field("RelatedResults")
-        val hasSeasons = related?.field("getSerieSeasonAndEpisodes") != null
-        val isSeries = canonicalUrl.contains("/dizi/", true) || hasSeasons
+
+        val episodes = episodeEntries
+            .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
+            .map { it.third }
+        val path = runCatching { URI(canonicalUrl).path.orEmpty().lowercase() }.getOrDefault("")
+        val isSeries = path.startsWith("/dizi/") || seasonLinks.isNotEmpty() ||
+            episodes.isNotEmpty() || root?.field("relatedResults")?.field("getSerieSeasonAndEpisodes") != null
 
         return if (isSeries) {
-            val episodes = episodesFrom(root)
             newTvSeriesLoadResponse(title, canonicalUrl, TvType.TvSeries, episodes) {
                 posterUrl = poster
                 this.year = year
-                this.plot = plot
+                this.plot = description
                 this.tags = tags
                 this.score = Score.from10(rating)
             }
@@ -335,7 +396,7 @@ class SelcukFlix : MainAPI() {
             newMovieLoadResponse(title, canonicalUrl, TvType.Movie, canonicalUrl) {
                 posterUrl = poster
                 this.year = year
-                this.plot = plot
+                this.plot = description
                 this.tags = tags
                 this.score = Score.from10(rating)
                 this.duration = duration
