@@ -150,8 +150,12 @@ internal object SelcukFlixResolverBank {
                 fallbackEpisode++
                 val episodeNo = episode.jsonText("episode_no", "episodeNo", "episodeNumber", "number")
                     ?.toIntOrNull() ?: fallbackEpisode
-                val posterRaw = episode.jsonText("poster_url", "posterUrl", "poster")
+                val posterRaw = episode.jsonText(
+                    "object_poster_url", "object_face_url", "poster_url", "posterUrl",
+                    "face_url", "image_url", "poster", "image", "thumbnail", "cover"
+                )
                 val poster = posterRaw?.let { normalizeSiteUrl(it, mainUrl) ?: normalizeUrl(it, mainUrl) }
+                    ?: findPosterUrl(episode, mainUrl)
                 records += SelcukEpisodeRecord(
                     url = episodeUrl,
                     name = episode.jsonText("episode_text", "episode_text_tr", "epText", "episodeTitle", "subtitle", "text", "title", "name"),
@@ -164,6 +168,67 @@ internal object SelcukFlixResolverBank {
         return records.sortedWith(
             compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
         ).distinctBy { it.url }
+    }
+
+    /**
+     * Finds poster/image URLs by field meaning, including nested objects and arrays.
+     * Explicit poster/face fields outrank generic image/backdrop fields. Placeholder values
+     * are rejected rather than converted into misleading URLs.
+     */
+    fun findPosterUrl(root: JsonNode, mainUrl: String): String? {
+        val found = mutableListOf<Triple<Int, Int, String>>()
+        var order = 0
+
+        fun rankFor(key: String): Int? {
+            val value = key.lowercase().replace("-", "_")
+            return when {
+                value in setOf("object_poster_url", "poster_url", "posterurl", "poster_path",
+                    "posterpath", "poster", "poster_src", "poster_image", "posterimage") -> 0
+                value in setOf("object_face_url", "face_url", "faceurl", "cover_url", "cover",
+                    "thumbnail_url", "thumbnail", "thumb_url", "thumb") ||
+                    value.contains("poster") || value.contains("face") -> 1
+                value.contains("image") || value.contains("cover") || value.contains("thumb") -> 2
+                value.contains("backdrop") || value.contains("banner") || value.contains("still") -> 3
+                else -> null
+            }
+        }
+
+        fun usable(raw: String): String? {
+            val cleaned = normalizeEscapes(raw.trim().trim('"', '\''))
+            val url = normalizeUrl(cleaned, mainUrl) ?: return null
+            val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+            if (listOf("placeholder", "no-poster", "no_poster", "poster-not-found",
+                    "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) {
+                return null
+            }
+            if (Regex("""(?i)\\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
+            return url
+        }
+
+        fun visit(node: JsonNode, inheritedRank: Int? = null) {
+            when {
+                node.isObject -> {
+                    val fields = node.fields()
+                    while (fields.hasNext()) {
+                        val entry = fields.next()
+                        val nextRank = rankFor(entry.key) ?: inheritedRank
+                        if (entry.value.isTextual && nextRank != null) {
+                            usable(entry.value.asText())?.let { found += Triple(nextRank, order++, it) }
+                        } else if (entry.value.isContainerNode) {
+                            visit(entry.value, nextRank)
+                        }
+                    }
+                }
+                node.isArray -> node.elements().asSequence().forEach { visit(it, inheritedRank) }
+                node.isTextual && inheritedRank != null -> {
+                    usable(node.asText())?.let { found += Triple(inheritedRank, order++, it) }
+                }
+            }
+        }
+
+        visit(root)
+        return found.sortedWith(compareBy<Triple<Int, Int, String>> { it.first }.thenBy { it.second })
+            .firstOrNull()?.third
     }
 
     /**
@@ -365,7 +430,7 @@ internal object SelcukFlixResolverBank {
             forcePlayerContext: Boolean = false
         ) {
             val url = normalizeUrl(rawUrl, baseUrl) ?: return
-            if (isYouTubeUrl(url)) return
+            if (isYouTubeUrl(url) || isNonMediaAssetUrl(url)) return
             val kind = classify(url, forcePlayerContext)
             if (!forcePlayerContext && kind == SelcukMediaKind.UNKNOWN &&
                 !isLikelyPlayerOrMedia(url, siteUrl)
@@ -601,7 +666,8 @@ internal object SelcukFlixResolverBank {
         observedUrls.filter { hasSignatureLikeQuery(it) }.forEach { add(32, it, baseUrl, forcePlayerContext = true) }
 
         // 33 • Explicit alternate referer-context candidate for observed iframes.
-        iframeUrls.forEach { add(33, it, baseUrl, forcePlayerContext = true) }
+        // 33 • Alternate header context: the site's origin, unlike the embedding episode URL.
+        iframeUrls.forEach { add(33, it, siteUrl.trimEnd('/') + "/", forcePlayerContext = true) }
 
         // 36 • Generic extractor fallback, kept separate from the specific iframe/registry path.
         iframeUrls.forEach { add(36, it, baseUrl, forcePlayerContext = true) }
@@ -837,9 +903,22 @@ internal object SelcukFlixResolverBank {
         return uri.toASCIIString()
     }
 
+    private fun isNonMediaAssetUrl(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val path = uri.path.orEmpty().lowercase()
+        if (Regex("""(?i)\\.(avif|bmp|gif|jpe?g|png|webp|svg|ico|css|js|map|woff2?|ttf|otf)(?:$|[?#])""")
+                .containsMatchIn(path)
+        ) return true
+        if (Regex("""(?i)/(images?|posters?|covers?|thumbnails?|avatars?|logos?)(?:/|$)""")
+                .containsMatchIn(path) && !likelyPlayerPath.containsMatchIn(path)
+        ) return true
+        return false
+    }
+
     private fun isLikelyPlayerOrMedia(url: String, siteUrl: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val path = uri.path.orEmpty()
+        if (isNonMediaAssetUrl(url)) return false
         if (mediaExtensionRegex.containsMatchIn(url)) return true
         if (likelyPlayerPath.containsMatchIn(path)) return true
         val siteHost = runCatching { URI(siteUrl).host?.lowercase()?.removePrefix("www.") }.getOrNull()
