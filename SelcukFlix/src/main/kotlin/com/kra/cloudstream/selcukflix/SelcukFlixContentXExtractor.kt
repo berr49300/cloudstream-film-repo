@@ -82,7 +82,10 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         }
 
         tokens.forEach { token ->
-            kaynakEkle(base, token.token, tamUrl, "${host} • ${token.label}", iframeHeaders, callback)
+            kaynakEkle(
+                base, token.token, tamUrl, "${host} • ${token.label}",
+                iframeHeaders, extRef, callback
+            )
         }
     }
 
@@ -99,6 +102,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         iframe: String,
         name: String,
         iframeHeaders: Map<String, String>,
+        contextReferer: String,
         callback: (ExtractorLink) -> Unit
     ) {
         val apiUrl = "$base/source2.php?v=" + java.net.URLEncoder.encode(token, "UTF-8")
@@ -124,17 +128,47 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         media.flatMap { file ->
             SelcukFlixContentXSourceParser.mediaFileCandidates(file, apiUrl)
         }.distinctBy { it.resolverId to it.url }.forEach { candidate ->
-            val mediaHost = runCatching { java.net.URI(candidate.url).host }.getOrNull().orEmpty()
+            val mediaOrigin = runCatching {
+                java.net.URI(candidate.url).let { "${it.scheme}://${it.host}/" }
+            }.getOrNull()
             val resolverName = SelcukFlixResolverBank.resolverName(candidate.resolverId)
-            val labeledName = "${candidate.resolverId.toString().padStart(2, '0')} • $resolverName • $name • ${candidate.label}"
-            Log.d("SelcukFlixContentX", "$labeledName source candidate on $mediaHost")
-            callback.invoke(
-                newExtractorLink(labeledName, labeledName, candidate.url, linkType(candidate.url) ?: ExtractorLinkType.M3U8) {
-                    this.referer = iframe
-                    this.headers = browserHeaders + mapOf("Referer" to iframe)
-                    this.quality = Qualities.Unknown.value
+            val baseLabel = "${candidate.resolverId.toString().padStart(2, '0')} • $resolverName • $name • ${candidate.label}"
+
+            // The media URL is observed, but its required Referer/User-Agent varies by host.
+            // Offer combinations for the same URL instead of silently deduplicating them by URL.
+            val refererContexts = listOf(
+                "player" to iframe,
+                "site" to "https://selcukflix.app/",
+                "page" to contextReferer,
+                "media-origin" to (mediaOrigin ?: iframe)
+            ).distinctBy { it.second }
+
+            refererContexts.forEach { (contextLabel, contextUrl) ->
+                listOf(true, false).forEach { browserUserAgent ->
+                    val variantLabel = "$baseLabel • Referer=$contextLabel • " +
+                        if (browserUserAgent) "Chrome-UA" else "CloudStream-UA"
+                    val requestHeaders = if (browserUserAgent) {
+                        browserHeaders + mapOf("Referer" to contextUrl)
+                    } else {
+                        mapOf("Referer" to contextUrl)
+                    }
+                    callback.invoke(
+                        newExtractorLink(
+                            source = variantLabel,
+                            name = variantLabel,
+                            url = candidate.url,
+                            type = linkType(candidate.url) ?: ExtractorLinkType.M3U8
+                        ) {
+                            this.referer = contextUrl
+                            this.headers = requestHeaders
+                            this.quality = Qualities.Unknown.value
+                        }
+                    )
                 }
-            )
+            }
+
+            val mediaHost = runCatching { java.net.URI(candidate.url).host }.getOrNull().orEmpty()
+            Log.d("SelcukFlixContentX", "$baseLabel candidates emitted for $mediaHost across request-context variants.")
         }
     }
 }
