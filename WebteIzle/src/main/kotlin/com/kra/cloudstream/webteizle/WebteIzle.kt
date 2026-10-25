@@ -552,7 +552,8 @@ class WebteIzle : MainAPI() {
                                         langName = "$langName iframe",
                                         fallbackQuality = fallbackQuality,
                                         probeNestedPages = false,
-                                        probeManifests = false
+                                        probeManifests = false,
+                                        probeKnownPlayerPages = false
                                     )
                                 }
                             }
