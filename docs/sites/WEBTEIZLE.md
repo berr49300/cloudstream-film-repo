@@ -1,260 +1,29 @@
-# WebteIzle Site Profile
+# WebteIzle provider — VidMoly only
 
-- Base URL: https://webteizle.info/
-- Date checked: 2026-10-24
-- Overall status: INVESTIGATING
-- Public site reachable: PARTIAL through rendered web pages; raw HTML/scripts/player responses were not accessible to the local shell
-- Content type in this provider: Movies
-- Provider branch: feature/webteizle-provider
-- PR: https://github.com/berr49300/cloudstream-film-repo/pull/35
+- Site: https://webteizle.info/
+- Plugin version: 5
+- Supported output: at most one VidMoly source for Dublaj and one for Altyazı
+- Non-VidMoly players: intentionally ignored
 
-## Evidence ledger
+## Playback flow
 
-| Claim | Status | Evidence | Remaining question |
-|---|---|---|---|
-| Public catalogue and film cards exist | CONFIRMED | Homepage shows titles, year, rating/genre and pagination: https://webteizle.info/ | Raw DOM/card markup and image attributes still need direct response capture |
-| Pagination URL for the main catalogue | CONFIRMED | Clicking page 2 from the home page resolves to https://webteizle.info/film-izle/2 | Verify HTTP status/redirect headers and page parity from the provider runtime |
-| New-films pagination | CONFIRMED | https://webteizle.info/yeni-filmler and https://webteizle.info/yeni-filmler/2 both render catalogue pages | Verify provider page-count and item parity |
-| Recommendation and award category routes | CONFIRMED | https://webteizle.info/tavsiye-filmler and https://webteizle.info/odullu-filmler render catalogue pages | Verify each page's raw DOM and page count |
-| Detail page metadata | PARTIAL | https://webteizle.info/hakkinda/love-language renders title, year, country, genre, runtime and synopsis | Poster, score and exact selectors need a raw DOM fixture |
-| Search URL/encoding | HYPOTHESIS | A public CloudStream reference uses GET /filtre?a= with ISO-8859-9 encoding | Live request/response was not available to this environment; test ASCII, Turkish diacritics, IMDb IDs and empty search |
-| Playback alternatives AJAX endpoints | HYPOTHESIS | Public reference implementation uses POST /ajax/dataAlternatif3.asp and /ajax/dataEmbed.asp | Capture current request form, JSON/HTML response, status, content type and headers from live runtime |
-| Player host families | HYPOTHESIS | Other provider code references Vidmoly, OK.ru, Filemoon, Pixeldrain, RubyVid and Dzen | Do not assume any host is active for every film; enumerate from current responses |
-| Real source extraction | NOT TESTED | Provider now probes HTML/AJAX embed responses and gives each discovered candidate a resolver ID | Need real response payload, CloudStream source-list test and per-ID playback report |
-| Subtitles and alternate audio | NOT TESTED | Scanner can discover HTML track elements and HLS audio/subtitle declarations | Validate actual URLs, formats, language, timing and rendering in CloudStream |
+1. Read the movie-detail page and discover same-site \`/izle/dublaj/\` and \`/izle/altyazi/\` routes.
+2. Keep no more than one watch route for each language.
+3. Read the watch page's \`button#wip[data-id]\` and request \`/ajax/dataAlternatif3.asp\` for that language.
+4. For each alternative, read \`/ajax/dataEmbed.asp\`, but retain only VidMoly iframe URLs or the observed \`vidmoly('id', ...)\` pattern.
+5. Try VidMoly candidates sequentially. As soon as a playable link or an absolute HLS \`file\` URL is found, return one link and stop looking through alternatives for that language.
 
-## Implementation notes
+## Output contract
 
-- The provider and resolver scanner are isolated under `WebteIzle/`; no existing provider or shared code was edited.
-- `WebteIzlePlugin.kt` is the `@CloudstreamPlugin` entry point. This was missing in the first draft and caused the initial CI failure.
-- `WebteIzleResolverBank.kt` contains the original 37 resolver methods plus IDs 38–41 for observed player configurations, Pixel diagnostics, known hex payloads and a VidMoly HLS fallback. Each method remains separately named; exact duplicates within a method are suppressed.
-- A candidate appearing in CloudStream means only that a URL was found and routed to a media link or extractor. It does not prove HTTP validity or playback.
-- Each scan logs resolver ID, name, status and reason without logging full candidate URLs or query strings. Candidate names are also exposed to CloudStream for manual comparison.
-- Evidence-dependent methods are not falsely marked as executed: JavaScript runtime execution is explicitly not applicable to the static scanner; nested iframe fetch, redirect/header comparisons, browser network capture and user-supplied evidence still need separate testing.
-- No CAPTCHA, authentication, DRM or other access-control bypass is included. No signed playback URL or token is stored in this repository.
-- Public reference reviewed for endpoint/selector clues: https://github.com/burak-ayd/cloudstream-repo/blob/main/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt. It is reference evidence, not proof of current live-site behavior; this implementation is a separate implementation.
-- The older reference noted in the previous investigation is https://github.com/nikyokki/nik-cloudstream/tree/master/WebteIzle.
+- \`VidMoly • Dublaj\`
+- \`VidMoly • Altyazı\`
 
-## Resolver inventory and current capability
+Each label is emitted at most once per provider load. Repeated alternatives from the site and multiple quality variants returned by the extractor are collapsed to a single link. If only one language resolves, only that source appears. Non-VidMoly links and YouTube/CDN trailer links are never emitted.
 
-Important: “probe implemented” means the code can inspect an input page/manifest for that pattern. It does **not** mean the live WebteIzle page triggered it, that a valid stream was returned, or that video played. Every live row remains UNVERIFIED until current payloads are observed.
+## Access challenges
 
-| ID | Resolver | Current status |
-|---:|---|---|
-| 01 | Html5SourceResolver | Probe implemented; live not tested |
-| 02 | LazyDataAttributeResolver | Probe implemented; live not tested |
-| 03 | SelectedPlayerElementResolver | Probe implemented; live not tested |
-| 04 | JsonLdMediaResolver | Probe implemented; live not tested |
-| 05 | EmbeddedJsonResolver | Probe implemented; live not tested |
-| 06 | HydrationStateResolver | Marker detection and URL scan implemented; live not tested |
-| 07 | PlayerConfigObjectResolver | Probe implemented; live not tested |
-| 08 | StaticScriptUrlResolver | Probe implemented; live not tested |
-| 09 | EscapedScriptUrlResolver | Common JS-escape normalization implemented; live not tested |
-| 10 | JavaScriptVariableResolver | Probe implemented; live not tested |
-| 11 | JavaScriptRuntimeResolver | NOT APPLICABLE in current static scan; no script execution |
-| 12 | PackedScriptResolver | Signature detection only; unpacking not implemented/verified |
-| 13 | KnownEncodingResolver | Observed `atob()` Base64 values tested by the scanner; live not tested |
-| 14 | SiteSpecificObfuscationResolver | Marker detection only; no guessed decoder |
-| 15 | IframeDiscoveryResolver | Probe implemented; live not tested |
-| 16 | NestedIframeResolver | NOT TESTED; bounded child-page fetch still needed |
-| 17 | ExtractorRegistryResolver | Routed via CloudStream `loadExtractor`; live output not tested |
-| 18 | ObservedRestApiResolver | API-call marker diagnostic; no schema inferred |
-| 19 | ObservedAjaxResolver | Provider POST path plus response audit; live payload not verified here |
-| 20 | GraphQlResolver | GraphQL marker diagnostic; no query inferred |
-| 21 | PlayerIdManifestResolver | NOT APPLICABLE until a real ID-to-manifest template is evidenced; no URLs synthesized |
-| 22 | RedirectChainResolver | NOT TESTED; HTTP redirect metadata is not recorded by the static scanner |
-| 23 | HlsMasterPlaylistResolver | M3U8 URL classification implemented; manifest validity not tested |
-| 24 | HlsVariantPlaylistResolver | Parses variants when an actual master-manifest body is supplied; live not tested |
-| 25 | DashManifestResolver | MPD URL classification implemented; manifest validity not tested |
-| 26 | DirectMediaFileResolver | MP4/M4V/WebM candidate classification implemented; live not tested |
-| 27 | ContainerFormatCandidateResolver | MKV/AVI/MOV candidate classification implemented; live not tested |
-| 28 | SegmentPlaylistResolver | Segment signals recognized; TS/M4S segments deliberately not offered as complete videos |
-| 29 | BrowserNetworkDiscoveryResolver | NOT TESTED; requires browser/network evidence |
-| 30 | BlobMediaSourceDiagnostic | Blob marker diagnostic; underlying stream not traced yet |
-| 31 | ServiceWorkerPlaybackDiagnostic | Service Worker marker diagnostic; not executed in CloudStream |
-| 32 | SignedUrlResolver | Signed-query candidates kept separately; URL values are not logged; live not tested |
-| 33 | HeaderContextResolver | NOT TESTED beyond the existing parent-page referer; alternate headers are not guessed |
-| 34 | SessionDependentSourceDiagnostic | Challenge/session marker diagnostic; live status/header comparison not tested |
-| 35 | AlternateAudioAndSubtitleResolver | HTML track and HLS group parsing implemented; subtitle playback not tested |
-| 36 | GenericExtractorFallback | Separate candidate path through `loadExtractor`; live output not tested |
-| 37 | ManualNetworkEvidenceResolver | NOT TESTED; no user-supplied browser/CloudStream network evidence yet |
+Cloudflare/CAPTCHA challenges are detected and reported as blocked. This provider does not attempt to solve or bypass them.
 
-## Automated and manual test state
+## Verification
 
-- Resolver unit tests: added, pending current CI result.
-- Kotlin/build/package validation: current latest run must be checked; previous run failed because the plugin entry-point class was missing.
-- Raw live HTML/AJAX response fixtures: NOT TESTED.
-- Catalog/search parity: NOT TESTED from provider runtime.
-- Poster loading inside CloudStream: NOT TESTED.
-- Per-candidate HTTP/manifest validation: NOT TESTED.
-- CloudStream source-list confirmation: NOT TESTED.
-- Real playback/audio selection: NOT TESTED.
-- Subtitle rendering: NOT TESTED.
-- Publication: NOT PUBLISHED; do not merge or publish until validation and approval.
-
-
-## 2026-10-25 — False-positive source incident and regression fix
-
-### Incident evidence
-
-- **CONFIRMED from the user's CloudStream screenshot:** IDs 07 (PlayerConfigObjectResolver), 17 (ExtractorRegistryResolver) and 36 (GenericExtractorFallback) all surfaced `youtu.be` URLs as source candidates, including repeated rows at 720p/480p. The host/path match was being treated as a candidate even though it was a YouTube-hosted clip, not a confirmed WebteIzle film stream.
-- **CONFIRMED in code:** IDs 17 and 36 were built from player URLs already found by other scan IDs; the same embed URL could also be processed from the detail page and multiple AJAX language paths. Resolver IDs therefore described alternate discovery/routing paths, not independent media origins.
-- **CONFIRMED in code:** the older `looksLikeMediaOrPlayer` predicate accepted generic paths such as `/watch` and `/embed`; it did not exclude YouTube hosts.
-- **PARTIAL external check (2026-10-25):** the public homepage rendered catalogue entries, but the detail-page research request did not return a readable page in the available research environment. No raw current AJAX/player payload was captured. This does not prove the site is globally offline or prove the Android runtime receives the same response.
-
-### Code changes in `fix/webteizle-real-player-candidates`
-
-- All resolver ingress paths reject `youtube.com`, `youtu.be`, `youtube-nocookie.com`, YouTube API hosts and `googlevideo.com` URLs. Such addresses are not emitted as playable source candidates.
-- Recognize the user-named player families as valid player-shaped URLs even when their path has no obvious `/embed` or media-file suffix: VidMoly, Filemoon, PixelDrain, and OK.ru. The provider routes these embed pages through CloudStream's existing `loadExtractor`; it does not synthesize media URLs.
-- Deduplicate an identical URL within the same resolver ID across overlapping detail/AJAX scans. Distinct resolver IDs remain visible because the test plan requires each strategy to be diagnosable. A repeated resolver ID is no longer repeated for the same URL.
-- Extractor exceptions and no-link outcomes are logged with resolver ID and host family while omitting full URLs/query strings.
-- Detect Cloudflare/CAPTCHA challenge HTML and report `BLOCKED`; no challenge-solving, authentication bypass, or DRM bypass is added.
-
-### Host-family support scope (not live-verified)
-
-| Family | Host variants recognized by this adapter | Resolution path |
-|---|---|---|
-| VidMoly | `vidmoly.to`, `vidmoly.me`, `vidmoly.net`, `vidmoly.sx` | CloudStream extractor registry |
-| Filemoon | `filemoon.to`, `filemoon.sx`, `filemoon.in`, `filemoon.nl` | CloudStream extractor registry |
-| PixelDrain | `pixeldrain.com`, `pixeldra.in` | CloudStream extractor registry |
-| OK.ru | `ok.ru`, `odnoklassniki.ru` | CloudStream extractor registry |
-
-Recognizing a host means the URL is routed to its extractor; it is not evidence that the host is currently reachable, the WebteIzle film points to it, its API is compatible, or the stream plays. Any further domain aliases should be added only when an actual current embed URL or maintained extractor supports them.
-
-### Regression tests added
-
-- YouTube watch, youtu.be short links, YouTube-nocookie embeds, and googlevideo CDN URLs never remain in any resolver's candidate list.
-- VidMoly, Filemoon, PixelDrain and OK.ru embed URLs are recognized without requiring a media extension.
-- A Cloudflare-style "Just a moment / challenge-platform" page is classified as an access challenge.
-
-### Remaining gates
-
-- **NOT TESTED:** current live `dataAlternatif3.asp` and `dataEmbed.asp` request/response shape from a normal CloudStream runtime.
-- **NOT TESTED:** whether the four named hosts are returned by the current film's actual alternative-player list.
-- **NOT TESTED:** HTTP response/manifest validity for emitted media, real playback, audio track and subtitle rendering.
-- If Cloudflare denies the normal request, report `BLOCKED` and use sanitized, user-authorized network evidence for diagnosis; do not try to defeat the challenge.
-- Do not label any source `MANUAL_PLAY_SUCCESS` until a real film (not a trailer) is confirmed playing on the user's device.
-
-
-### Resolver 38 — observed player-function configuration
-
-A new test method, `38 • KnownPlayerEmbedConfigResolver`, examines the current `dataEmbed.asp` response's inline script for the player-function shape `vidmoly('id', ...)`, `filemoon('id', ...)`, or `okru('id', ...)`. If observed, it emits candidates using the public-reference URL templates below; it never derives an ID from a film title or invents a source without the function pattern.
-
-- VidMoly: `https://vidmoly.net/embed-{id}.html`, `https://vidmoly.to/embed-{id}.html`, and `https://vidmoly.biz/embed-{id}.html` are retained because public reference implementations differ on the host; a maintained provider uses `.biz`.
-- Filemoon: `https://filemoon.sx/e/{id}`.
-- OK.ru: `https://odnoklassniki.ru/videoembed/{id}`.
-
-**Status: HYPOTHESIS until confirmed against a current sanitized `dataEmbed.asp` response.** The pattern and host templates were cross-checked against public CloudStream provider implementations: [burak-ayd/cloudstream-repo — WebteIzle](https://github.com/burak-ayd/cloudstream-repo/blob/master/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt) and [ByNoNe/Kekik-cloudstream — WebteIzle](https://github.com/ByNoNe/Kekik-cloudstream/blob/master/WebteIzle/src/main/kotlin/com/keyiflerolsun/WebteIzle.kt). Both repositories declare GPL-3.0. This implementation uses the observed protocol/template as prior-art evidence rather than copying their provider implementation; the repo remains separately implemented.
-
-The public references also use a Cloudflare challenge helper. This implementation intentionally does **not** import or invoke that helper: if the ordinary CloudStream request receives a challenge, it records `BLOCKED` and needs an authorized sanitized response capture to continue diagnosis. Resolver 38 and successful compilation are not proof that the generated embed pages resolve or play.
-
-
-### Resolver 39 — Pixel host diagnostic (host template intentionally unknown)
-
-The source API's `baslik` field is now passed into the resolver scan. If the returned player label mentions `Pixel`, or the response contains a `pixel(...)` player-function marker, `39 • PixelPlayerConfigDiagnostic` reports the observed signal. It does **not** synthesize an embed URL because no current WebteIzle Pixel domain/URL template has been confirmed from the actual `dataEmbed.asp` payload.
-
-**Terminology warning:** Pixel and PixelDrain are not assumed to be the same service. The CloudStream framework has a native `PixelDrain` extractor for `pixeldrain.com` / `pixeldrain.dev`; those URLs are recognized as **PixelDrain** only. A separate project for a different Turkish site reports a player named “Pixel” blocked by Cloudflare Turnstile, but that is not proof that WebteIzle uses the same host or restriction. See [Batuhan4/sezonlukdizi-stremio](https://github.com/Batuhan4/sezonlukdizi-stremio); this is external context only, not evidence of WebteIzle's exact Pixel embed.
-
-If the current WebteIzle alternative list says Pixel and its response provides no iframe/host URL or verified mapping, status remains **NOT TESTED / UNKNOWN**. If its actual page returns a Cloudflare/Turnstile challenge, status is **BLOCKED**; no challenge solver is added.
-
-### Native CloudStream extractor compatibility check
-
-The framework source tree currently includes native extractor implementations for VidMoly (`vidmoly.net`, `.to`, `.me`, `.biz`), Filemoon (`.to`, `.in`, `.sx`), OK.ru and PixelDrain (`pixeldrain.com`, `pixeldrain.dev`). This is a source-code compatibility check, not a live-site or playback check. Host aliases in the label classifier were narrowed to match those known extractor variants; other domains remain unverified until an actual current embed URL and registered extractor are confirmed.
-
-
-### Resolver 40 — observed hex-encoded media URL
-
-A separate `40 • KnownHexEncodedPayloadResolver` now handles a specific encoding present in public WebteIzle provider references: strings composed of byte escapes such as `\\x68\\x74...` or the equivalent contiguous hex bytes. It scans only observed `file/src/url` value positions and PlayerJS-style `v=` parameters, then accepts the result only when it decodes to an absolute HTTP(S) URL whose path has a known media extension (HLS/DASH/MP4/etc.). It does not create a hostname from an ID, run JavaScript, or attempt general obfuscation decoding. YouTube URLs are filtered at the common candidate ingress and after extractor output.
-
-A further implementation correction: AJAX embed-fragment relative paths are now resolved against `/ajax/dataEmbed.asp` on WebteIzle, rather than incorrectly resolving them against the original film detail URL.
-
-### Current diagnostic inventory
-
-- IDs 01–37: original broad diagnostic bank, each method remains separately observable.
-- ID 38: known VidMoly/Filemoon/OK.ru function-call templates from public references (hypothesis pending live response).
-- ID 39: Pixel label/function signal only; no host template fabricated.
-- ID 40: byte-hex encoded direct media URL decoding, limited to observed player config/query positions and recognized media extensions.
-
-This additional static extraction is covered by sanitized unit fixtures. Live player responses, generated source HTTP responses, and actual playback are still NOT TESTED.
-
-
-### Resolver 41 — VidMoly master playlist fallback
-
-**Evidence-backed addition:** a public Webteİzle provider implementation in [falsisdev/anthology — src/webteizle/index.js](https://github.com/falsisdev/anthology/blob/main/src/webteizle/index.js) documents the normal source path `dataAlternatif3.asp → dataEmbed.asp → vidmoly embed → JWPlayer file: ...master.m3u8`. It also explicitly skips player alternatives labelled `pixel` and `netu` rather than pretending they resolve. This is current public prior-art evidence for the route shape, not proof that every current WebteIzle title behaves the same way.
-
-A new `41 • VidMolyMasterPlaylistResolver` runs only when the standard CloudStream extractor returns no non-YouTube media link for a recognized VidMoly player. It performs an ordinary player-page GET, detects Cloudflare/CAPTCHA challenge HTML and stops with **BLOCKED**, then parses only an absolute `.m3u8` value from the observed JWPlayer `file:` field. It does not run the page's JavaScript or guess CDN URLs. Duplicate master URLs are emitted once by this fallback.
-
-The media callback now preserves the page that supplied the candidate as its referer context. The AJAX embed parser still resolves relative iframe URLs against `/ajax/dataEmbed.asp` while keeping the film detail page as the referring page.
-
-### Pixel source evidence update
-
-A separately maintained public Webteİzle provider explicitly returns no stream for source labels `pixel` and `netu`; therefore this implementation does not invent a host pattern for Pixel. The resolver 39 signal is the deliberate result until a current, sanitized `dataEmbed.asp` response demonstrates a real Pixel iframe or public media URL. If the actual player response presents a Cloudflare/Turnstile challenge, the result remains **BLOCKED** rather than attempting a challenge bypass.
-
-
-### Playback-route correction — detail page is not the player page
-
-The provider's `loadLinks` now treats the detail URL (usually `/hakkinda/<slug>`) only as the entry point. It extracts same-host `/izle/altyazi/<slug>` and `/izle/dublaj/<slug>` links from the actual page, validates those route shapes, fetches each route with the detail URL as referer, and only then looks for `button#wip[data-id]` and requests alternatives. If neither playback link is actually present, it returns no streams and logs the missing route; it no longer scans detail-page trailers as a substitute for real sources.
-
-This route distinction is grounded by the site's public rendered detail/playback pages (the detail page links to a separate `/izle/altyazi/love-language` page where the alternatives controls appear) and is now encoded as an implementation gate. It does not infer watch slugs from title text. Both language routes are bounded/deduplicated, and the AJAX calls include the expected form content type, XHR marker, origin and playback-page referer.
-
-**Status:** code path added; source unit/build CI pending; current live raw AJAX response and real-device playback still NOT TESTED. Any Cloudflare/CAPTCHA response is classified BLOCKED; no challenge solver is added.
-
-
-## 2026-10-25 — Source de-duplication and host-specific strategies 42–44
-
-### User-visible failure
-
-The installed build emitted the same `41 • VidMolyMasterPlaylistResolver` HLS address many times at the same language and displayed `1p` as if it were a resolution. The alternative-list's numeric `kalitesi` value can be an ordinal such as `1` or `2`; it is not automatically a resolution value. The watch page also advertises separate alternative names `Pixel`, `OK.Ru`, `VidMoly` and `Filemoon`.
-
-### Changes in branch `fix/webteizle-deduplicate-and-host-resolvers`
-
-- The set of emitted *final media URLs* is shared across dubbed and subtitled watch routes. The key combines normalized language (`Dublaj` or `Altyazı`) and final URL. Query strings are kept because they can contain required signatures/tokens; fragments and hostname casing are normalized.
-- The set of attempted *player URLs* is shared across duplicate discovery methods for that language. This avoids re-running the same player URL under IDs 15, 17, 36 and 38. Different player URL variants are still tried.
-- HLS and other direct media candidates use the same final-result deduplication. Subtitle URLs are deduplicated independently.
-- Resolution labels only accept quality hints from 144p through 4320p. Ordinal values such as 1 and 2 render as `Auto`, not `1p`/`2p`.
-- The raw `dataEmbed.asp` response body is passed to the scanner rather than serializing it back through Jsoup. This preserves the observed JavaScript/escape sequences used by player-config resolvers.
-- Existing VidMoly resolver 41 retains its current request/extraction behavior; only the shared final URL de-duplication and quality-label validation affect its output.
-- Resolver 42 tries Filemoon URLs formed from an observed `filemoon('id')` call across the native CloudStream-supported `.to`, `.sx`, and `.in` variants. For an observed Filemoon iframe, the same known variants are retried if the first native extractor attempt returns no links.
-- Resolver 43 does the equivalent for observed `okru('id')` calls and the `odnoklassniki.ru`, `ok.ru`, and `m.ok.ru` native extractor variants.
-- Resolver 44 handles the exact observed `pixel('id')` player-function pattern. A public WebteIzle provider implementation maps that pattern to `https://pixeldrain.com/u/{id}`; this adapter emits the `.com` and native-extractor-supported `.dev` variants, then lets CloudStream's PixelDrain extractor resolve the actual file. This mapping is **HYPOTHESIS for the current live site's payload** until the installed build successfully plays it. A Pixel source label without an observed ID/iframe does not create a fabricated URL.
-- If the Pixel player URL is observed but responds with a Cloudflare/CAPTCHA challenge, the strategy logs `BLOCKED`; it does not try to solve or bypass that challenge.
-
-### Strategy index (continued)
-
-| ID | Strategy | What it tries / what proves success |
-|---:|---|---|
-| 41 | VidMolyMasterPlaylistResolver | Existing VidMoly embed -> absolute HLS `file` field. Existing logic kept; final result is now deduplicated per language |
-| 42 | FilemoonHostVariantResolver | Observed Filemoon player ID -> known host variants -> native CloudStream extractor; a final stream link must be emitted |
-| 43 | OkRuHostVariantResolver | Observed OK.ru player ID -> known host variants -> native CloudStream extractor; a final stream link must be emitted |
-| 44 | PixelObservedPlayerResolver | Observed `pixel('id')` -> PixelDrain embed variants -> native extractor; if the source does not reveal an ID/URL or it is blocked, report that rather than claim success |
-
-### Acceptance criteria
-
-1. At most one row per exact final media URL per normalized language. A URL may still appear once for Dublaj and once for Altyazı when both language paths use it.
-2. Distinct URLs must remain available even when they share the same host, so working source alternatives are not hidden by deduplication.
-3. A strategy number is useful only when its extractor returned a link and the final URL passed deduplication. `CANDIDATE_FOUND` means only that an embed/player candidate was discovered, not that playback works.
-4. Build/test success is not runtime success. Real movie playback, audio, subtitles and each additional source remain unverified until checked on-device.
-
-Reference for the observed `filemoon`, `okru` and `pixel` function-call shapes: [csprofesor/csnuvio WebteIzle provider](https://github.com/csprofesor/csnuvio/blob/799d3b16bd345027314593674be603683a492da3/providers/webteizle.js). It is used as external prior-art evidence for URL templates, not as evidence that a current link plays.
-
-
-## 2026-10-25 — v4 follow-up: stable HLS de-duplication and real alternative-host fallback
-
-### What v3 did not fix
-
-The user's v3 screenshot still showed repeated `41 • VidMolyMasterPlaylistResolver` rows and no Filemoon/OK.ru/Pixel results. Code inspection explains the two gaps: final HLS URL keys preserved every query parameter, so refreshed signed tokens made the same playlist appear unique; and Filemoon was only synthesized as `filemoon.* /e/id`, although a maintained public WebteIzle provider maps the observed `filemoon('id')` function to `https://bysezoxexe.com/e/{id}`. The native extractor alone was not enough for wrapper pages that expose the media URL only in their HTML.
-
-### v4 changes
-
-- For HLS/DASH de-duplication, normalize scheme/host/path and keep only stream-identity query fields (`id`, `episode`, `quality`, `variant`, `audio`, `lang`, `source`, `url`, etc.). Ignore CDN auth/nonce/cache query values for the *comparison key only*. The first complete URL, including its usable signature, is still the URL sent to the player.
-- The de-dup key still includes language. A final URL is listed at most once for Dublaj and once for Altyazı; distinct episode/track IDs remain separate.
-- Shorten displayed link labels: `41 • VidMoly • Dublaj`, `42 • Filemoon • Dublaj`, `43 • OK.ru • Altyazı`, `44 • Pixel • Dublaj`. The long resolver class names and generic “Aday” word are removed from final links.
-- Map an observed `filemoon('id')` call first to the WebteIzle wrapper `bysezoxexe.com/e/{id}`, retain known fallback hosts, and classify that wrapper as Filemoon.
-- If the native extractor returns no link for an observed Filemoon, OK.ru, Pixel or PixelDrain player URL, fetch the ordinary player HTML once and scan the page for an absolute HLS/DASH/MP4 URL or a nested iframe. Nested probing is bounded to avoid recursion. A Cloudflare/CAPTCHA response is reported as BLOCKED and is not bypassed.
-- Version bumped to 4. The existing VidMoly HLS URL extraction remains in place; changes on that path are limited to stable de-duplication and shorter output labels.
-
-### v4 status and evidence
-
-The exact v3 symptom was reproduced by inspection of the source logic; the query-key code could distinguish identical HLS paths solely because their short-lived parameters changed. The Filemoon URL mapping is backed by the public [csprofesor/csnuvio WebteIzle provider](https://github.com/csprofesor/csnuvio/blob/799d3b16bd345027314593674be603683a492da3/providers/webteizle.js), which also maps `pixel('id')` to PixelDrain `/u/{id}` and `okru('id')` to `ok.ru/videoembed/{id}`. This establishes observed URL templates in that reference, not that every current WebteIzle embed will play.
-
-**Acceptance:** unit tests cover stable HLS keys with changing opaque parameters while preserving differing episode IDs, and the Filemoon wrapper and host aliases. CI and on-device playback remain separate checks. The new source list is expected to contain only distinct resolved links; a source family that is blocked or cannot produce a media link will not be represented as a fake playable entry.
+Unit tests cover language-route selection, same-site playback discovery, VidMoly-only iframe/function extraction, HLS URL extraction, YouTube suppression and challenge detection. A passing build does not establish live playback success; test a real title in the app to confirm availability and audio/subtitle behavior.

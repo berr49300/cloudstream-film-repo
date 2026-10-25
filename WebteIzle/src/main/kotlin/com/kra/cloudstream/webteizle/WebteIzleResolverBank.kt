@@ -2,775 +2,101 @@ package com.kra.cloudstream.webteizle
 
 import org.jsoup.Jsoup
 import java.net.URI
-import java.util.Base64
-
-internal enum class WebteIzleCandidateKind { PLAYER, MEDIA, SUBTITLE }
-
-internal enum class WebteIzleProbeStatus {
-    CANDIDATE_FOUND,
-    SIGNAL_FOUND,
-    NOT_FOUND,
-    NOT_APPLICABLE,
-    NOT_TESTED
-}
-
-internal data class WebteIzleResolverCandidate(
-    val resolverId: Int,
-    val resolverName: String,
-    val url: String,
-    val kind: WebteIzleCandidateKind,
-    val evidence: String,
-    val language: String? = null,
-    val sourcePageUrl: String? = null,
-    val playerHint: String? = null
-)
-
-internal data class WebteIzleResolverAttempt(
-    val resolverId: Int,
-    val resolverName: String,
-    val status: WebteIzleProbeStatus,
-    val reason: String,
-    val candidates: List<WebteIzleResolverCandidate> = emptyList()
-)
 
 /**
- * Named, non-deduplicating resolver probe bank.
- *
- * Candidates from different resolver IDs intentionally remain separate so the
- * user can compare them in CloudStream. This is a discovery/diagnostic bank;
- * finding a URL is not evidence that it plays. Unsupported or evidence-dependent
- * paths are explicitly reported rather than silently treated as failures.
+ * Small WebteIzle-specific helper set. This provider intentionally supports VidMoly only.
+ * It does not scan arbitrary scripts, try unrelated extractors, or bypass access challenges.
  */
 internal object WebteIzleResolverBank {
-    private data class Definition(val id: Int, val name: String)
+    private val vidMolyHosts = setOf("vidmoly.to", "vidmoly.me", "vidmoly.net", "vidmoly.biz")
 
-    private val definitions = listOf(
-        Definition(1, "Html5SourceResolver"),
-        Definition(2, "LazyDataAttributeResolver"),
-        Definition(3, "SelectedPlayerElementResolver"),
-        Definition(4, "JsonLdMediaResolver"),
-        Definition(5, "EmbeddedJsonResolver"),
-        Definition(6, "HydrationStateResolver"),
-        Definition(7, "PlayerConfigObjectResolver"),
-        Definition(8, "StaticScriptUrlResolver"),
-        Definition(9, "EscapedScriptUrlResolver"),
-        Definition(10, "JavaScriptVariableResolver"),
-        Definition(11, "JavaScriptRuntimeResolver"),
-        Definition(12, "PackedScriptResolver"),
-        Definition(13, "KnownEncodingResolver"),
-        Definition(14, "SiteSpecificObfuscationResolver"),
-        Definition(15, "IframeDiscoveryResolver"),
-        Definition(16, "NestedIframeResolver"),
-        Definition(17, "ExtractorRegistryResolver"),
-        Definition(18, "ObservedRestApiResolver"),
-        Definition(19, "ObservedAjaxResolver"),
-        Definition(20, "GraphQlResolver"),
-        Definition(21, "PlayerIdManifestResolver"),
-        Definition(22, "RedirectChainResolver"),
-        Definition(23, "HlsMasterPlaylistResolver"),
-        Definition(24, "HlsVariantPlaylistResolver"),
-        Definition(25, "DashManifestResolver"),
-        Definition(26, "DirectMediaFileResolver"),
-        Definition(27, "ContainerFormatCandidateResolver"),
-        Definition(28, "SegmentPlaylistResolver"),
-        Definition(29, "BrowserNetworkDiscoveryResolver"),
-        Definition(30, "BlobMediaSourceDiagnostic"),
-        Definition(31, "ServiceWorkerPlaybackDiagnostic"),
-        Definition(32, "SignedUrlResolver"),
-        Definition(33, "HeaderContextResolver"),
-        Definition(34, "SessionDependentSourceDiagnostic"),
-        Definition(35, "AlternateAudioAndSubtitleResolver"),
-        Definition(36, "GenericExtractorFallback"),
-        Definition(37, "ManualNetworkEvidenceResolver"),
-        Definition(38, "KnownPlayerEmbedConfigResolver"),
-        Definition(39, "PixelPlayerConfigDiagnostic"),
-        Definition(40, "KnownHexEncodedPayloadResolver"),
-        Definition(41, "VidMolyMasterPlaylistResolver"),
-        Definition(42, "FilemoonHostVariantResolver"),
-        Definition(43, "OkRuHostVariantResolver"),
-        Definition(44, "PixelObservedPlayerResolver"),
-        Definition(45, "ObservedPlayerPageMediaResolver")
-    )
-
-    private val urlRegex = Regex("""(?i)https?://[^\s"'<>\\]+""")
-    private val keyUrlRegex = Regex(
-        """(?is)["']?(?:file|src|url|source|contentUrl|embedUrl|hls|manifest)["']?\s*:\s*["']([^"']+)["']"""
-    )
-    private val variableUrlRegex = Regex(
-        """(?is)\b(?:var|let|const)\s+[A-Za-z_$][\w$]*\s*=\s*["'](https?://[^"']+)["']"""
-    )
-    private val packerRegex = Regex(
-        """(?is)eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d"""
-    )
-    private val obfuscationRegex = Regex(
-        """(?i)(?:\batob\s*\(|\bfromCharCode\b|\bdc_hello\b|\bdc_[a-z0-9_]+\s*\(|\b_0x[0-9a-f]+\b)"""
-    )
-    // Function-call shape observed in public WebteIzle provider references. The resulting
-    // embed URL templates are hypotheses until confirmed against current site payloads.
-    private val knownPlayerConfigRegex = Regex(
-        """(?i)\b(vidmoly|filemoon|okru)\s*\(\s*['"]([A-Za-z0-9_-]{3,256})['"]\s*,\s*['"]"""
-    )
-    // Some legacy player fragments expose only functionName('id') with no second argument.
-    private val alternativePlayerConfigRegex = Regex(
-        """(?i)\b(filemoon|okru|pixel)\s*\(\s*['"]([^'"]{3,512})['"]"""
-    )
-    private val repeatedHexEscapesRegex = Regex("""(?i)^(?:\\x[0-9a-f]{2}){8,}$""")
-    private val plainHexPayloadRegex = Regex("""(?i)^[0-9a-f]{40,}$""")
-    private val mediaExtensions = setOf("m3u8", "mpd", "mp4", "m4v", "webm", "mkv", "avi", "mov")
-
-    /**
-     * Decode only the observed WebteIzle/PlayerJS-style \\xNN byte sequence (or its
-     * contiguous hex-byte equivalent). Return only absolute HTTP(S) URLs; never guess a host.
-     */
-    internal fun decodeKnownHexUrl(raw: String): String? {
-        val value = raw.trim()
-        val hex = when {
-            repeatedHexEscapesRegex.matches(value) ->
-                value.replace(Regex("""(?i)\\x"""), "")
-            plainHexPayloadRegex.matches(value) && value.length % 2 == 0 -> value
-            else -> return null
-        }
-        val decoded = runCatching {
-            val bytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-            bytes.toString(Charsets.UTF_8)
-        }.getOrNull()?.trim() ?: return null
-        if (!(decoded.startsWith("https://", true) || decoded.startsWith("http://", true))) return null
-        return decoded.takeIf { runCatching { URI(it).host?.isNotBlank() == true }.getOrDefault(false) }
-    }
-
-    private val youtubeHostRoots = setOf(
-        "youtube.com", "youtu.be", "youtube-nocookie.com",
-        "youtube.googleapis.com", "youtubei.googleapis.com", "googlevideo.com"
-    )
-
-    private val knownPlayerFamilies = linkedMapOf(
-        "vidmoly.to" to "VidMoly",
-        "vidmoly.me" to "VidMoly",
-        "vidmoly.net" to "VidMoly",
-        "vidmoly.biz" to "VidMoly",
-        "filemoon.to" to "Filemoon",
-        "filemoon.sx" to "Filemoon",
-        "filemoon.in" to "Filemoon",
-        "bysezoxexe.com" to "Filemoon",
-        "pixeldrain.com" to "PixelDrain",
-        "pixeldrain.dev" to "PixelDrain",
-        "ok.ru" to "OK.ru",
-        "odnoklassniki.ru" to "OK.ru"
-    )
-
-    private fun hostOf(url: String): String? =
-        runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull()
-
-    private fun isWithinHostRoot(host: String, root: String): Boolean =
-        host == root || host.endsWith(".$root")
-
-    /** True for YouTube video/CDN URLs, which this provider must not advertise as film sources. */
-    internal fun isYouTubeUrl(url: String): Boolean {
-        val host = hostOf(url) ?: return false
-        return youtubeHostRoots.any { isWithinHostRoot(host, it) }
-    }
-
-    /** Returns a known third-party player family without accepting lookalike domains. */
-    internal fun playerFamily(url: String): String? {
-        val host = hostOf(url) ?: return null
-        return knownPlayerFamilies.entries.firstOrNull { (root, _) ->
-            isWithinHostRoot(host, root)
-        }?.value
-    }
-
-    internal fun languageBucket(label: String): String = when {
-        label.contains("dublaj", ignoreCase = true) -> "Dublaj"
-        label.contains("altyaz", ignoreCase = true) -> "Altyazı"
-        else -> label.substringBefore(" iframe").substringBefore(" m3u8").trim()
-    }
-
-    /**
-     * Stable final-stream key. Signed CDN URLs often change only expiry/token/signature query
-     * values on each identical embed request. Ignore those volatile keys for comparison while
-     * retaining the first full URL (including its valid signature) for playback.
-     */
-    internal fun emittedMediaKey(language: String, rawUrl: String): String {
-        val volatileQueryKeys = setOf(
-            "token", "access_token", "auth", "authorization", "signature", "sig",
-            "expires", "expiry", "exp", "hdnts", "policy", "key-pair-id", "jwt",
-            "session", "sessionid", "nonce", "timestamp", "ts", "cache", "cachebust",
-            "rand", "random", "ip", "hash", "secure", "st", "e", "s"
-        )
-        val normalized = runCatching {
-            val uri = URI(rawUrl)
-            val scheme = uri.scheme?.lowercase() ?: return@runCatching rawUrl.substringBefore('#')
-            val host = uri.host?.lowercase() ?: return@runCatching rawUrl.substringBefore('#')
-            val defaultPort = (scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)
-            val port = if (uri.port >= 0 && !defaultPort) ":" + uri.port.toString() else ""
-            val path = uri.normalize().rawPath.orEmpty()
-            val isPlaylist = path.substringAfterLast('.', "").lowercase() in setOf("m3u8", "mpd")
-            val stablePlaybackKeys = setOf(
-                "id", "video", "videoid", "episode", "episodeid", "file", "filename",
-                "quality", "variant", "audio", "lang", "language", "track", "type",
-                "format", "source", "playlist", "stream", "v", "height", "width", "url"
-            )
-            val stableQuery = uri.rawQuery.orEmpty()
-                .split('&')
-                .filter { it.isNotBlank() }
-                .filter { pair ->
-                    val key = pair.substringBefore('=').lowercase()
-                        .replace(Regex("""[^a-z0-9_\-]"""), "")
-                    if (isPlaylist) {
-                        // For master playlists, CDN auth/nonce/cache keys are routinely refreshed
-                        // for the same stream. Keep only parameters that identify the actual track.
-                        key in stablePlaybackKeys
-                    } else {
-                        key !in volatileQueryKeys &&
-                            !key.startsWith("utm_") &&
-                            !key.startsWith("x-amz-") &&
-                            !key.startsWith("x-goog-") &&
-                            !key.startsWith("cf_")
-                    }
-                }
-                .sorted()
-                .joinToString("&")
-            val query = if (stableQuery.isBlank()) "" else "?" + stableQuery
-            scheme + "://" + host + port + path + query
-        }.getOrDefault(rawUrl.substringBefore('#'))
-        return languageBucket(language) + "|" + normalized
-    }
-
-    /** Alternative list ordinals (for example 1/2) are not video resolutions. */
-    internal fun validQualityHint(value: Int?): Int? = value?.takeIf { it in 144..4320 }
-
-    /**
-     * Generates only known native-extractor host variants for an already observed Filemoon or
-     * OK.ru player URL. Path, query/signature and fragment are preserved; no IDs/hosts are guessed.
-     */
-    internal fun playerHostVariants(url: String, family: String?): List<String> {
-        val host = hostOf(url) ?: return listOf(url)
-        val targets = when {
-            family.equals("Filemoon", ignoreCase = true) &&
-                host in setOf("bysezoxexe.com", "filemoon.to", "filemoon.sx", "filemoon.in") ->
-                listOf("bysezoxexe.com", "filemoon.to", "filemoon.sx", "filemoon.in")
-            family.equals("OK.ru", ignoreCase = true) &&
-                host in setOf("ok.ru", "m.ok.ru", "odnoklassniki.ru") ->
-                listOf("odnoklassniki.ru", "ok.ru", "m.ok.ru")
-            family.equals("PixelDrain", ignoreCase = true) &&
-                host in setOf("pixeldrain.com", "pixeldrain.dev") ->
-                listOf("pixeldrain.com", "pixeldrain.dev")
-            else -> return listOf(url)
-        }
-        val authorityPattern = Regex("(?i)(://)(?:www\\.)?" + Regex.escape(host))
-        return (listOf(url) + targets.filterNot { it == host }.mapNotNull { target ->
-            val pattern = authorityPattern
-            if (!pattern.containsMatchIn(url)) null
-            else pattern.replace(url) { match -> match.groupValues[1] + target }
-        }).distinct()
-    }
-
-    /** Detects visible access challenges; detection is diagnostic, never a bypass. */
     internal fun isAccessChallenge(html: String): Boolean =
         Regex(
-            """(?is)(cf-chl-|challenge-platform|/cdn-cgi/challenge-platform|verify you are human|just a moment\.\.\.|checking your browser|attention required!\s*\|\s*cloudflare|captcha|access denied|login required|error 1020|error 1015)"""
+            """(?is)(cf-chl-|challenge-platform|/cdn-cgi/challenge-platform|verify you are human|just a moment\.\.\.|checking your browser|attention required!\s*\|\s*cloudflare|captcha|access denied|error 1020|error 1015)"""
         ).containsMatchIn(html)
 
-    fun inspect(
-        html: String,
-        baseUrl: String,
-        observedAjaxResponse: Boolean = false,
-        manualNetworkEvidence: List<String> = emptyList(),
-        nestedIframeUrls: List<String>? = null,
-        hintedPlayerName: String? = null,
-        refererUrl: String = baseUrl
-    ): List<WebteIzleResolverAttempt> {
-        val document = Jsoup.parse(html, baseUrl)
-        val scripts = document.select("script").map { it.data().ifBlank { it.html() } }
-        val normalizedHtml = normalizeEscapes(html)
-        val candidates = mutableMapOf<Int, MutableList<WebteIzleResolverCandidate>>()
-        val signals = mutableMapOf<Int, String>()
-        val explicitStatuses = mutableMapOf<Int, Pair<WebteIzleProbeStatus, String>>()
-
-        fun signal(id: Int, reason: String) {
-            signals.putIfAbsent(id, reason)
-        }
-
-        fun add(
-            id: Int,
-            rawUrl: String?,
-            evidence: String,
-            kindOverride: WebteIzleCandidateKind? = null,
-            language: String? = null
-        ) {
-            val url = normalizeUrl(rawUrl, baseUrl) ?: return
-            if (isYouTubeUrl(url)) {
-                signal(
-                    id,
-                    "Filtered YouTube URL: trailer/behind-the-scenes links are not accepted as WebteIzle publication sources."
-                )
-                return
-            }
-            if (isStaticAsset(url) && kindOverride != WebteIzleCandidateKind.SUBTITLE) return
-            if (url.startsWith("blob:", ignoreCase = true)) {
-                signal(30, "blob: URL observed; it is not treated as a portable media URL.")
-                return
-            }
-            if (!isPlausibleCandidate(url, kindOverride, evidence)) return
-            val definition = definitions.firstOrNull { it.id == id } ?: return
-            val item = WebteIzleResolverCandidate(
-                resolverId = id,
-                resolverName = definition.name,
-                url = url,
-                kind = kindOverride ?: classify(url),
-                evidence = evidence,
-                language = language,
-                sourcePageUrl = refererUrl,
-                playerHint = hintedPlayerName?.takeIf { it.isNotBlank() }
-            )
-            val list = candidates.getOrPut(id) { mutableListOf() }
-            if (list.none { it.url == item.url && it.kind == item.kind && it.language == item.language }) {
-                list += item
-            }
-            // For Pixel, mirror only an actually observed player URL; never derive an unknown
-            // hostname or URL from the source label/ID.
-            if (id != 44 && hintedPlayerName.equals("Pixel", ignoreCase = true) &&
-                item.kind == WebteIzleCandidateKind.PLAYER &&
-                playerFamily(item.url) == null
-            ) {
-                val pixelDefinition = definitions.first { it.id == 44 }
-                val pixelCandidate = item.copy(
-                    resolverId = 44,
-                    resolverName = pixelDefinition.name,
-                    evidence = "observed iframe/player URL returned for the site's Pixel alternative"
-                )
-                val pixelList = candidates.getOrPut(44) { mutableListOf() }
-                if (pixelList.none { it.url == pixelCandidate.url && it.kind == pixelCandidate.kind }) {
-                    pixelList += pixelCandidate
-                }
-            }
-        }
-
-        // 01 — actual HTML media elements and their nested <source> nodes.
-        document.select("video[src], video source[src], audio[src], audio source[src], source[src]")
-            .forEach { add(1, it.attr("src"), "<${it.tagName()}> src attribute") }
-
-        // 02 — lazy data fields, excluding image posters and ordinary page assets.
-        document.select("[data-src], [data-url], [data-file]").forEach { element ->
-            if (element.tagName() in setOf("img", "picture", "source") &&
-                element.attr("src").matches(Regex("(?i).*\\.(?:jpg|jpeg|png|gif|webp|avif)(?:[?#].*)?$"))) {
-                return@forEach
-            }
-            listOf("data-src", "data-url", "data-file").forEach { attr ->
-                if (element.hasAttr(attr)) add(2, element.attr(attr), "${element.tagName()}[$attr]")
-            }
-        }
-
-        // 03 — explicit player containers, with no assumption that every site uses the same ID.
-        document.select("#player, #video, #diziyouSource, [id*=player], [id*=video]")
-            .forEach { element ->
-                listOf("src", "data-src", "data-url", "data-file").forEach { attr ->
-                    if (element.hasAttr(attr)) add(3, element.attr(attr), "observed player-like element #${element.id()} attr=$attr")
-                }
-            }
-
-        // 04 — only media-related JSON-LD fields; a page's canonical "url" is not enough.
-        document.select("script[type=application/ld+json]").forEach { script ->
-            val body = script.data().ifBlank { script.html() }
-            Regex("""(?is)["'](?:contentUrl|embedUrl)["']\s*:\s*["']([^"']+)["']""")
-                .findAll(body).forEach { add(4, it.groupValues[1], "JSON-LD media field") }
-            Regex("""(?is)["']url["']\s*:\s*["'](https?://[^"']+)["']""")
-                .findAll(body).forEach {
-                    val value = it.groupValues[1]
-                    if (looksLikeMediaOrPlayer(value)) add(4, value, "JSON-LD url field with media/player shape")
-                }
-        }
-
-        // 05 — embedded JSON/config blocks.
-        document.select("script[type=application/json], script[type*=json]").forEach { script ->
-            keyUrlRegex.findAll(script.data().ifBlank { script.html() }).forEach {
-                add(5, it.groupValues[1], "embedded JSON media key")
-            }
-        }
-        scripts.filter { it.contains("sources", true) || it.contains("contentUrl", true) }
-            .forEach { body ->
-                keyUrlRegex.findAll(body).forEach {
-                    add(5, it.groupValues[1], "inline embedded JSON-like media key")
-                }
-            }
-
-        // 06 — hydration state is scanned only when its marker is really present.
-        scripts.filter {
-            it.contains("__NEXT_DATA__") || it.contains("__NUXT__") ||
-                it.contains("__INITIAL_STATE__") || it.contains("__INITIAL_DATA__")
-        }.forEach { body ->
-            signal(6, "hydration/initial-state marker found; URLs below are candidates only.")
-            urlRegex.findAll(normalizeEscapes(body)).forEach {
-                add(6, it.value, "URL literal inside hydration state")
-            }
-        }
-
-        // 07 — player-config objects with a file/src/url/source key.
-        keyUrlRegex.findAll(normalizedHtml).forEach {
-            add(7, it.groupValues[1], "player configuration key/value")
-        }
-
-        // 08 — static URL literals in script text; only player/media-looking URLs qualify.
-        scripts.forEach { body ->
-            urlRegex.findAll(normalizeEscapes(body)).forEach {
-                val value = it.value.trimEnd(',', ';', ')', ']', '}')
-                if (looksLikeMediaOrPlayer(value)) add(8, value, "static script URL literal")
-            }
-        }
-
-        // 09 — escaped URL literals after narrowly normalizing common JS escapes.
-        val escaped = normalizeEscapes(html)
-        if (escaped != html) {
-            urlRegex.findAll(escaped).forEach {
-                val value = it.value.trimEnd(',', ';', ')', ']', '}')
-                if (looksLikeMediaOrPlayer(value)) add(9, value, "escaped script URL normalized")
-            }
-        }
-
-        // 10 — URL-valued JavaScript variables, kept separate from broad static scans.
-        variableUrlRegex.findAll(escaped).forEach {
-            add(10, it.groupValues[1], "URL assigned to a JavaScript variable")
-        }
-
-        // 11 — no JavaScript runtime is executed by this static probe.
-        explicitStatuses[11] = WebteIzleProbeStatus.NOT_APPLICABLE to
-            "Static inspection only; no JavaScript runtime is configured or executed."
-
-        // 12 — detect packed code, but do not claim it was unpacked.
-        if (scripts.any { packerRegex.containsMatchIn(it) }) {
-            signal(12, "P.A.C.K.E.R.-style signature detected; unpacking is not confirmed by this probe.")
-        }
-
-        // 13 — decode only values explicitly passed to atob(), and only emit URL-shaped results.
-        Regex("""(?is)\batob\s*\(\s*["']([A-Za-z0-9+/=]{12,})["']\s*\)""")
-            .findAll(html).forEach { match ->
-                val decoded = runCatching {
-                    String(Base64.getDecoder().decode(match.groupValues[1]), Charsets.UTF_8)
-                }.getOrNull() ?: return@forEach
-                urlRegex.findAll(normalizeEscapes(decoded)).forEach {
-                    add(13, it.value, "URL recovered from an observed atob() argument")
-                }
-            }
-
-        // 14 — record obfuscation signatures; no guessed decoding or domain synthesis.
-        if (scripts.any { obfuscationRegex.containsMatchIn(it) }) {
-            signal(14, "Obfuscation marker detected; no site-specific transform is proven.")
-        }
-
-        // 38 — recover the player family and content ID from an observed legacy player function.
-        // These templates come from public CloudStream provider references, not from bypassing
-        // Cloudflare or from arbitrary ID-to-URL guessing. Both observed VidMoly host variants
-        // are retained as separate test candidates because old references disagree on the host.
-        knownPlayerConfigRegex.findAll(html).forEach { match ->
-                val family = match.groupValues[1].lowercase()
-                val playerId = match.groupValues[2]
-                when (family) {
-                    "vidmoly" -> {
-                        add(
-                            38,
-                            "https://vidmoly.net/embed-$playerId.html",
-                            "observed vidmoly(id, ...) call; .net template hypothesis from public provider reference",
-                            WebteIzleCandidateKind.PLAYER
-                        )
-                        add(
-                            38,
-                            "https://vidmoly.to/embed-$playerId.html",
-                            "observed vidmoly(id, ...) call; .to template hypothesis from another public provider reference",
-                            WebteIzleCandidateKind.PLAYER
-                        )
-                        add(
-                            38,
-                            "https://vidmoly.biz/embed-$playerId.html",
-                            "observed vidmoly(id, ...) call; .biz template hypothesis from a maintained public WebteIzle provider reference",
-                            WebteIzleCandidateKind.PLAYER
-                        )
-                    }
-                    "filemoon" -> add(
-                        38,
-                        "https://bysezoxexe.com/e/$playerId",
-                        "observed filemoon(id, ...) call; public WebteIzle-provider reference maps it to bysezoxexe.com/e/id",
-                        WebteIzleCandidateKind.PLAYER
-                    )
-                    "okru" -> add(
-                        38,
-                        "https://odnoklassniki.ru/videoembed/$playerId",
-                        "observed okru(id, ...) call; videoembed template hypothesis from public provider reference",
-                        WebteIzleCandidateKind.PLAYER
-                    )
-                }
-        }
-
-        // 42/43 — host-specific alternatives from observed Filemoon/OK.ru function configs.
-        // URL variants are derived only after that family's function call and source ID were found.
-        alternativePlayerConfigRegex.findAll(html).forEach { match ->
-            val family = match.groupValues[1].lowercase()
-            val playerId = match.groupValues[2]
-            when (family) {
-                "filemoon" -> {
-                    add(42, "https://bysezoxexe.com/e/" + playerId, "observed filemoon(id) config; public WebteIzle-provider wrapper template", WebteIzleCandidateKind.PLAYER)
-                    add(42, "https://filemoon.to/e/" + playerId, "observed filemoon(id) config; native CloudStream .to extractor variant", WebteIzleCandidateKind.PLAYER)
-                    add(42, "https://filemoon.sx/e/" + playerId, "observed filemoon(id) config; native CloudStream .sx extractor variant", WebteIzleCandidateKind.PLAYER)
-                    add(42, "https://filemoon.in/e/" + playerId, "observed filemoon(id) config; native CloudStream .in extractor variant", WebteIzleCandidateKind.PLAYER)
-                }
-                "okru" -> {
-                    add(43, "https://odnoklassniki.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream Odnoklassniki extractor variant", WebteIzleCandidateKind.PLAYER)
-                    add(43, "https://ok.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream OK.ru extractor variant", WebteIzleCandidateKind.PLAYER)
-                    add(43, "https://m.ok.ru/videoembed/" + playerId, "observed okru(id) config; native CloudStream mobile extractor variant", WebteIzleCandidateKind.PLAYER)
-                }
-                "pixel" -> {
-                    add(44, "https://pixeldrain.com/u/" + playerId, "observed pixel(id) config; WebteIzle public-provider reference maps Pixel to PixelDrain /u/id", WebteIzleCandidateKind.PLAYER)
-                    add(44, "https://pixeldrain.dev/u/" + playerId, "observed pixel(id) config; PixelDrain alternate host for native extractor compatibility", WebteIzleCandidateKind.PLAYER)
-                }
-            }
-        }
-
-        // 39 — the source-list label may mention Pixel while the embed fragment contains no
-        // verified host URL or mapping function. Record the signal, but deliberately do not
-        // fabricate a Pixel domain/URL. The actual current host must be observed first.
-        if (hintedPlayerName?.contains("pixel", ignoreCase = true) == true ||
-            Regex("""(?i)\bpixel(?:player)?\s*\(""").containsMatchIn(html)
-        ) {
-            signal(
-                39,
-                "Pixel player hint observed, but no verified URL template/host mapping is known; no URL synthesized. Inspect the actual embed response; Cloudflare/Turnstile, if present, remains BLOCKED."
-            )
-        }
-
-        // 40 — known hex encoding seen in legacy WebteIzle/PlayerJS-style player payloads.
-        // The decoder accepts only byte-pair sequences that produce an absolute HTTP(S)
-        // URL with a media-file extension. It does not execute scripts or invent a host.
-        val hexValuePatterns = listOf(
-            Regex("""(?is)\b(?:file|src|url)\s*[:=]\s*["']([^"']{24,})["']"""),
-            Regex("""(?is)[?&]v=([^&#"'\s]+)""")
-        )
-        hexValuePatterns.forEach { pattern ->
-            pattern.findAll(normalizedHtml).forEach { match ->
-                val decodedUrl = decodeKnownHexUrl(match.groupValues[1]) ?: return@forEach
-                if (extension(decodedUrl) in mediaExtensions) {
-                    add(
-                        40,
-                        decodedUrl,
-                        "URL decoded from an observed \\xNN/hex payload in a player config or v= parameter",
-                        WebteIzleCandidateKind.MEDIA
-                    )
-                }
-            }
-        }
-
-        // 15 — direct iframe discovery.
-        document.select("iframe[src], iframe[data-src]").forEach { element ->
-            val value = element.attr("src").ifBlank { element.attr("data-src") }
-            add(15, value, "iframe src/data-src", WebteIzleCandidateKind.PLAYER)
-        }
-
-        // 16 — these URLs may only be supplied after a parent iframe was fetched separately.
-        if (nestedIframeUrls == null) {
-            explicitStatuses[16] = WebteIzleProbeStatus.NOT_TESTED to
-                "A child iframe must be fetched separately with bounded depth; the current document alone cannot prove its chain."
-        } else {
-            nestedIframeUrls.forEach {
-                add(16, it, "iframe discovered in a separately fetched child-player document", WebteIzleCandidateKind.PLAYER)
-            }
-            if (nestedIframeUrls.isEmpty()) {
-                explicitStatuses[16] = WebteIzleProbeStatus.NOT_FOUND to
-                    "One child-player document was fetched; it contained no nested iframe URL."
-            }
-        }
-
-        // 17 — an iframe/player candidate is routed through CloudStream's extractor registry.
-        val playerUrls = candidates.values.flatten()
-            .filter { it.kind == WebteIzleCandidateKind.PLAYER }
-            .map { it.url }.distinct()
-        playerUrls.forEach { add(17, it, "player candidate handed to loadExtractor", WebteIzleCandidateKind.PLAYER) }
-
-        // 18/19/20 — endpoint shape is evidence for investigation, not a playable media URL.
-        if (scripts.any { Regex("""(?i)(/api/|axios\.|fetch\s*\()""").containsMatchIn(it) }) {
-            signal(18, "REST-like/API call marker found; live request/response schema not inferred here.")
-        }
-        if (observedAjaxResponse || scripts.any {
-                Regex("""(?i)(XMLHttpRequest|/ajax/|\.asp(?:\?|['"]|$))""").containsMatchIn(it)
-            }) {
-            signal(19, if (observedAjaxResponse) {
-                "Provider received a response from an AJAX endpoint; its payload was processed separately."
-            } else {
-                "AJAX/XHR endpoint marker found; response semantics still need validation."
-            })
-        }
-        if (Regex("""(?i)(graphql|/gql(?:/|['"?])|application/graphql)""").containsMatchIn(html)) {
-            signal(20, "GraphQL marker found; no query or response is assumed.")
-        }
-
-        // 21 — no manifest URL is synthesized from IDs without an observed mapping template.
-        explicitStatuses[21] = WebteIzleProbeStatus.NOT_APPLICABLE to
-            "No verified player-ID-to-manifest template; URL synthesis is deliberately disabled."
-
-        // 22 — static source text cannot validate redirect status/location headers.
-        explicitStatuses[22] = WebteIzleProbeStatus.NOT_TESTED to
-            "HTTP redirect metadata is required; a source URL alone is not a redirect-chain test."
-
-        // 23/25/26/27 — media types are independent candidates, not discovery strategies.
-        val firstPass = candidates.values.flatten().distinctBy { "${it.resolverId}|${it.url}|${it.kind}" }
-        firstPass.forEach { candidate ->
-            when {
-                extension(candidate.url) == "m3u8" ->
-                    add(23, candidate.url, "M3U8 candidate found by upstream resolver", WebteIzleCandidateKind.MEDIA)
-                extension(candidate.url) == "mpd" ->
-                    add(25, candidate.url, "MPD candidate found by upstream resolver", WebteIzleCandidateKind.MEDIA)
-                extension(candidate.url) in setOf("mp4", "m4v", "webm") ->
-                    add(26, candidate.url, "direct media-file candidate found by upstream resolver", WebteIzleCandidateKind.MEDIA)
-                extension(candidate.url) in setOf("mkv", "avi", "mov") ->
-                    add(27, candidate.url, "container extension candidate found by upstream resolver", WebteIzleCandidateKind.MEDIA)
-            }
-        }
-
-        // 24 — inspect a manifest body only if a manifest was actually supplied as the input.
-        if (html.contains("#EXT-X-STREAM-INF")) {
-            val lines = html.lines()
-            lines.forEachIndexed { index, line ->
-                if (line.contains("#EXT-X-STREAM-INF") && index + 1 < lines.size) {
-                    add(24, lines[index + 1].trim(), "variant playlist referenced by HLS master", WebteIzleCandidateKind.MEDIA)
-                }
-            }
-            signal(24, "HLS master playlist marker found; variants are listed as distinct candidates.")
-        }
-
-        // 28 — segments are diagnostic signals, not standalone full-video links.
-        if (html.contains("#EXTM3U") && Regex("""(?i)(\.ts|\.m4s)(?:[?#]|$)""").containsMatchIn(html)) {
-            signal(28, "Playlist segment references found; individual TS/M4S segments are not emitted as full videos.")
-        }
-
-        explicitStatuses[29] = WebteIzleProbeStatus.NOT_TESTED to
-            "Requires user/browser developer-tools network evidence; none was supplied to this static scan."
-
-        if (Regex("""(?i)blob:[^"'\s<>]+""").containsMatchIn(html)) {
-            signal(30, "blob: URL marker found; trace the underlying MediaSource/network stream instead.")
-        }
-        if (Regex("""(?i)(navigator\.serviceWorker|serviceWorker\.register)""").containsMatchIn(html)) {
-            signal(31, "Service Worker marker found; CloudStream is not assumed to provide browser SW context.")
-        }
-
-        // 32 — signed URLs remain in memory for playback but never enter candidate labels or logs.
-        val signedParam = Regex("""(?i)[?&](?:token|sig|signature|expires|exp|auth_key|policy)=([^&#]+)""")
-        candidates.values.flatten().filter { signedParam.containsMatchIn(it.url) }.toList()
-            .forEach { add(32, it.url, "signed/expiring URL candidate (query values are not logged)", it.kind) }
-
-        // 33 — do not invent header variations; use only the known page as the referer baseline.
-        explicitStatuses[33] = WebteIzleProbeStatus.NOT_TESTED to
-            "Referer is passed from the observed parent page; alternative headers are not guessed."
-
-        if (isAccessChallenge(html)) {
-            signal(34, "Access/session challenge marker detected; no access control is bypassed.")
-        } else {
-            explicitStatuses[34] = WebteIzleProbeStatus.NOT_TESTED to
-                "Static page text cannot rule session dependence in or out without status/header comparisons."
-        }
-
-        // 35 — HTML tracks and HLS audio/subtitle declarations.
-        document.select("track[src], [data-subtitle], [data-caption]").forEach { element ->
-            val raw = element.attr("src").ifBlank {
-                element.attr("data-subtitle").ifBlank { element.attr("data-caption") }
-            }
-            val lang = element.attr("srclang").ifBlank {
-                element.attr("label").ifBlank { "Altyazı" }
-            }
-            add(35, raw, "subtitle/track attribute", WebteIzleCandidateKind.SUBTITLE, lang)
-        }
-        Regex("""(?is)#EXT-X-MEDIA:[^\r\n]*(?:TYPE=SUBTITLES|TYPE=AUDIO)[^\r\n]*URI=["']([^"']+)["']""")
-            .findAll(html).forEach {
-                val line = it.value
-                val lang = Regex("""(?i)LANGUAGE=["']([^"']+)["']""").find(line)?.groupValues?.get(1)
-                    ?: if (line.contains("SUBTITLES")) "Altyazı" else "Ses"
-                add(35, it.groupValues[1], "HLS audio/subtitle group URI", WebteIzleCandidateKind.SUBTITLE, lang)
-            }
-
-        // 36 — generic extractor fallback is intentionally separate from the registry path.
-        playerUrls.forEach { add(36, it, "generic extractor fallback for a player candidate", WebteIzleCandidateKind.PLAYER) }
-
-        if (manualNetworkEvidence.isNotEmpty()) {
-            manualNetworkEvidence.forEach { add(37, it, "user-provided manual network evidence") }
-        } else {
-            explicitStatuses[37] = WebteIzleProbeStatus.NOT_TESTED to
-                "No manual browser/CloudStream network evidence has been supplied yet."
-        }
-
-        return definitions.map { definition ->
-            val found = candidates[definition.id].orEmpty().toList()
-            val explicit = explicitStatuses[definition.id]
-            val signal = signals[definition.id]
-            val status = when {
-                found.isNotEmpty() -> WebteIzleProbeStatus.CANDIDATE_FOUND
-                signal != null -> WebteIzleProbeStatus.SIGNAL_FOUND
-                explicit != null -> explicit.first
-                else -> WebteIzleProbeStatus.NOT_FOUND
-            }
-            val reason = when {
-                found.isNotEmpty() -> "${found.size} candidate(s); playback remains unverified."
-                signal != null -> signal
-                explicit != null -> explicit.second
-                else -> "No matching signal in the supplied HTML/input; this is not proof the method never works."
-            }
-            WebteIzleResolverAttempt(definition.id, definition.name, status, reason, found)
+    internal fun playbackLanguage(url: String): Pair<String, String>? {
+        val path = runCatching { URI(url).path }.getOrNull() ?: return null
+        return when {
+            path.contains("/izle/dublaj/", ignoreCase = true) -> "0" to "Dublaj"
+            path.contains("/izle/altyazi/", ignoreCase = true) -> "1" to "Altyazı"
+            else -> null
         }
     }
 
-
-    /**
-     * Reads the plain JWPlayer-style HLS file field used by observed VidMoly embed pages.
-     * This is a parser only; fetching the page and access checks remain the caller's job.
-     */
-    internal fun extractVidMolyMasterPlaylist(html: String): String? {
-        val normalized = normalizeEscapes(html)
-        val raw = Regex("""(?is)\bfile\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
-            .find(normalized)?.groupValues?.get(1) ?: return null
-        val value = raw.trim()
-        if (isYouTubeUrl(value)) return null
-        return value.takeIf {
-            (it.startsWith("https://", true) || it.startsWith("http://", true)) &&
-                extension(it) == "m3u8" &&
-                runCatching { URI(it).host?.isNotBlank() == true }.getOrDefault(false)
-        }
-    }
-
-    /**
-     * Finds only real same-site playback routes from a detail page.
-     * The movie detail URL and a YouTube trailer URL are never used as a playback route.
-     */
     internal fun findPlaybackPageUrls(html: String, baseUrl: String, siteBaseUrl: String): List<String> {
-        val expectedHost = runCatching { URI(siteBaseUrl).host }.getOrNull() ?: return emptyList()
-        val document = Jsoup.parse(html, baseUrl)
-        return document.select("a[href*='/izle/altyazi/'], a[href*='/izle/dublaj/']")
+        val expectedHost = runCatching { URI(siteBaseUrl).host?.lowercase() }.getOrNull() ?: return emptyList()
+        return Jsoup.parse(html, baseUrl)
+            .select("a[href*='/izle/altyazi/'], a[href*='/izle/dublaj/']")
             .mapNotNull { anchor ->
                 val url = normalizeUrl(anchor.attr("href"), baseUrl) ?: return@mapNotNull null
                 val uri = runCatching { URI(url) }.getOrNull() ?: return@mapNotNull null
-                val host = uri.host ?: return@mapNotNull null
-                if (!host.equals(expectedHost, ignoreCase = true)) return@mapNotNull null
-                if (!uri.path.contains("/izle/altyazi/", ignoreCase = true) &&
-                    !uri.path.contains("/izle/dublaj/", ignoreCase = true)
-                ) return@mapNotNull null
+                if (uri.host?.lowercase() != expectedHost) return@mapNotNull null
+                if (playbackLanguage(url) == null) return@mapNotNull null
                 url
             }
             .distinct()
     }
 
-    /** Extract iframe URLs from one explicitly fetched child page (caller enforces depth/cycle limits). */
-    fun findIframeUrls(html: String, baseUrl: String): List<String> {
+    /**
+     * Keep only observed VidMoly iframe URLs. If the site's raw AJAX fragment exposes the known
+     * vidmoly('id', ...) call instead, make a short list of documented VidMoly embed hosts and try
+     * them sequentially. The caller emits only the first playable result for the language.
+     */
+    internal fun findVidMolyPlayerUrls(html: String, baseUrl: String): List<String> {
+        val result = linkedSetOf<String>()
         val doc = Jsoup.parse(html, baseUrl)
-        return doc.select("iframe[src], iframe[data-src]")
-            .mapNotNull { element ->
-                val raw = element.attr("src").ifBlank { element.attr("data-src") }
-                normalizeUrl(raw, baseUrl)
+        doc.select("iframe[src], iframe[data-src]").forEach { frame ->
+            val raw = frame.attr("src").ifBlank { frame.attr("data-src") }
+            val url = normalizeUrl(raw, baseUrl) ?: return@forEach
+            if (isVidMolyUrl(url)) result += url
+        }
+        val idRegex = Regex("""(?i)\bvidmoly\s*\(\s*['"]([A-Za-z0-9_-]{3,256})['"]""")
+        idRegex.findAll(normalizeEscapes(html)).forEach { match ->
+            val id = match.groupValues[1]
+            listOf("biz", "net", "to", "me").forEach { suffix ->
+                result += "https://vidmoly.$suffix/embed-$id.html"
             }
-            .distinct()
+        }
+        return result.toList()
+    }
+
+    internal fun isVidMolyUrl(url: String): Boolean {
+        val host = runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull() ?: return false
+        return vidMolyHosts.any { host == it || host.endsWith(".$it") }
+    }
+
+    internal fun isYouTubeUrl(url: String): Boolean {
+        val host = runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull() ?: return false
+        return host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host == "youtu.be" || host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||
+            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
+    }
+
+    internal fun extractVidMolyMasterPlaylist(html: String): String? {
+        val normalized = normalizeEscapes(html)
+        val raw = Regex("""(?is)\bfile\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]""")
+            .find(normalized)?.groupValues?.get(1) ?: return null
+        if (!raw.startsWith("http://", true) &&
+            !raw.startsWith("https://", true) &&
+            !raw.startsWith("//")
+        ) return null
+        val value = normalizeUrl(raw, "https://vidmoly.biz/") ?: return null
+        if (isYouTubeUrl(value)) return null
+        return value.takeIf {
+            it.substringBefore('#').substringBefore('?').endsWith(".m3u8", ignoreCase = true)
+        }
     }
 
     private fun normalizeUrl(raw: String?, baseUrl: String): String? {
         if (raw.isNullOrBlank()) return null
-        val value = normalizeEscapes(raw.trim().trim('"', '\'', '`')).trimEnd(';', ',')
+        val value = normalizeEscapes(raw.trim().trim('"', '\'')).trimEnd(';', ',')
         if (value.startsWith("blob:", true) || value.startsWith("data:", true)) return null
         return runCatching {
-            val resolved = if (value.startsWith("//")) "https:$value"
+            val absolute = if (value.startsWith("//")) "https:$value"
                 else if (value.startsWith("http://", true) || value.startsWith("https://", true)) value
                 else URI(baseUrl).resolve(value).toString()
-            resolved.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
+            absolute.takeIf { it.startsWith("https://", true) || it.startsWith("http://", true) }
         }.getOrNull()
     }
 
@@ -780,41 +106,4 @@ internal object WebteIzleResolverBank {
         .replace("\\u0026", "&", ignoreCase = true)
         .replace("\\x26", "&", ignoreCase = true)
         .replace("&amp;", "&", ignoreCase = true)
-
-    private fun extension(url: String): String =
-        url.substringBefore('#').substringBefore('?').substringAfterLast('.', "").lowercase()
-
-    private fun classify(url: String): WebteIzleCandidateKind =
-        if (extension(url) in setOf("m3u8", "mpd", "mp4", "m4v", "webm", "mkv", "avi", "mov", "ts", "m4s")) {
-            WebteIzleCandidateKind.MEDIA
-        } else if (extension(url) in setOf("vtt", "srt", "ass", "ssa")) {
-            WebteIzleCandidateKind.SUBTITLE
-        } else {
-            WebteIzleCandidateKind.PLAYER
-        }
-
-    private fun isStaticAsset(url: String): Boolean =
-        extension(url) in setOf("jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "css", "js", "woff", "woff2", "ttf", "ico")
-
-    private fun isPlausibleCandidate(
-        url: String,
-        kindOverride: WebteIzleCandidateKind?,
-        evidence: String
-    ): Boolean {
-        if (kindOverride == WebteIzleCandidateKind.SUBTITLE) return true
-        if (playerFamily(url) != null) return true
-        if (looksLikeMediaOrPlayer(url)) return true
-        return evidence.contains("iframe", true) || evidence.contains("player", true)
-    }
-
-    private fun looksLikeMediaOrPlayer(url: String): Boolean {
-        val path = url.substringBefore('#').substringBefore('?').lowercase()
-        val ext = extension(url)
-        if (ext in setOf("m3u8", "mpd", "mp4", "m4v", "webm", "mkv", "avi", "mov", "ts", "m4s", "vtt", "srt", "ass", "ssa")) {
-            return true
-        }
-        return playerFamily(url) != null ||
-            listOf("/embed", "/player", "/video", "/stream", "/watch", "/e/")
-                .any { it in path }
-    }
 }

@@ -1,475 +1,119 @@
 package com.kra.cloudstream.webteizle
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllFortyFiveUniqueResolverIdsAndNames() {
-        val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..45).toList(), attempts.map { it.resolverId })
-        assertEquals(45, attempts.map { it.resolverName }.distinct().size)
-        assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
-        assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
-    }
-
-    @Test
-    fun sourceCandidatesKeepTheirResolverIdsAndLanguageTracks() {
-        val html = """
-            <!doctype html>
-            <html><head>
-              <script>
-                const primarySource = "https://cdn.example/movie.mp4";
-                var player = {"file":"https://cdn.example/cast.m3u8"};
-                var escapedSource = "https:\/\/cdn.example/escaped.m3u8";
-                var encodedSource = atob("aHR0cHM6Ly9jZG4uZXhhbXBsZS9jb2RlZC5tcDQ=");
-              </script>
-            </head><body>
-              <video><source src="https://cdn.example/native.m3u8"></video>
-              <div data-url="https://player.example/embed/data-url"></div>
-              <iframe src="https://player.example/embed/iframe"></iframe>
-              <track kind="subtitles" srclang="tr" label="Türkçe" src="/subs/tr.vtt">
-            </body></html>
-        """.trimIndent()
-
-        val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/hakkinda/sample")
-        fun attempt(id: Int) = attempts.first { it.resolverId == id }
-
-        assertTrue(attempt(1).candidates.any { it.url == "https://cdn.example/native.m3u8" })
-        assertTrue(attempt(2).candidates.any { it.url == "https://player.example/embed/data-url" })
-        assertTrue(attempt(10).candidates.any { it.url == "https://cdn.example/movie.mp4" })
-        assertTrue(attempt(13).candidates.any { it.url == "https://cdn.example/coded.mp4" })
-        assertTrue(attempt(15).candidates.any { it.url == "https://player.example/embed/iframe" })
-        assertTrue(attempt(17).candidates.any { it.url == "https://player.example/embed/iframe" })
-        assertTrue(attempt(23).candidates.any { it.url == "https://cdn.example/native.m3u8" })
-        assertTrue(attempt(26).candidates.any { it.url == "https://cdn.example/movie.mp4" })
-
-        val subtitle = attempt(35).candidates.firstOrNull { it.url == "https://webteizle.info/subs/tr.vtt" }
-        assertNotNull(subtitle)
-        assertEquals("tr", subtitle!!.language)
-    }
-
-    @Test
-    fun hlsVariantsAndSegmentsAreNotConfusedWithFullVideoFiles() {
-        val manifest = """
-            #EXTM3U
-            #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",LANGUAGE="tr",NAME="Türkçe",URI="subs/tr.m3u8"
-            #EXT-X-STREAM-INF:BANDWIDTH=1200000
-            low/index.m3u8
-            #EXTINF:6,
-            segment-001.ts
-        """.trimIndent()
-
-        val attempts = WebteIzleResolverBank.inspect(manifest, "https://media.example/master.m3u8")
-        val variants = attempts.first { it.resolverId == 24 }
-        val segments = attempts.first { it.resolverId == 28 }
-        val tracks = attempts.first { it.resolverId == 35 }
-
-        assertTrue(variants.candidates.any { it.url == "https://media.example/low/index.m3u8" })
-        assertEquals(WebteIzleProbeStatus.SIGNAL_FOUND, segments.status)
-        assertTrue(segments.candidates.isEmpty())
-        assertTrue(tracks.candidates.any { it.url == "https://media.example/subs/tr.m3u8" })
-    }
-
-    @Test
-    fun nestedIframeUrlsAreOnlyAssignedToIdSixteenAfterAChildPageIsFetched() {
-        val parentUrl = "https://player.example/embed/parent"
-        val childHtml = """<iframe src="/embed/child"></iframe>"""
-        val nested = WebteIzleResolverBank.findIframeUrls(childHtml, parentUrl)
-        val attempts = WebteIzleResolverBank.inspect(
-            html = childHtml,
-            baseUrl = parentUrl,
-            nestedIframeUrls = nested
-        )
-        val nestedAttempt = attempts.first { it.resolverId == 16 }
-
-        assertEquals("https://player.example/embed/child", nested.single())
-        assertTrue(nestedAttempt.candidates.any { it.url == "https://player.example/embed/child" })
-        assertEquals(WebteIzleProbeStatus.CANDIDATE_FOUND, nestedAttempt.status)
-    }
-
-    @Test
-    fun signedUrlCandidateIsKeptUnderItsOwnIdWithoutPuttingQueryIntoReason() {
-        val html = """<video src="https://cdn.example/movie.mp4?token=do-not-log&expires=999999">"""
-        val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/")
-        val signed = attempts.first { it.resolverId == 32 }
-
-        assertTrue(signed.candidates.any { it.url.contains("token=do-not-log") })
-        assertTrue(!signed.reason.contains("do-not-log"))
-    }
-
-    @Test
-    fun youtubeTrailersAndBehindTheScenesLinksAreNeverCandidates() {
-        val html = """
-            <html><head>
-              <script>
-                const trailer = {"file":"https://www.youtube.com/watch?v=trailer123"};
-                const shortLink = "https://youtu.be/behindthescenes";
-              </script>
-            </head><body>
-              <iframe src="https://www.youtube-nocookie.com/embed/clip123"></iframe>
-              <video src="https://r1---sn.googlevideo.com/videoplayback?id=example"></video>
-            </body></html>
-        """.trimIndent()
-
-        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://www.youtube.com/watch?v=trailer123"))
-        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://youtu.be/behindthescenes"))
-        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://www.youtube-nocookie.com/embed/clip123"))
-        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://r1---sn.googlevideo.com/videoplayback?id=example"))
-        assertTrue(!WebteIzleResolverBank.isYouTubeUrl("https://vidmoly.to/embed-episode123.html"))
-
-        val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/hakkinda/sample")
-
-        assertTrue(attempts.all { attempt ->
-            attempt.candidates.none { WebteIzleResolverBank.isYouTubeUrl(it.url) }
-        })
-        assertTrue(attempts.first { it.resolverId == 7 }.candidates.isEmpty())
-        assertTrue(attempts.first { it.resolverId == 15 }.candidates.isEmpty())
-        assertTrue(attempts.first { it.resolverId == 17 }.candidates.isEmpty())
-        assertTrue(attempts.first { it.resolverId == 36 }.candidates.isEmpty())
-    }
-
-    @Test
-    fun knownPlayerFamiliesAreRecognizedEvenWithoutMediaFileExtensions() {
-        val html = """
-            <html><body>
-              <div data-url="https://vidmoly.to/v/episode-123"></div>
-              <div data-file="https://filemoon.sx/e/episode-123"></div>
-              <iframe src="https://pixeldrain.com/u/episode123"></iframe>
-              <iframe src="https://ok.ru/videoembed/123456"></iframe>
-            </body></html>
-        """.trimIndent()
-
-        val attempts = WebteIzleResolverBank.inspect(html, "https://webteizle.info/hakkinda/sample")
-        val urls = attempts.flatMap { it.candidates }.map { it.url }
-
-        assertTrue(urls.contains("https://vidmoly.to/v/episode-123"))
-        assertTrue(urls.contains("https://filemoon.sx/e/episode-123"))
-        assertTrue(urls.contains("https://pixeldrain.com/u/episode123"))
-        assertTrue(urls.contains("https://ok.ru/videoembed/123456"))
-        assertEquals("VidMoly", WebteIzleResolverBank.playerFamily("https://www.vidmoly.to/v/episode-123"))
-        assertEquals("Filemoon", WebteIzleResolverBank.playerFamily("https://filemoon.sx/e/episode-123"))
-        assertEquals("PixelDrain", WebteIzleResolverBank.playerFamily("https://pixeldrain.com/u/episode123"))
-        assertEquals("OK.ru", WebteIzleResolverBank.playerFamily("https://ok.ru/videoembed/123456"))
-        assertEquals(null, WebteIzleResolverBank.playerFamily("https://filemoon.sx.example.org/e/episode-123"))
-    }
-
-    @Test
-    fun cloudflareChallengeIsDiagnosedWithoutTreatingItAsMoviePage() {
-        val challenge = """
-            <html><head><title>Just a moment...</title></head>
-            <body><div id="challenge-platform">Checking your browser</div></body></html>
-        """.trimIndent()
-        val normal = """<html><body><h1>Example film</h1><video src="/media/movie.m3u8"></video></body></html>"""
-
-        assertTrue(WebteIzleResolverBank.isAccessChallenge(challenge))
-        assertTrue(!WebteIzleResolverBank.isAccessChallenge(normal))
-    }
-
-
-    @Test
-    fun observedPlayerFunctionCallsProduceKnownEmbedCandidatesUnderResolverThirtyEight() {
-        // Some AJAX responses are fragments rather than complete HTML/script documents.
-        val html = """
-            <div>
-              vidmoly('VID123abc', 'config');
-              filemoon('FILE456def', 'config');
-              okru('OK789xyz', 'config');
-            </div>
-        """.trimIndent()
-
-        val attempt = WebteIzleResolverBank.inspect(
-            html,
-            "https://webteizle.info/ajax/dataEmbed.asp"
-        ).first { it.resolverId == 38 }
-
-        val urls = attempt.candidates.map { it.url }
-        assertTrue(urls.contains("https://vidmoly.net/embed-VID123abc.html"))
-        assertTrue(urls.contains("https://vidmoly.to/embed-VID123abc.html"))
-        assertTrue(urls.contains("https://vidmoly.biz/embed-VID123abc.html"))
-        assertTrue(urls.contains("https://bysezoxexe.com/e/FILE456def"))
-        assertTrue(urls.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
-        assertEquals(5, urls.distinct().size)
-        assertTrue(attempt.candidates.all { it.kind == WebteIzleCandidateKind.PLAYER })
-    }
-
-
-    @Test
-    fun pixelSourceLabelIsRecordedWithoutInventingAnEmbedUrl() {
-        val html = """<div class="player">source unavailable</div>"""
-        val attempts = WebteIzleResolverBank.inspect(
-            html = html,
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
-            observedAjaxResponse = true,
-            hintedPlayerName = "Pixel"
-        )
-        val attempt = attempts.first { it.resolverId == 39 }
-
-        assertEquals(WebteIzleProbeStatus.SIGNAL_FOUND, attempt.status)
-        assertTrue(attempt.reason.contains("no verified URL template"))
-        assertTrue(attempt.candidates.isEmpty())
-    }
-
-    @Test
-    fun pixelPlayerFunctionMarkerIsDiagnosedWithoutSynthesizingTheHost() {
-        val html = """<script>pixel('PIXEL12345', 'config')</script>"""
-        val attempt = WebteIzleResolverBank.inspect(
-            html = html,
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
-        ).first { it.resolverId == 39 }
-
-        assertEquals(WebteIzleProbeStatus.SIGNAL_FOUND, attempt.status)
-        assertTrue(attempt.candidates.isEmpty())
-    }
-
-
-    @Test
-    fun observedHexEscapedFileAndPlayerJsVPayloadDecodeOnlyRealMediaUrls() {
-        val expected = "https://cdn.example/episode.m3u8"
-        val escaped = expected.toByteArray(Charsets.UTF_8)
-            .joinToString("") { byte -> "\\x%02x".format(byte.toInt() and 0xff) }
-        val contiguous = expected.toByteArray(Charsets.UTF_8)
-            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-
-        assertEquals(expected, WebteIzleResolverBank.decodeKnownHexUrl(escaped))
-        assertEquals(expected, WebteIzleResolverBank.decodeKnownHexUrl(contiguous))
-        assertEquals(null, WebteIzleResolverBank.decodeKnownHexUrl("some-random-token"))
-        assertEquals(null, WebteIzleResolverBank.decodeKnownHexUrl("https://cdn.example/episode.m3u8"))
-
-        val html = """
-            <html><body>
-              <script>var player = { file: "$escaped" };</script>
-              <iframe src="https://playerjs-three.vercel.app/?v=$contiguous"></iframe>
-            </body></html>
-        """.trimIndent()
-        val attempt = WebteIzleResolverBank.inspect(
-            html = html,
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
-        ).first { it.resolverId == 40 }
-
-        assertTrue(attempt.candidates.any { it.url == expected && it.kind == WebteIzleCandidateKind.MEDIA })
-        assertEquals(1, attempt.candidates.map { it.url }.distinct().size)
-    }
-
-    @Test
-    fun hexDecoderDoesNotConvertTrailerOrUnknownHostGuessIntoWebteIzleMedia() {
-        val youtube = "https://www.youtube.com/watch?v=trailer123"
-        val encoded = youtube.toByteArray(Charsets.UTF_8)
-            .joinToString("") { byte -> "\\x%02x".format(byte.toInt() and 0xff) }
-        val html = """<script>var file = "$encoded";</script>"""
-        val attempt = WebteIzleResolverBank.inspect(
-            html = html,
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
-        ).first { it.resolverId == 40 }
-
-        assertTrue(attempt.candidates.isEmpty())
-        assertTrue(WebteIzleResolverBank.isYouTubeUrl(
-            WebteIzleResolverBank.decodeKnownHexUrl(encoded)!!
+    fun playbackLanguageRecognizesOnlyDubAndSubtitleRoutes() {
+        assertEquals("0" to "Dublaj", WebteIzleResolverBank.playbackLanguage(
+            "https://webteizle.info/izle/dublaj/ornek-film"
+        ))
+        assertEquals("1" to "Altyazı", WebteIzleResolverBank.playbackLanguage(
+            "https://webteizle.info/izle/altyazi/ornek-film"
+        ))
+        assertEquals(null, WebteIzleResolverBank.playbackLanguage(
+            "https://webteizle.info/hakkinda/ornek-film"
         ))
     }
 
-
     @Test
-    fun vidmolyMasterPlaylistResolverExtractsOnlyAbsoluteHlsFileField() {
-        val expected = "https://cdn.example/master.m3u8?token=safe-fixture"
+    fun playbackDiscoveryKeepsOnlySameSiteLanguageRoutes() {
         val html = """
-            <script>
-              jwplayer("v").setup({sources:[{file:"$expected", type:"hls"}]});
-            </script>
-        """.trimIndent()
-
-        assertEquals(expected, WebteIzleResolverBank.extractVidMolyMasterPlaylist(html))
-        assertEquals(
-            null,
-            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
-                """<script>jwplayer().setup({sources:[{file:"//cdn.example/master.m3u8"}]})</script>"""
-            )
-        )
-        assertEquals(
-            null,
-            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
-                """<script>jwplayer().setup({sources:[{file:"https://www.youtube.com/watch?v=trailer.m3u8"}]})</script>"""
-            )
-        )
-    }
-
-
-    @Test
-    fun detailPageFindsOnlySameSiteDubbedAndSubtitlePlaybackRoutes() {
-        val html = """
-            <html><body>
-              <a href="/izle/altyazi/love-language">Altyazı ile izle</a>
-              <a href="/izle/dublaj/love-language">Dublaj ile izle</a>
-              <a href="https://www.youtube.com/embed/trailer-id">Fragman</a>
-              <a href="https://malicious.example/izle/altyazi/fake">external fake route</a>
-              <a href="/hakkinda/love-language">detail page</a>
-            </body></html>
+            <a href="/izle/dublaj/ornek-film">Dublaj</a>
+            <a href="/izle/altyazi/ornek-film">Altyazı</a>
+            <a href="https://other.example/izle/dublaj/fake">External</a>
+            <a href="/fragman/ornek-film">Trailer</a>
         """.trimIndent()
 
         val routes = WebteIzleResolverBank.findPlaybackPageUrls(
-            html = html,
-            baseUrl = "https://webteizle.info/hakkinda/love-language",
-            siteBaseUrl = "https://webteizle.info"
+            html,
+            "https://webteizle.info/hakkinda/ornek-film",
+            "https://webteizle.info"
         )
 
         assertEquals(
             listOf(
-                "https://webteizle.info/izle/altyazi/love-language",
-                "https://webteizle.info/izle/dublaj/love-language"
+                "https://webteizle.info/izle/dublaj/ornek-film",
+                "https://webteizle.info/izle/altyazi/ornek-film"
             ),
             routes
         )
-        assertTrue(routes.none { WebteIzleResolverBank.isYouTubeUrl(it) })
-        assertTrue(routes.none { it.contains("/hakkinda/") })
     }
 
     @Test
-    fun detailPageWithOnlyTrailerDoesNotCreatePlaybackRoute() {
+    fun onlyVidMolyIframesAreAccepted() {
         val html = """
-            <html><body>
-              <a href="https://www.youtube.com/embed/trailer-id">Fragman</a>
-              <a href="/hakkinda/another-movie">Benzer film</a>
-            </body></html>
+            <iframe src="https://vidmoly.biz/embed-MOVIE123.html"></iframe>
+            <iframe src="https://filemoon.to/e/OTHER123"></iframe>
+            <iframe src="https://youtube.com/embed/FAKE123"></iframe>
         """.trimIndent()
 
-        val routes = WebteIzleResolverBank.findPlaybackPageUrls(
-            html = html,
-            baseUrl = "https://webteizle.info/hakkinda/love-language",
-            siteBaseUrl = "https://webteizle.info"
+        val urls = WebteIzleResolverBank.findVidMolyPlayerUrls(
+            html,
+            "https://webteizle.info/ajax/dataEmbed.asp"
         )
 
-        assertTrue(routes.isEmpty())
+        assertEquals(listOf("https://vidmoly.biz/embed-MOVIE123.html"), urls)
+        assertTrue(urls.all { WebteIzleResolverBank.isVidMolyUrl(it) })
     }
 
-
     @Test
-    fun filemoonAndOkRuFunctionConfigsProduceNativeHostVariants() {
+    fun observedVidMolyFunctionTriesKnownHostsButNeverOtherPlayers() {
         val html = """
-            <div>
-              filemoon('FILE123abc');
-              okru('OK789xyz');
-            </div>
+            <script>
+                vidmoly('MOVIE123', 'config');
+                filemoon('OTHER123', 'config');
+                okru('THIRD123', 'config');
+            </script>
         """.trimIndent()
-        val attempts = WebteIzleResolverBank.inspect(
-            html = html,
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp"
-        )
-        val filemoon = attempts.first { it.resolverId == 42 }.candidates.map { it.url }
-        val okru = attempts.first { it.resolverId == 43 }.candidates.map { it.url }
 
-        assertTrue(filemoon.contains("https://filemoon.to/e/FILE123abc"))
-        assertTrue(filemoon.contains("https://filemoon.sx/e/FILE123abc"))
-        assertTrue(filemoon.contains("https://filemoon.in/e/FILE123abc"))
-        assertTrue(okru.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
-        assertTrue(okru.contains("https://ok.ru/videoembed/OK789xyz"))
-        assertTrue(okru.contains("https://m.ok.ru/videoembed/OK789xyz"))
+        val urls = WebteIzleResolverBank.findVidMolyPlayerUrls(
+            html,
+            "https://webteizle.info/ajax/dataEmbed.asp"
+        )
+
+        assertEquals(4, urls.size)
+        assertTrue(urls.contains("https://vidmoly.biz/embed-MOVIE123.html"))
+        assertTrue(urls.contains("https://vidmoly.net/embed-MOVIE123.html"))
+        assertTrue(urls.none { it.contains("filemoon", true) || it.contains("ok.ru", true) })
     }
 
     @Test
-    fun pixelResolverUsesOnlyObservedIframeAndNeverSynthesizesPixelDomain() {
-        val observed = "https://pixel.example/embed/observedPlayer123"
-        val attempts = WebteIzleResolverBank.inspect(
-            html = """<iframe src="$observed"></iframe>""",
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
-            hintedPlayerName = "Pixel"
+    fun onlyAbsoluteHlsFileValuesAreAcceptedFromVidMolyPage() {
+        assertEquals(
+            "https://cdn.example/master.m3u8?token=abc",
+            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
+                """var player = { file: "https://cdn.example/master.m3u8?token=abc" };"""
+            )
         )
-        val pixel = attempts.first { it.resolverId == 44 }
-
-        assertTrue(pixel.candidates.any { it.url == observed })
-        assertTrue(pixel.candidates.none { it.url.contains("pixel.example.com") })
-        assertTrue(pixel.reason.contains("candidate"))
+        assertEquals(
+            null,
+            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
+                """var player = { file: "https://youtube.com/trailer.m3u8" };"""
+            )
+        )
+        assertEquals(
+            null,
+            WebteIzleResolverBank.extractVidMolyMasterPlaylist(
+                """var player = { file: "/relative/master.m3u8" };"""
+            )
+        )
     }
 
     @Test
-    fun emittedMediaDedupKeyIsOnePerLanguageAndDoesNotTreatOrdinalAsQuality() {
-        val first = WebteIzleResolverBank.emittedMediaKey(
-            "Dublaj",
-            "https://CDN.example/master.m3u8?token=abc#player"
-        )
-        val sameDub = WebteIzleResolverBank.emittedMediaKey(
-            "TR Dublaj",
-            "https://cdn.example/master.m3u8?token=abc"
-        )
-        val alt = WebteIzleResolverBank.emittedMediaKey(
-            "Altyazı",
-            "https://cdn.example/master.m3u8?token=abc"
-        )
-
-        assertEquals(first, sameDub)
-        assertTrue(first != alt)
-        assertEquals(null, WebteIzleResolverBank.validQualityHint(1))
-        assertEquals(null, WebteIzleResolverBank.validQualityHint(2))
-        assertEquals(1080, WebteIzleResolverBank.validQualityHint(1080))
+    fun challengeDetectionFailsClosed() {
+        assertTrue(WebteIzleResolverBank.isAccessChallenge("<title>Just a moment...</title>"))
+        assertTrue(WebteIzleResolverBank.isAccessChallenge("cf-chl-abc challenge-platform"))
+        assertFalse(WebteIzleResolverBank.isAccessChallenge("<html><body>Player</body></html>"))
     }
 
     @Test
-    fun playerHostVariantsPreserveObservedPathAndSignedQuery() {
-        val original = "https://filemoon.sx/e/observedCode?token=keep-me"
-        val variants = WebteIzleResolverBank.playerHostVariants(original, "Filemoon")
-
-        assertTrue(variants.contains(original))
-        assertTrue(variants.contains("https://filemoon.to/e/observedCode?token=keep-me"))
-        assertTrue(variants.contains("https://filemoon.in/e/observedCode?token=keep-me"))
-        assertEquals(4, variants.distinct().size) // original plus three observed Filemoon host fallbacks
-
-        val okru = WebteIzleResolverBank.playerHostVariants(
-            "https://odnoklassniki.ru/videoembed/12345?from=ok",
-            "OK.ru"
-        )
-        assertTrue(okru.contains("https://ok.ru/videoembed/12345?from=ok"))
-        assertTrue(okru.contains("https://m.ok.ru/videoembed/12345?from=ok"))
+    fun youtubeAndGoogleVideoAreNotPlayableFilmSources() {
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://youtu.be/abc123"))
+        assertTrue(WebteIzleResolverBank.isYouTubeUrl("https://r1.googlevideo.com/videoplayback"))
+        assertFalse(WebteIzleResolverBank.isYouTubeUrl("https://vidmoly.biz/embed-abc123.html"))
     }
-
-
-    @Test
-    fun pixelFunctionMapsOnlyAnObservedIdToTheDocumentedPixelDrainPath() {
-        val attempts = WebteIzleResolverBank.inspect(
-            html = """<div>pixel('PIXEL789abc')</div>""",
-            baseUrl = "https://webteizle.info/ajax/dataEmbed.asp",
-            hintedPlayerName = "Pixel"
-        )
-        val pixel = attempts.first { it.resolverId == 44 }
-
-        assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.com/u/PIXEL789abc" })
-        assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.dev/u/PIXEL789abc" })
-        assertEquals("PixelDrain", WebteIzleResolverBank.playerFamily("https://pixeldrain.com/u/PIXEL789abc"))
-    }
-
-
-    @Test
-    fun stableHlsDedupIgnoresOnlyVolatileSignatureParameters() {
-        val first = WebteIzleResolverBank.emittedMediaKey(
-            "Dublaj",
-            "https://cdn.example/hls/master.m3u8?token=abc&expires=1000&id=episode7#player"
-        )
-        val sameStream = WebteIzleResolverBank.emittedMediaKey(
-            "DLS Dublaj",
-            "https://CDN.example/hls/master.m3u8?cacheBust=fresh&opaqueSig=def&id=episode7"
-        )
-        val differentEpisode = WebteIzleResolverBank.emittedMediaKey(
-            "Dublaj",
-            "https://cdn.example/hls/master.m3u8?id=episode8&token=xyz&expires=3000"
-        )
-        val subtitle = WebteIzleResolverBank.emittedMediaKey(
-            "Altyazı",
-            "https://cdn.example/hls/master.m3u8?id=episode7&token=qwe&expires=4000"
-        )
-
-        assertEquals(first, sameStream)
-        assertTrue(first != differentEpisode)
-        assertTrue(first != subtitle)
-    }
-
-    @Test
-    fun FilemoonWrapperHostIsRecognizedAndFallsBackToKnownExtractorHosts() {
-        val wrapper = "https://bysezoxexe.com/e/observedFilemoonId?token=signed"
-        assertEquals("Filemoon", WebteIzleResolverBank.playerFamily(wrapper))
-        val variants = WebteIzleResolverBank.playerHostVariants(wrapper, "Filemoon")
-        assertTrue(variants.contains("https://filemoon.to/e/observedFilemoonId?token=signed"))
-        assertTrue(variants.contains("https://filemoon.sx/e/observedFilemoonId?token=signed"))
-        assertTrue(variants.contains("https://filemoon.in/e/observedFilemoonId?token=signed"))
-    }
-
 }
