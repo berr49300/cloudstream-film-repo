@@ -257,6 +257,7 @@ class SelcukFlix : MainAPI() {
         } else {
             newMovieSearchResponse(title, url, TvType.Movie) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.score = Score.from10(score)
             }
         }
@@ -606,6 +607,7 @@ class SelcukFlix : MainAPI() {
         return if (isSeries) {
             newTvSeriesLoadResponse(title, canonicalUrl, TvType.TvSeries, episodes) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.year = year
                 this.plot = description
                 this.tags = tags
