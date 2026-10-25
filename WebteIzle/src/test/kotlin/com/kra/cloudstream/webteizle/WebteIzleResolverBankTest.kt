@@ -412,7 +412,7 @@ class WebteIzleResolverBankTest {
         assertTrue(variants.contains(original))
         assertTrue(variants.contains("https://filemoon.to/e/observedCode?token=keep-me"))
         assertTrue(variants.contains("https://filemoon.in/e/observedCode?token=keep-me"))
-        assertEquals(3, variants.distinct().size)
+        assertEquals(4, variants.distinct().size) // original plus three observed Filemoon host fallbacks
 
         val okru = WebteIzleResolverBank.playerHostVariants(
             "https://odnoklassniki.ru/videoembed/12345?from=ok",
