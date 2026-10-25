@@ -234,8 +234,8 @@ internal object WebteIzleResolverBank {
         val host = hostOf(url) ?: return listOf(url)
         val targets = when {
             family.equals("Filemoon", ignoreCase = true) &&
-                host in setOf("filemoon.to", "filemoon.sx", "filemoon.in") ->
-                listOf("filemoon.to", "filemoon.sx", "filemoon.in")
+                host in setOf("bysezoxexe.com", "filemoon.to", "filemoon.sx", "filemoon.in") ->
+                listOf("bysezoxexe.com", "filemoon.to", "filemoon.sx", "filemoon.in")
             family.equals("OK.ru", ignoreCase = true) &&
                 host in setOf("ok.ru", "m.ok.ru", "odnoklassniki.ru") ->
                 listOf("odnoklassniki.ru", "ok.ru", "m.ok.ru")
@@ -474,8 +474,8 @@ internal object WebteIzleResolverBank {
                     }
                     "filemoon" -> add(
                         38,
-                        "https://filemoon.sx/e/$playerId",
-                        "observed filemoon(id, ...) call; /e/id template hypothesis from public provider reference",
+                        "https://bysezoxexe.com/e/$playerId",
+                        "observed filemoon(id, ...) call; public WebteIzle-provider reference maps it to bysezoxexe.com/e/id",
                         WebteIzleCandidateKind.PLAYER
                     )
                     "okru" -> add(
@@ -494,6 +494,7 @@ internal object WebteIzleResolverBank {
             val playerId = match.groupValues[2]
             when (family) {
                 "filemoon" -> {
+                    add(42, "https://bysezoxexe.com/e/" + playerId, "observed filemoon(id) config; public WebteIzle-provider wrapper template", WebteIzleCandidateKind.PLAYER)
                     add(42, "https://filemoon.to/e/" + playerId, "observed filemoon(id) config; native CloudStream .to extractor variant", WebteIzleCandidateKind.PLAYER)
                     add(42, "https://filemoon.sx/e/" + playerId, "observed filemoon(id) config; native CloudStream .sx extractor variant", WebteIzleCandidateKind.PLAYER)
                     add(42, "https://filemoon.in/e/" + playerId, "observed filemoon(id) config; native CloudStream .in extractor variant", WebteIzleCandidateKind.PLAYER)
