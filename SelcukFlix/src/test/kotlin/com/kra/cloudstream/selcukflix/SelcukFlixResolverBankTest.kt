@@ -375,7 +375,7 @@ class SelcukFlixResolverBankTest {
         )
         assertTrue(candidates.any { it.resolverId == 38 && it.url == raw })
         assertTrue(candidates.any {
-            it.resolverId == 39 && it.url == "https://four.pichive.online/master.m3u8?key=fixture"
+            it.resolverId == 39 && it.url == "https://four.pichive.online/media/master.m3u8?key=fixture"
         })
     }
 
