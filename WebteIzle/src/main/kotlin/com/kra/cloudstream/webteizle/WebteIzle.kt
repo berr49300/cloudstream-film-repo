@@ -519,22 +519,38 @@ class WebteIzle : MainAPI() {
                         WebteIzleCandidateKind.MEDIA -> {
                             val path = candidate.url.substringBefore('?').substringBefore('#')
                             val extension = path.substringAfterLast('.', "").lowercase()
-                            val quality = fallbackQuality ?: getQualityFromName(candidate.url)
+                            val quality = WebteIzleResolverBank.validQualityHint(fallbackQuality)
+                                ?: getQualityFromName(candidate.url)
+                            val qualityLabel = if (quality in 144..4320) "${quality}p" else "Auto"
                             val mediaType = when (extension) {
                                 "m3u8" -> ExtractorLinkType.M3U8
                                 "mpd" -> ExtractorLinkType.DASH
                                 else -> null
                             }
-                            callback(newExtractorLink(
-                                source = baseLabel,
-                                name = "$baseLabel • ${extension.ifBlank { "media" }.uppercase()} • Aday • ${quality}p",
-                                url = candidate.url,
-                                type = mediaType
-                            ) {
-                                referer = candidateReferer(candidate)
-                                this.quality = quality
-                            })
-                            emitted = true
+                            val mediaStrategyLabel = when {
+                                candidate.playerHint.equals("Filemoon", ignoreCase = true) -> "42 • FilemoonHostVariantResolver • $langName"
+                                candidate.playerHint.equals("OK.ru", ignoreCase = true) -> "43 • OkRuHostVariantResolver • $langName"
+                                candidate.playerHint.equals("Pixel", ignoreCase = true) -> "44 • PixelObservedPlayerResolver • $langName"
+                                else -> baseLabel
+                            }
+                            val finalKey = WebteIzleResolverBank.emittedMediaKey(langName, candidate.url)
+                            if (emittedResultKeys.add(finalKey)) {
+                                callback(newExtractorLink(
+                                    source = mediaStrategyLabel,
+                                    name = "$mediaStrategyLabel • ${extension.ifBlank { "media" }.uppercase()} • Aday • $qualityLabel",
+                                    url = candidate.url,
+                                    type = mediaType
+                                ) {
+                                    referer = candidateReferer(candidate)
+                                    this.quality = quality
+                                })
+                                emitted = true
+                            } else {
+                                android.util.Log.d(
+                                    "WebteIzleResolver",
+                                    "$id ${attempt.resolverName}: FINAL_DUPLICATE_SUPPRESSED — same stream already emitted for ${WebteIzleResolverBank.languageBucket(langName)}."
+                                )
+                            }
 
                             // Read actual playlist/manifest bodies when a discovered candidate is
                             // a manifest. Do not download direct media files merely to inspect them.
