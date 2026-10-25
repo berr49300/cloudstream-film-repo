@@ -186,21 +186,32 @@ class WebteIzle : MainAPI() {
         }
 
         var emitted = false
-        // A film can have one or both language routes. Bound work and avoid processing the same route twice.
+        // Share exact-result deduplication across the separate dubbed/subtitled watch pages.
+        val emittedResultKeys = linkedSetOf<String>()
+        val seenPlayerCandidates = linkedSetOf<String>()
         watchPages.take(6).forEach { watchUrl ->
             emitted = loadLinksForWatchPage(
                 data = watchUrl,
                 refererPage = data,
                 isCasting = isCasting,
                 subtitleCallback = subtitleCallback,
-                callback = callback
+                callback = callback,
+                emittedResultKeys = emittedResultKeys,
+                seenPlayerCandidates = seenPlayerCandidates
             ) || emitted
         }
         return emitted
     }
 
-    private suspend fun loadLinksForWatchPage(data: String, refererPage: String, isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
+    private suspend fun loadLinksForWatchPage(
+        data: String,
+        refererPage: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit,
+        emittedResultKeys: MutableSet<String>,
+        seenPlayerCandidates: MutableSet<String>
+    ): Boolean {
         val page = try {
             app.get(data, referer = refererPage).document
         } catch (e: Exception) {
