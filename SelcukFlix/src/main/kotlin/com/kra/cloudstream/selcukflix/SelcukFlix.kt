@@ -616,6 +616,7 @@ class SelcukFlix : MainAPI() {
         } else {
             newMovieLoadResponse(title, canonicalUrl, TvType.Movie, canonicalUrl) {
                 posterUrl = poster
+                posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                 this.year = year
                 this.plot = description
                 this.tags = tags
