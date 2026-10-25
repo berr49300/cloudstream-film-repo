@@ -720,15 +720,18 @@ class SelcukFlix : MainAPI() {
 
             val apiUrl = SelcukFlixResolverBank.pichiveSourceApiUrl(frame.url, token)
                 ?: continue
+            // Match the working ContentX request contract: source2.php receives the outer
+            // episode/site referer, while media links themselves retain the iframe referer.
+            val sourceApiReferer = frame.referer.ifBlank { episodeUrl }
             val response = try {
                 app.get(
                     apiUrl,
                     headers = browserHeaders + mapOf(
                         "Accept" to "application/json, text/plain, */*",
                         "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to frame.url
+                        "Referer" to sourceApiReferer
                     ),
-                    referer = frame.url
+                    referer = sourceApiReferer
                 ).text
             } catch (_: Exception) {
                 android.util.Log.w(
@@ -963,6 +966,9 @@ class SelcukFlix : MainAPI() {
                 }
 
                 val directLinkType = directType(candidate.url)
+                    ?: if (candidate.id in setOf(38, 39) && candidate.kind == SelcukMediaKind.HLS) {
+                        ExtractorLinkType.M3U8
+                    } else null
                 if (directLinkType != null) {
                     val emitKey = candidateKey + "|" + candidate.url + "|" + directLinkType
                     if (emittedResolverLinks.add(emitKey)) {
