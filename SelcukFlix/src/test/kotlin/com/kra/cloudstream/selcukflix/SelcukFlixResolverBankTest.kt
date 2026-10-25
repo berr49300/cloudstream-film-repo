@@ -89,10 +89,10 @@ class SelcukFlixResolverBankTest {
             """.trimIndent()
         )
 
-        val episodes = SelcukFlix().episodesFrom(root)
+        val episodes = SelcukFlixResolverBank.parseEpisodeRecords(root, "https://selcukflix.app")
         assertEquals(listOf(1, 2, 2), episodes.map { it.season })
         assertEquals(listOf(1, 1, 2), episodes.map { it.episode })
-        assertEquals("https://selcukflix.app/dizi/carrie/1-sezon-1-bolum", episodes.first().data)
+        assertEquals("https://selcukflix.app/dizi/carrie/1-sezon-1-bolum", episodes.first().url)
         assertEquals("Pilot", episodes.first().name)
         assertEquals(3, episodes.size)
     }
