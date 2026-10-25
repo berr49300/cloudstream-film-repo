@@ -18,14 +18,23 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         fun uygunMu(url: String): Boolean = canHandle(url)
     }
 
+    private val browserHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language" to "tr-TR,tr;q=0.9,en;q=0.8"
+    )
+
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
         val tamUrl  = if (url.startsWith("//")) "https:$url" else url
         val base    = Regex("""^(https?://[^/]+)""").find(tamUrl)?.groupValues?.get(1) ?: return
         val host    = base.substringAfter("://").substringAfter("four.").substringAfter("sn.").substringBefore(".")
             .replaceFirstChar { it.uppercase() }
-        val extRef  = referer ?: "$base/"
+        // Keep caller-supplied referer variants separate: ID 15 can test the episode page,
+        // while ID 33 can test the site-origin context.
+        val extRef  = referer ?: "https://selcukflix.app/"
+        val iframeHeaders = browserHeaders + ("Referer" to extRef)
         val iSource = try {
-            app.get(tamUrl, referer = extRef).text
+            app.get(tamUrl, headers = iframeHeaders, referer = extRef).text
         } catch (_: Exception) {
             Log.w("SelcukFlixContentX", "Player iframe request failed; URL omitted.")
             return
@@ -41,8 +50,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
             Log.d("SelcukFlixSubtitle", "Altyazı adayı ayrıştırıldı: ${track.label} (${subtitleHost})")
             subtitleCallback.invoke(
                 newSubtitleFile(track.label, track.url) {
-                    // Subtitle hosts may validate the embedding player as the request referer.
-                    this.headers = mapOf("Referer" to tamUrl)
+                    this.headers = browserHeaders + mapOf("Referer" to tamUrl)
                 }
             )
         }
@@ -53,9 +61,17 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         val tokens = SelcukFlixContentXSourceParser.playerTokens(iSource)
         if (tokens.isEmpty()) {
             val directFiles = SelcukFlixContentXSourceParser.mediaFiles(iSource, tamUrl)
-            directFiles.forEach { file ->
-                callback.invoke(newExtractorLink(host, host, file, linkType(file)) {
+            directFiles.flatMap { file ->
+                SelcukFlixContentXSourceParser.mediaFileCandidates(file, tamUrl, 7, 39)
+            }.distinctBy { it.resolverId to it.url }.forEach { candidate ->
+                callback.invoke(newExtractorLink(
+                    host,
+                    "${candidate.resolverId.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.resolverId)} • ${candidate.label}",
+                    candidate.url,
+                    linkType(candidate.url) ?: ExtractorLinkType.M3U8
+                ) {
                     this.referer = tamUrl
+                    this.headers = browserHeaders + mapOf("Referer" to tamUrl)
                     this.quality = Qualities.Unknown.value
                 })
             }
@@ -66,7 +82,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         }
 
         tokens.forEach { token ->
-            kaynakEkle(base, token.token, extRef, tamUrl, "$host • ${token.label}", callback)
+            kaynakEkle(base, token.token, tamUrl, "${host} • ${token.label}", iframeHeaders, callback)
         }
     }
 
@@ -77,28 +93,45 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         else -> null
     }
 
-    private suspend fun kaynakEkle(base: String, id: String, extRef: String, iframe: String, isim: String, callback: (ExtractorLink) -> Unit) {
-        val apiUrl = "$base/source2.php?v=" + java.net.URLEncoder.encode(id, "UTF-8")
+    private suspend fun kaynakEkle(
+        base: String,
+        token: String,
+        iframe: String,
+        name: String,
+        iframeHeaders: Map<String, String>,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val apiUrl = "$base/source2.php?v=" + java.net.URLEncoder.encode(token, "UTF-8")
+        val apiHeaders = iframeHeaders + mapOf(
+            "Accept" to "application/json, text/plain, */*",
+            "X-Requested-With" to "XMLHttpRequest",
+            "Referer" to iframe
+        )
         val vidSource = try {
-            app.get(apiUrl, referer = extRef).text
+            app.get(apiUrl, headers = apiHeaders, referer = iframe).text
         } catch (_: Exception) {
-            android.util.Log.w("SelcukFlixContentX", "$isim source API request failed.")
+            android.util.Log.w("SelcukFlixContentX", "$name source API request failed.")
             return
         }
         if (SelcukFlixResolverBank.isAccessChallenge(vidSource)) {
-            android.util.Log.w("SelcukFlixContentX", "$isim source API is blocked by an access challenge.")
+            android.util.Log.w("SelcukFlixContentX", "$name source API is blocked by an access challenge.")
             return
         }
         val media = SelcukFlixContentXSourceParser.mediaFiles(vidSource, apiUrl)
         if (media.isEmpty()) {
-            android.util.Log.w("SelcukFlixContentX", "$isim source API returned no recognized media file.")
+            android.util.Log.w("SelcukFlixContentX", "$name source API returned no recognized media file.")
         }
-        media.forEach { mediaUrl ->
-            val mediaHost = runCatching { java.net.URI(mediaUrl).host }.getOrNull().orEmpty()
-            Log.d("SelcukFlixContentX", "$isim source found on $mediaHost")
+        media.flatMap { file ->
+            SelcukFlixContentXSourceParser.mediaFileCandidates(file, apiUrl)
+        }.distinctBy { it.resolverId to it.url }.forEach { candidate ->
+            val mediaHost = runCatching { java.net.URI(candidate.url).host }.getOrNull().orEmpty()
+            val resolverName = SelcukFlixResolverBank.resolverName(candidate.resolverId)
+            val labeledName = "${candidate.resolverId.toString().padStart(2, '0')} • $resolverName • $name • ${candidate.label}"
+            Log.d("SelcukFlixContentX", "$labeledName source candidate on $mediaHost")
             callback.invoke(
-                newExtractorLink(isim, isim, mediaUrl, linkType(mediaUrl) ?: ExtractorLinkType.M3U8) {
+                newExtractorLink(labeledName, labeledName, candidate.url, linkType(candidate.url) ?: ExtractorLinkType.M3U8) {
                     this.referer = iframe
+                    this.headers = browserHeaders + mapOf("Referer" to iframe)
                     this.quality = Qualities.Unknown.value
                 }
             )
