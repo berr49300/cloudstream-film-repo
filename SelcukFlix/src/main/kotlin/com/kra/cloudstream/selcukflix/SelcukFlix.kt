@@ -23,42 +23,19 @@ class SelcukFlix : MainAPI() {
 
     // This is intentionally a normal same-origin API request, not a Cloudflare bypass.
     private val apiHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept" to "application/json, text/plain, */*",
+        "Accept-Language" to "tr-TR,tr;q=0.9,en;q=0.8",
         "X-Requested-With" to "XMLHttpRequest",
-        "Referer" to "https://selcukflix.app/"
+        "Origin" to "https://selcukflix.app",
+        "Referer" to "https://selcukflix.app/mobil-arama"
     )
 
     override val mainPage = mainPageOf(
-        "movie:" to "Yeni Eklenen Filmler",
-        "movie:49" to "Aile Filmleri",
-        "movie:44" to "Animasyon Filmleri",
-        "movie:59" to "Aksiyon Filmleri",
-        "movie:66" to "Bilim Kurgu Filmleri",
-        "movie:48" to "Dram Filmleri",
-        "movie:61" to "Fantastik Filmleri",
-        "movie:68" to "Gerilim Filmleri",
-        "movie:51" to "Gizem Filmleri",
-        "movie:63" to "Korku Filmleri",
-        "movie:45" to "Komedi Filmleri",
-        "movie:65" to "Romantik Filmleri",
-        "movie:46" to "Suç Filmleri",
-        "movie:69" to "Savaş Filmleri",
-        "movie:78" to "Western Filmleri",
-        "series:" to "Yeni Eklenen Diziler",
-        "series:15" to "Aile Dizileri",
-        "series:17" to "Animasyon Dizileri",
-        "series:9" to "Aksiyon Dizileri",
-        "series:5" to "Bilim Kurgu Dizileri",
-        "series:2" to "Dram Dizileri",
-        "series:12" to "Fantastik Dizileri",
-        "series:18" to "Gerilim Dizileri",
-        "series:3" to "Gizem Dizileri",
-        "series:8" to "Korku Dizileri",
-        "series:4" to "Komedi Dizileri",
-        "series:7" to "Romantik Dizileri",
-        "series:1" to "Suç Dizileri",
-        "series:26" to "Savaş Dizileri",
-        "series:11" to "Western Dizileri"
+        "$mainUrl/dizi-izle" to "Yeni Diziler",
+        "$mainUrl/film-izle" to "Yeni Filmler",
+        "$mainUrl/trend" to "Trend",
+        "$mainUrl/kesfet" to "Keşfet"
     )
 
     private data class SourceItem(val content: String, val label: String)
@@ -124,11 +101,10 @@ class SelcukFlix : MainAPI() {
             throw ErrorLoadingException("SelcukFlix erişimi Cloudflare/CAPTCHA yanıtıyla engellendi; otomatik aşma yapılmadı.")
         }
         val parsed = runCatching { mapper.readTree(body) }.getOrNull() ?: return body
-        val response = parsed.field("response")
-        if (response == null || response.isNull) return body
+        val response = parsed.field("response") ?: return body
+        if (response.isNull) return body
         val value = if (response.isTextual) response.asText() else response.toString()
-        if (value.looksLikeJson()) return value
-        return SelcukFlixResolverBank.decodeBase64Text(value) ?: value
+        return SelcukFlixResolverBank.decodeSitePayload(value) ?: value
     }
 
     private suspend fun requestApi(path: String): JsonNode {
@@ -166,14 +142,26 @@ class SelcukFlix : MainAPI() {
         raw?.let { canonicalSiteUrl(it) ?: SelcukFlixResolverBank.normalizeUrl(it, mainUrl) }
 
     private fun asSearchResponse(item: JsonNode): SearchResponse? {
-        val title = item.textField("originalTitle", "title", "name", "cultureTitle") ?: return null
-        val url = canonicalSiteUrl(item.textField("usedSlug", "slug", "url", "link")) ?: return null
-        val poster = normalizePoster(item.textField("posterUrl", "poster", "image", "thumbnail"))
-        val score = item.textField("imdbPoint", "rating", "score")
-        val typeText = item.textField("type", "contentType", "itemType").orEmpty().lowercase()
-        val isSeries = url.contains("/dizi/", true) ||
+        val title = item.textField(
+            "object_name", "object_alternative_name", "used_title",
+            "original_title", "originalTitle", "culture_title", "cultureTitle",
+            "title", "name"
+        ) ?: return null
+        val rawUrl = item.textField("used_slug", "usedSlug", "slug", "url", "link") ?: return null
+        val url = canonicalSiteUrl(rawUrl) ?: return null
+        val poster = normalizePoster(item.textField(
+            "object_poster_url", "object_face_url", "poster_url", "face_url",
+            "posterUrl", "poster", "image", "thumbnail"
+        ))
+        val score = item.textField("imdb_point", "imdbPoint", "rating", "score")
+        val typeText = item.textField("used_type", "type", "contentType", "itemType").orEmpty().lowercase()
+        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+        val isMovie = path.startsWith("/film/") ||
+            typeText.contains("movie") || typeText == "film" ||
+            (item.textField("type_id", "typeId")?.toIntOrNull() == 2 && !path.startsWith("/dizi/"))
+        val isSeries = path.startsWith("/dizi/") ||
             typeText in setOf("series", "tvseries", "tv series", "dizi", "tv-series")
-        return if (isSeries) {
+        return if (isSeries && !isMovie) {
             newTvSeriesSearchResponse(title, url, TvType.TvSeries) {
                 posterUrl = poster
                 this.score = Score.from10(score)
@@ -187,30 +175,70 @@ class SelcukFlix : MainAPI() {
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val parts = request.data.split(":", limit = 2)
-        val contentKind = parts.firstOrNull().orEmpty()
-        val category = parts.getOrNull(1).orEmpty()
-        val endpoint = if (contentKind.equals("series", true)) "findSeries" else "findMovies"
-        val year = Calendar.getInstance().get(Calendar.YEAR)
-        val categoryParam = URLEncoder.encode(category, "UTF-8")
-        val path = "/api/bg/" + endpoint +
-            "?releaseYearStart=1900&releaseYearEnd=" + year +
-            "&imdbPointMin=1&imdbPointMax=10&categoryIdsComma=" + categoryParam +
-            "&countryIdsComma=&orderType=date_desc&languageId=-1&currentPage=" + page +
-            "&currentPageCount=12&queryStr=&categorySlugsComma=&countryCodesComma="
-        val root = requestApi(path)
-        val results = resultArray(root).mapNotNull { asSearchResponse(it) }
-        return newHomePageResponse(request.name, results)
+        val base = canonicalSiteUrl(request.data) ?: request.data
+        val pageUrl = if (page > 1) {
+            base + (if (base.contains("?")) "&" else "?") + "sayfa=" + page
+        } else {
+            base
+        }
+        val html = loadPageHtml(pageUrl, "katalog")
+        val document = Jsoup.parse(html, pageUrl)
+        val result = mutableListOf<SearchResponse>()
+
+        val nextDataText = document.selectFirst("script#__NEXT_DATA__")?.data()
+            ?: document.selectFirst("script#__NEXT_DATA__")?.html()
+        val nextRoot = nextDataText?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+        val pageProps = nextRoot?.field("props")?.field("pageProps")
+        val initialSeries = pageProps?.field("initialSeries")
+        if (initialSeries != null && !initialSeries.isNull) {
+            val encoded = if (initialSeries.isTextual) initialSeries.asText() else initialSeries.toString()
+            val decoded = SelcukFlixResolverBank.decodeSitePayload(encoded) ?: encoded
+            val items = runCatching { mapper.readTree(decoded) }.getOrNull()
+            if (items?.isArray == true) {
+                items.forEach { item -> asSearchResponse(item)?.let(result::add) }
+            }
+        }
+
+        if (result.isEmpty()) {
+            document.select(
+                "a[href^='dizi/'], a[href^='/dizi/'], a[href^='film/'], a[href^='/film/'], " +
+                    "a[href*='/dizi/'], a[href*='/film/']"
+            ).forEach { anchor ->
+                val image = anchor.selectFirst("img") ?: return@forEach
+                val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                val path = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
+                if (path.contains("/sezon-") || path.contains("/bolum-")) return@forEach
+                val title = image.attr("alt").ifBlank { anchor.attr("title") }
+                    .ifBlank { anchor.text() }
+                    .removeSuffix(" izle")
+                    .removeSuffix(" full hd izle")
+                    .trim()
+                if (title.isBlank()) return@forEach
+                val poster = normalizePoster(image.attr("data-src").ifBlank {
+                    image.attr("data-lazy-src").ifBlank { image.attr("src") }
+                })
+                val response = if (path.startsWith("/film/")) {
+                    newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
+                } else {
+                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
+                }
+                result += response
+            }
+        }
+
+        val unique = result.distinctBy { it.url }
+        return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val root = requestApi("/api/bg/searchcontent?searchterm=" + encoded)
+        val root = requestApi("/api/bg/searchContent?searchterm=" + encoded)
         val state = root.field("state")
         if (state != null && state.isBoolean && !state.asBoolean()) {
             throw ErrorLoadingException("SelcukFlix arama API'si başarısız yanıt döndürdü.")
         }
-        return resultArray(root).mapNotNull { asSearchResponse(it) }
+        val results = root.field("result")?.takeIf { it.isArray } ?: return emptyList()
+        return results.mapNotNull { asSearchResponse(it) }
             .filterNot { it.url.contains("/seri-filmler/", true) }
     }
 
