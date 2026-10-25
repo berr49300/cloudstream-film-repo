@@ -7,10 +7,10 @@ import org.junit.Test
 
 class WebteIzleResolverBankTest {
     @Test
-    fun inventoryHasAllFortyFourUniqueResolverIdsAndNames() {
+    fun inventoryHasAllFortyFiveUniqueResolverIdsAndNames() {
         val attempts = WebteIzleResolverBank.inspect("<html><body>no sources</body></html>", "https://webteizle.info/")
-        assertEquals((1..44).toList(), attempts.map { it.resolverId })
-        assertEquals(44, attempts.map { it.resolverName }.distinct().size)
+        assertEquals((1..45).toList(), attempts.map { it.resolverId })
+        assertEquals(45, attempts.map { it.resolverName }.distinct().size)
         assertEquals(WebteIzleProbeStatus.NOT_APPLICABLE, attempts.first { it.resolverId == 11 }.status)
         assertEquals(WebteIzleProbeStatus.NOT_TESTED, attempts.first { it.resolverId == 37 }.status)
     }
@@ -189,7 +189,7 @@ class WebteIzleResolverBankTest {
         assertTrue(urls.contains("https://vidmoly.net/embed-VID123abc.html"))
         assertTrue(urls.contains("https://vidmoly.to/embed-VID123abc.html"))
         assertTrue(urls.contains("https://vidmoly.biz/embed-VID123abc.html"))
-        assertTrue(urls.contains("https://filemoon.sx/e/FILE456def"))
+        assertTrue(urls.contains("https://bysezoxexe.com/e/FILE456def"))
         assertTrue(urls.contains("https://odnoklassniki.ru/videoembed/OK789xyz"))
         assertEquals(5, urls.distinct().size)
         assertTrue(attempt.candidates.all { it.kind == WebteIzleCandidateKind.PLAYER })
@@ -435,6 +435,41 @@ class WebteIzleResolverBankTest {
         assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.com/u/PIXEL789abc" })
         assertTrue(pixel.candidates.any { it.url == "https://pixeldrain.dev/u/PIXEL789abc" })
         assertEquals("PixelDrain", WebteIzleResolverBank.playerFamily("https://pixeldrain.com/u/PIXEL789abc"))
+    }
+
+
+    @Test
+    fun stableHlsDedupIgnoresOnlyVolatileSignatureParameters() {
+        val first = WebteIzleResolverBank.emittedMediaKey(
+            "Dublaj",
+            "https://cdn.example/hls/master.m3u8?token=abc&expires=1000&id=episode7#player"
+        )
+        val sameStream = WebteIzleResolverBank.emittedMediaKey(
+            "DLS Dublaj",
+            "https://CDN.example/hls/master.m3u8?id=episode7&token=def&expires=2000"
+        )
+        val differentEpisode = WebteIzleResolverBank.emittedMediaKey(
+            "Dublaj",
+            "https://cdn.example/hls/master.m3u8?id=episode8&token=xyz&expires=3000"
+        )
+        val subtitle = WebteIzleResolverBank.emittedMediaKey(
+            "Altyazı",
+            "https://cdn.example/hls/master.m3u8?id=episode7&token=qwe&expires=4000"
+        )
+
+        assertEquals(first, sameStream)
+        assertTrue(first != differentEpisode)
+        assertTrue(first != subtitle)
+    }
+
+    @Test
+    fun FilemoonWrapperHostIsRecognizedAndFallsBackToKnownExtractorHosts() {
+        val wrapper = "https://bysezoxexe.com/e/observedFilemoonId?token=signed"
+        assertEquals("Filemoon", WebteIzleResolverBank.playerFamily(wrapper))
+        val variants = WebteIzleResolverBank.playerHostVariants(wrapper, "Filemoon")
+        assertTrue(variants.contains("https://filemoon.to/e/observedFilemoonId?token=signed"))
+        assertTrue(variants.contains("https://filemoon.sx/e/observedFilemoonId?token=signed"))
+        assertTrue(variants.contains("https://filemoon.in/e/observedFilemoonId?token=signed"))
     }
 
 }
