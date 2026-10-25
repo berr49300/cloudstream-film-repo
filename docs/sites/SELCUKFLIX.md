@@ -93,7 +93,15 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 - Real live site data and device playback/audio/subtitle rendering: NOT TESTED.
 - v3 was merged and published from PR #42 on 2026-10-25. The v4 source-probe/poster branch is separate; do not treat it as published until Actions and builds/plugins.json confirm it.
 
-## v4 source-probe and poster hardening (2026-10-25)\n\n- Source loading now scans the decrypted payload, Next.js state, player-related script blocks and raw HTML independently so one missing payload surface cannot suppress every other source search.\n- Candidate IDs remain visible in the CloudStream source name, including separate raw Pichive file and the hypothesis `m.php` → `master.m3u8` candidate. Episode-page and site-origin referer contexts remain separate for manual testing.\n- Poster lookup now prioritizes explicit poster/face fields, recursively checks nested fields, considers lazy-load/srcset attributes and OG/Twitter image metadata, rejects common placeholders, and uses a bounded detail-page fallback for up to 8 missing posters in the unfiltered first-page latest-series list.\n- Regression tests added for nested poster aliases/placeholders and separate raw/derived media candidates.\n- Status: code changed on working branch; CI and device validation not yet run for v4. Live `.app` response and CloudStream playback remain BLOCKED/NOT TESTED from this environment.\n\n## Third-party prior-art review
+## v4 source-probe and poster hardening (2026-10-25)
+
+- Source loading scans the decrypted payload, Next.js state, player-related script blocks and raw HTML independently.
+- Candidate IDs remain visible. The raw Pichive source and the hypothesis `m.php` → `master.m3u8` are separate candidates; iframe and site-origin referer contexts remain separate.
+- If an observed player URL fails through the installed extractor, it is still exposed as a clearly marked `PROBE ONLY (player URL, media NOT verified)` entry under the original discovery ID. This makes it manually testable instead of silently returning no links; it is not claimed to be playable media.
+- Poster lookup prioritizes poster/face fields, recursively checks nested fields, considers lazy-load/srcset attributes and OG/Twitter image metadata, rejects common placeholders, and attempts a bounded detail-page fallback for up to 8 missing posters in the unfiltered first-page latest-series list.
+- Regression tests cover nested poster aliases/placeholders and separate raw/derived media candidates.
+- CI: first run BLOCKED by Gradle dependency resolution (`com.github.recloudstream:gradle:-SNAPSHOT` not found); retry/push run is pending. Real live `.app` response and CloudStream playback remain BLOCKED / NOT TESTED from this environment.
+\n## Third-party prior-art review
 
 - Older source: https://github.com/nikyokki/nik-cloudstream/tree/master/SelcukFlix — GPL-3.0; points at the former \`selcukflix.net\` domain.
 - Current-domain source: https://github.com/SafakStream/SafakStream-Extensions/tree/main/SelcukFlix — GPL-3.0; references \`selcukflix.app\` and the Pichive-style player flow.
