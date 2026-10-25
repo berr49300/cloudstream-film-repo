@@ -77,6 +77,8 @@ Status means applicability/evidence on the requested .app site, not whether the 
 | 35 | AlternateAudioAndSubtitleResolver | Reads track elements and HLS subtitle groups; actual rendering is untested | HYPOTHESIS |
 | 36 | GenericExtractorFallback | Generic extractor is attempted separately; unresolved player page is visibly labelled as unresolved | HYPOTHESIS |
 | 37 | ManualNetworkEvidenceResolver | Reserved for a real URL/response observed by the user; no user network evidence exists yet | NOT TESTED |
+| 38 | PichiveSourceApiResolver | Reads `openPlayer(token)`, then parses the normal `source2.php` JSON response's raw source file entries | HYPOTHESIS |
+| 39 | PichiveMasterPlaylistResolver | Separately tests the observed `m.php` → `master.m3u8` path relation | HYPOTHESIS |
 
 ## Manual CloudStream test report
 
