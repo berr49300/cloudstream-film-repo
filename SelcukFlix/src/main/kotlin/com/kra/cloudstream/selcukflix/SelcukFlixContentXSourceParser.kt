@@ -51,11 +51,11 @@ internal object SelcukFlixContentXSourceParser {
 
         val found = linkedSetOf<String>()
         val filePattern = Regex("""(?is)['"]?file['"]?\s*[:=]\s*['"]((?:\\.|[^'"])+)['"]""")
-        payloads.forEach { payload ->
-            if (SelcukFlixResolverBank.isAccessChallenge(payload)) return@forEach
-            filePattern.findAll(decodePlayerEscapes(payload)).forEach { match ->
+        payloads.forEach payloadLoop@{ payload ->
+            if (SelcukFlixResolverBank.isAccessChallenge(payload)) return@payloadLoop
+            filePattern.findAll(decodePlayerEscapes(payload)).forEach matchLoop@{ match ->
                 val raw = match.groupValues.getOrNull(1).orEmpty()
-                if (raw.isBlank() || canBeSubtitle(raw)) return@forEach
+                if (raw.isBlank() || canBeSubtitle(raw)) return@matchLoop
                 SelcukFlixResolverBank.normalizeUrl(raw, baseUrl)?.let(found::add)
             }
         }
