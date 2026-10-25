@@ -102,10 +102,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=selcukflix.app",
-        "fileHash": "sha256-a0df35942945aee0c4b34cf188eead3db68048199ca08215bc30655416e47ffc",
+        "fileHash": "sha256-cd6c6c57796afd2b4341c750e6c149d682efc828fe4e7c11fad958e85f362a4d",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 120852,
+        "fileSize": 122047,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -115,9 +115,9 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 4,
+        "version": 5,
         "internalName": "SelcukFlix",
-        "description": "SelcukFlix i\u00e7in ba\u011f\u0131ms\u0131z film/dizi sa\u011flay\u0131c\u0131s\u0131 ve numaral\u0131 kaynak test bankas\u0131",
+        "description": "SelcukFlix v5: katalog/poster d\u00fczeltmeleri, Pichive ve oynat\u0131c\u0131 ba\u011flam\u0131 testleri",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/SelcukFlix.cs3",
         "name": "SelcukFlix"
     },
