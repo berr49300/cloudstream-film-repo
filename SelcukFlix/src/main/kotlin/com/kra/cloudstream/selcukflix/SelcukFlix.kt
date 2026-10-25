@@ -87,20 +87,8 @@ class SelcukFlix : MainAPI() {
         return true
     }
 
-    private fun canonicalSiteUrl(raw: String?): String? {
-        if (raw.isNullOrBlank()) return null
-        val absolute = SelcukFlixResolverBank.normalizeUrl(raw, mainUrl) ?: return null
-        val uri = runCatching { URI(absolute) }.getOrNull() ?: return null
-        val host = uri.host.orEmpty().lowercase().removePrefix("www.")
-        val legacyHosts = setOf("selcukflix.net", "selcukflix.com", "selcukflix.co")
-        if (host in legacyHosts) {
-            val suffix = (uri.rawPath ?: "/") +
-                (uri.rawQuery?.let { "?" + it } ?: "") +
-                (uri.rawFragment?.let { "#" + it } ?: "")
-            return mainUrl.trimEnd('/') + suffix
-        }
-        return absolute
-    }
+    private fun canonicalSiteUrl(raw: String?): String? =
+        SelcukFlixResolverBank.normalizeSiteUrl(raw, mainUrl)
 
     private fun responsePayload(body: String): String {
         if (SelcukFlixResolverBank.isAccessChallenge(body)) {
@@ -722,6 +710,9 @@ class SelcukFlix : MainAPI() {
             "Resolver test bank emitted " + totalResolved +
                 " candidate link(s). A listed candidate is not proof of successful playback."
         )
-        return totalResolved > 0 || sourceItems.isNotEmpty()
+        if (totalResolved == 0) {
+            android.util.Log.w("SelcukFlix", "No playable/source candidate was emitted for this page.")
+        }
+        return totalResolved > 0
     }
 }
