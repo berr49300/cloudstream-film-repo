@@ -311,8 +311,16 @@ internal object SelcukFlixPichiveParser {
         // The m.php -> master.m3u8 mapping has not been confirmed against a live player.
         // Preserve both candidates so a bad transformation cannot hide a usable raw endpoint.
         return listOf(
-            SelcukFlixMediaFile(url, "Raw PHP fallback", "HLS"),
-            SelcukFlixMediaFile(transformed, "Master playlist hypothesis", "HLS")
+            SelcukFlixMediaFile(
+                transformed,
+                "${file.track} (master playlist hypothesis)",
+                file.quality
+            ),
+            SelcukFlixMediaFile(
+                url,
+                "${file.track} (raw PHP fallback)",
+                file.quality
+            )
         )
     }
 
