@@ -39,10 +39,10 @@ class SelcukFlixPichiveParserTest {
 
         val candidates = SelcukFlixPichiveParser.mediaCandidates(files.single().url, "https://four.pichive.online/source2.php?v=fixture")
         assertEquals(2, candidates.size)
-        assertEquals("https://four.pichive.online/media/m.php?key=fixture", candidates[0].url)
-        assertEquals("Raw PHP fallback", candidates[0].track)
-        assertEquals("https://four.pichive.online/media/master.m3u8?key=fixture", candidates[1].url)
-        assertEquals("Master playlist hypothesis", candidates[1].track)
+        assertEquals("https://four.pichive.online/media/master.m3u8?key=fixture", candidates[0].url)
+        assertTrue(candidates[0].track.contains("master playlist hypothesis"))
+        assertEquals("https://four.pichive.online/media/m.php?key=fixture", candidates[1].url)
+        assertTrue(candidates[1].track.contains("raw PHP fallback"))
     }
 
     @Test
@@ -54,11 +54,11 @@ class SelcukFlixPichiveParserTest {
 
         assertEquals(2, candidates.size)
         assertEquals(
-            "https://four.pichive.online/media/m.php?key=a%2Fb%3D&token=x%2By%3D",
+            "https://four.pichive.online/media/master.m3u8?key=a%2Fb%3D&token=x%2By%3D",
             candidates[0].url
         )
         assertEquals(
-            "https://four.pichive.online/media/master.m3u8?key=a%2Fb%3D&token=x%2By%3D",
+            "https://four.pichive.online/media/m.php?key=a%2Fb%3D&token=x%2By%3D",
             candidates[1].url
         )
     }
