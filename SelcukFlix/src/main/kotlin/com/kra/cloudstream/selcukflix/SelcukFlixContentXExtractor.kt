@@ -172,16 +172,28 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
 internal object SelcukFlixPichiveParser {
     private val mapper by lazy { jacksonObjectMapper() }
 
+    /**
+     * SelcukFlix's player hostname can rotate. The caller passes iframe URLs discovered
+     * in SelcukFlix page data, so match the observed endpoint shape rather than a stale
+     * allowlist of hostnames.
+     */
     fun canHandle(url: String): Boolean = runCatching {
         val uri = URI(url)
-        val host = uri.host.orEmpty().lowercase()
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host.orEmpty()
         val path = uri.path.orEmpty().lowercase()
-        uri.scheme?.lowercase() in setOf("http", "https") &&
+        val hasPlayerToken = uri.rawQuery.orEmpty().split("&").any { parameter ->
+            val rawName = parameter.substringBefore("=")
+            val name = runCatching {
+                java.net.URLDecoder.decode(rawName, "UTF-8")
+            }.getOrDefault(rawName)
+            name.equals("v", true) && parameter.substringAfter("=", "").isNotBlank()
+        }
+        scheme in setOf("http", "https") &&
+            host.isNotBlank() &&
+            uri.userInfo == null &&
             path.endsWith("/iframe.php") &&
-            uri.rawQuery.orEmpty().split("&").any {
-                java.net.URLDecoder.decode(it.substringBefore("="), "UTF-8").equals("v", true)
-            } &&
-            (host.contains("pichive") || host.contains("playru") || host.contains("contentx") || host.contains("dplayer82"))
+            hasPlayerToken
     }.getOrDefault(false)
 
     fun playerTokens(html: String): List<SelcukFlixPlayerToken> {
