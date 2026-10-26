@@ -281,9 +281,10 @@ internal object SelcukFlixPichiveParser {
         val lower = path.lowercase()
         val transformedPath = when {
             lower.endsWith("/m.php") -> path.dropLast("m.php".length) + "master.m3u8"
-            lower.endsWith(".php") -> path.substringBeforeLast("/") + "/master.m3u8"
-            else -> null
-        } ?: return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
+            // Do not invent a master playlist for unrelated PHP endpoints.
+            lower.endsWith(".php") -> return emptyList()
+            else -> return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
+        }
 
         val scheme = uri.scheme ?: return emptyList()
         val authority = uri.rawAuthority ?: return emptyList()
