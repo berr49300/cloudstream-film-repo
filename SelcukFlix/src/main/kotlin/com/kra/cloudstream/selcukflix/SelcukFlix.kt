@@ -45,8 +45,6 @@ class SelcukFlix : MainAPI() {
         "$mainUrl/kesfet" to "Keşfet"
     )
 
-    private data class SourceItem(val content: String, val label: String)
-
     private fun JsonNode.field(name: String): JsonNode? {
         if (!isObject) return null
         val iterator = fields()
@@ -536,49 +534,6 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    private fun collectSourceItems(root: JsonNode): List<SourceItem> {
-        val found = linkedMapOf<String, SourceItem>()
-
-        fun walk(node: JsonNode) {
-            if (node.isObject) {
-                val contentKeys = listOf(
-                    "source_content", "sourceContent", "sourceUrl", "source_url",
-                    "embedUrl", "embed_url", "videoUrl", "video_url"
-                )
-                val content = contentKeys.asSequence().mapNotNull { key ->
-                    val value = node.field(key) ?: return@mapNotNull null
-                    if (value.isNull) return@mapNotNull null
-                    when {
-                        value.isTextual -> value.asText().trim().takeIf { it.isNotBlank() && it != "null" }
-                        value.isContainerNode -> value.toString()
-                        else -> null
-                    }
-                }.firstOrNull()
-                if (!content.isNullOrBlank()) {
-                    // Preserve the player's own label and audio/language variant so a dubbed
-                    // source is not hidden behind a generic "Kaynak 1" entry.
-                    val labelParts = listOf(
-                        node.textField("source_name", "sourceName", "provider_name", "providerName",
-                            "player_name", "playerName", "name"),
-                        node.textField("language_name", "languageName", "source_language", "sourceLanguage",
-                            "audio_type", "audioType", "language", "lang", "version", "audio"),
-                        node.textField("quality_name", "qualityName", "quality", "label")
-                    ).filterNotNull().map { it.trim() }.filter { it.isNotBlank() }.distinct()
-                    val label = labelParts.joinToString(" • ")
-                        .ifBlank { "Kaynak " + (found.size + 1) }
-                    val key = label + "|" + content
-                    found.putIfAbsent(key, SourceItem(content, label))
-                }
-                node.children().forEach(::walk)
-            } else if (node.isArray) {
-                node.children().forEach(::walk)
-            }
-        }
-
-        walk(root)
-        return found.values.toList()
-    }
-
     private fun iframeUrlsFromText(raw: String, baseUrl: String): List<String> {
         if (raw.isBlank()) return emptyList()
         val text = raw
@@ -655,43 +610,32 @@ class SelcukFlix : MainAPI() {
         }
         if (SelcukFlixResolverBank.isAccessChallenge(html)) return false
 
-        val payloads = linkedMapOf<String, String>()
-        payloads["Raw detail HTML"] = html
-        val embedded = SelcukFlixResolverBank.extractEmbeddedPayload(html)
-        if (!embedded.isNullOrBlank()) payloads["Decoded page payload"] = embedded
-        val document = Jsoup.parse(html, episodeUrl)
-        document.select("script").forEachIndexed { index, script ->
+        // The site's player data is already carried by the decrypted secureData payload.
+        // Scan that and the page itself, plus only player-related scripts as a fallback.
+        val texts = linkedMapOf<String, String>()
+        SelcukFlixResolverBank.extractEmbeddedPayload(html)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { texts["Decoded page payload"] = it }
+        texts["Episode page"] = html
+
+        Jsoup.parse(html, episodeUrl).select("script").forEachIndexed { index, script ->
             val text = script.data().ifBlank { script.html() }
             if (text.isNotBlank() && Regex(
-                    """(?is)(source_content|sourceContent|iframe\.php|openPlayer|source2\.php|m3u8|mpd)"""
+                    """(?is)(iframe\\.php|openPlayer|source2\\.php|source_content|m3u8|mpd)"""
                 ).containsMatchIn(text)
-            ) payloads.putIfAbsent("Player script " + (index + 1), text)
-        }
-
-        val sourceItems = mutableListOf<SourceItem>()
-        payloads.forEach { (label, text) ->
-            val parsed = runCatching { mapper.readTree(text) }.getOrNull()
-            if (parsed != null) {
-                sourceItems += collectSourceItems(parsed).map { item ->
-                    SourceItem(item.content, "$label • " + item.label)
-                }
+            ) {
+                texts.putIfAbsent("Player script " + (index + 1), text)
             }
-            // Keep each observed representation as a separate fallback, not as a fake video URL.
-            sourceItems += SourceItem(text, label)
         }
 
         val iframeCandidates = linkedMapOf<String, String>()
         val directCandidates = linkedMapOf<String, String>()
-        sourceItems.forEachIndexed { index, source ->
-            iframeUrlsFromText(source.content, episodeUrl).forEach { url ->
-                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) {
-                    iframeCandidates.putIfAbsent(url, source.label)
-                }
+        texts.forEach { (label, text) ->
+            iframeUrlsFromText(text, episodeUrl).forEach { url ->
+                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) iframeCandidates.putIfAbsent(url, label)
             }
-            directMediaUrlsFromText(source.content, episodeUrl).forEach { url ->
-                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) {
-                    directCandidates.putIfAbsent(url, source.label.ifBlank { "Doğrudan kaynak " + (index + 1) })
-                }
+            directMediaUrlsFromText(text, episodeUrl).forEach { url ->
+                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) directCandidates.putIfAbsent(url, label)
             }
         }
 
@@ -709,8 +653,6 @@ class SelcukFlix : MainAPI() {
         iframeCandidates.forEach { (iframeUrl, label) ->
             val resolved = mutableListOf<ExtractorLink>()
             if (SelcukFlixContentXExtractor.canHandle(iframeUrl)) {
-                // The known Pichive flow needs the site origin on iframe.php and the iframe
-                // itself as Referer for source2.php. The custom extractor owns that exact sequence.
                 runCatching {
                     SelcukFlixContentXExtractor().getUrl(
                         iframeUrl,
@@ -720,29 +662,26 @@ class SelcukFlix : MainAPI() {
                         if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                     }
                 }.onFailure {
-                    android.util.Log.w("SelcukFlix", "Pichive resolver failed; trying the registered extractor.")
+                    android.util.Log.w("SelcukFlix", "Observed Pichive source resolution failed.")
                 }
             }
 
-            // Other player hosts use CloudStream's maintained extractor registry. For Pichive,
-            // this is a fallback only after the observed site-specific flow produced no link.
+            // Keep CloudStream's registered extractors for other observed iframe hosts.
             if (resolved.isEmpty()) {
                 runCatching {
                     loadExtractor(
                         iframeUrl,
                         episodeUrl,
                         { sub ->
-                            subtitleCallback(
-                                SubtitleFile(sub.lang, sub.url).apply {
-                                    headers = sub.headers ?: mapOf("Referer" to iframeUrl)
-                                }
-                            )
+                            subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
+                                headers = sub.headers ?: mapOf("Referer" to iframeUrl)
+                            })
                         }
                     ) { link ->
                         if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                     }
                 }.onFailure {
-                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed player.")
+                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed iframe.")
                 }
             }
 
@@ -759,8 +698,8 @@ class SelcukFlix : MainAPI() {
 
         android.util.Log.i(
             "SelcukFlix",
-            "Kaynak çözümleme tamamlandı: " + emitted + "; iframe=" +
-                iframeCandidates.size + ", direct=" + directCandidates.size
+            "Kaynak çözümleme tamamlandı: " + emitted +
+                "; iframe=" + iframeCandidates.size + ", direct=" + directCandidates.size
         )
         return emitted
     }
