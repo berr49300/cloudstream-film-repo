@@ -8,10 +8,13 @@ import org.junit.Test
 
 class SelcukFlixPichiveParserTest {
     @Test
-    fun recognizesObservedPichiveIframeHostsOnly() {
+    fun acceptsRotatingIframeHostsWithPlayerTokenButRejectsUnrelatedUrls() {
         assertTrue(SelcukFlixPichiveParser.canHandle("https://four.pichive.online/iframe.php?v=abcd1234"))
         assertTrue(SelcukFlixPichiveParser.canHandle("https://player.playru.me/iframe.php?v=abcd1234"))
-        assertFalse(SelcukFlixPichiveParser.canHandle("https://unrelated.example/iframe.php?v=abcd1234"))
+        assertTrue(SelcukFlixPichiveParser.canHandle("https://edge-stream.example/iframe.php?x=1&v=token_a%2Fb"))
+        assertFalse(SelcukFlixPichiveParser.canHandle("https://unrelated.example/watch.php?v=abcd1234"))
+        assertFalse(SelcukFlixPichiveParser.canHandle("https://unrelated.example/iframe.php"))
+        assertFalse(SelcukFlixPichiveParser.canHandle("ftp://edge-stream.example/iframe.php?v=abcd1234"))
     }
 
     @Test
