@@ -10,7 +10,7 @@ The GitHub Actions workflow in `.github/workflows/build.yml` has two distinct re
 1. Open the repository's **Actions** tab and select **Build and publish CloudStream plugin**.
 2. Choose **Run workflow** and select the `main` branch.
 3. Leave **publish** unchecked for validation only.
-4. To publish, explicitly enable **publish** and start the run. The publish job is skipped for pull requests, pushes, a false input, or runs started from a branch other than `main`.
+4. Normal pushes to `main` publish automatically after all required validation and build steps pass. For a manual run, explicitly enable **publish** to publish; otherwise it is validation only. The publish job is skipped for pull requests, manual runs with a false input, or runs started from a branch other than `main`.
 
 The workflow uses a read-only token for validation and grants `contents: write` only to the publish job. Publishing is serialized so concurrent releases cannot overwrite each other. It retains only the files intended for the `builds` branch, so that branch is a generated distribution branch rather than source history.
 
