@@ -221,7 +221,7 @@ def extract_php_or_media_files(text: str, base_url: str) -> list[str]:
 
     if root is not None:
         walk(root)
-    for match in re.finditer(r"""(?is)['"]?file['"]?\\s*[:=]\\s*['"]((?:\\\\.|[^'"])+)['"]""", text):
+    for match in re.finditer(r"""(?is)['"]?file['"]?\s*[:=]\s*['"]((?:\\.|[^'"])+)['"]""", text):
         candidate = urljoin(base_url, match.group(1).replace("\\/", "/"))
         p = urlparse(candidate)
         if p.scheme in {"http", "https"} and p.hostname and (
