@@ -669,137 +669,59 @@ class SelcukFlix : MainAPI() {
         return found.values.toList()
     }
 
-    private suspend fun expandPichiveCandidates(
-        input: List<SelcukResolverCandidate>,
-        episodeUrl: String,
-        subtitleCallback: (SubtitleFile) -> Unit
-    ): List<SelcukResolverCandidate> {
-        val output = input.toMutableList()
-        // Run the dedicated source2.php strategy for both the episode-page and
-        // site-origin referer contexts. The generic iframe extractor also handles iframe.php,
-        // so excluding its URLs here silently disabled this independent resolver path.
-        val pichiveFrames = input.filter {
-            it.id in setOf(15, 33) && SelcukFlixResolverBank.isPichiveIframe(it.url)
-        }.distinctBy { it.url + "|" + it.referer }.take(12)
-
-        for (frame in pichiveFrames) {
-            val iframeHtml = try {
-                // Use the normal embedding-page referer once. If the site responds with a challenge,
-                // mark it BLOCKED instead of trying alternate headers, mirrors, or challenge workarounds.
-                val frameReferer = frame.referer.ifBlank { episodeUrl }
-                app.get(
-                    frame.url,
-                    headers = browserHeaders + mapOf("Referer" to frameReferer),
-                    referer = frameReferer
-                ).text
-            } catch (_: Exception) {
-                android.util.Log.w(
-                    "SelcukFlix",
-                    "38 • PichiveSourceApiResolver: BLOCKED/NOT TESTED at iframe request; no retry or challenge bypass."
-                )
-                continue
-            }
-            if (isBlocked(iframeHtml, "Pichive iframe")) continue
-
-            SelcukFlixResolverBank.extractSubtitles(iframeHtml, frame.url).forEach { subtitle ->
-                subtitleCallback(
-                    newSubtitleFile("35 • " + subtitle.language, subtitle.url) {
-                        headers = browserHeaders + mapOf("Referer" to frame.url)
-                    }
-                )
-            }
-
-            val token = SelcukFlixResolverBank.extractPichiveToken(iframeHtml)
-            if (token.isNullOrBlank()) {
-                android.util.Log.d(
-                    "SelcukFlix",
-                    "38 • PichiveSourceApiResolver: NOT FOUND; openPlayer token absent in non-challenge page."
-                )
-                continue
-            }
-
-            val apiUrl = SelcukFlixResolverBank.pichiveSourceApiUrl(frame.url, token)
-                ?: continue
-            // Follow the observed Pichive request contract: the iframe page requests
-            // source2.php with its own URL as Referer. The parent episode page is used only
-            // for the iframe navigation above; do not substitute it for this API request.
-            val sourceApiReferer = frame.url
-            val response = try {
-                app.get(
-                    apiUrl,
-                    headers = browserHeaders + mapOf(
-                        "Accept" to "application/json, text/plain, */*",
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to sourceApiReferer
-                    ),
-                    referer = sourceApiReferer
-                ).text
-            } catch (_: Exception) {
-                android.util.Log.w(
-                    "SelcukFlix",
-                    "38 • PichiveSourceApiResolver: source API request failed; request URL/token omitted."
-                )
-                continue
-            }
-
-            if (isBlocked(response, "Pichive source API")) continue
-            val parsed = SelcukFlixResolverBank.extractPichiveSourceCandidates(response, frame.url)
-            if (parsed.isEmpty()) {
-                android.util.Log.d(
-                    "SelcukFlix",
-                    "38 • PichiveSourceApiResolver: no recognized source entries in the normal API response."
-                )
-            }
-            output += parsed
+    private fun iframeUrlsFromText(raw: String, baseUrl: String): List<String> {
+        if (raw.isBlank()) return emptyList()
+        val text = raw
+            .replace("\\\\\"", "\"")
+            .replace("\\\"", "\"")
+            .replace("\\\\/", "/")
+            .replace("\\/", "/")
+            .replace("&amp;", "&", ignoreCase = true)
+        val found = linkedSetOf<String>()
+        val document = Jsoup.parse(text, baseUrl)
+        document.select("iframe[src], iframe[data-src], iframe[data-lazy-src]").forEach { frame ->
+            val candidate = frame.attr("src")
+                .ifBlank { frame.attr("data-src") }
+                .ifBlank { frame.attr("data-lazy-src") }
+            SelcukFlixResolverBank.normalizeUrl(candidate, baseUrl)?.let(found::add)
         }
-
-        return output.distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer + "|" + it.note }
-            .take(220)
+        Regex(
+            """(?is)<iframe\b[^>]*?\b(?:src|data-src|data-lazy-src)\s*=\s*\\?["']([^"'\\]+)"""
+        ).findAll(text).forEach { match ->
+            SelcukFlixResolverBank.normalizeUrl(match.groupValues[1], baseUrl)?.let(found::add)
+        }
+        Regex(
+            """(?i)(?:https?:)?//[^\s"'<>\\]+/iframe\.php\?[^"'<>\\\s]*"""
+        ).findAll(text).forEach { match ->
+            SelcukFlixResolverBank.normalizeUrl(match.value, baseUrl)?.let(found::add)
+        }
+        return found.toList()
     }
 
-    private suspend fun expandNestedIframeCandidates(
-        input: List<SelcukResolverCandidate>,
-        episodeUrl: String
-    ): List<SelcukResolverCandidate> {
-        val output = input.toMutableList()
-        val parents = input.filter {
-            it.id == 15 &&
-                !SelcukFlixResolverBank.isPichiveIframe(it.url) &&
-                !SelcukFlixContentXSourceParser.canHandle(it.url)
+    private fun directMediaUrlsFromText(raw: String, baseUrl: String): List<String> {
+        if (raw.isBlank()) return emptyList()
+        val text = raw
+            .replace("\\\\/", "/")
+            .replace("\\/", "/")
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("&amp;", "&", ignoreCase = true)
+        val found = linkedSetOf<String>()
+        val urlPattern = Regex("""(?i)(?:https?:)?//[^\s"'<>\\]+""")
+        urlPattern.findAll(text).forEach { match ->
+            val candidate = match.value.trimEnd(')', ']', '}', ',', ';', '.')
+            val normalized = SelcukFlixResolverBank.normalizeUrl(candidate, baseUrl) ?: return@forEach
+            val path = runCatching { URI(normalized).path.orEmpty().lowercase() }.getOrDefault("")
+            if (path.endsWith(".m3u8") || path.endsWith(".mpd") ||
+                path.endsWith(".mp4") || path.endsWith(".m4v") ||
+                path.endsWith(".webm") || path.endsWith(".mkv") ||
+                path.endsWith(".avi") || path.endsWith(".mov")
+            ) found.add(normalized)
         }
-            .distinctBy { it.url }
-            .take(6)
-        for (parent in parents) {
-            val html = try {
-                app.get(parent.url, referer = parent.referer.ifBlank { episodeUrl }).text
-            } catch (_: Exception) {
-                continue
-            }
-            if (isBlocked(html, "nested player")) continue
-            val nested = SelcukFlixResolverBank.extractCandidates(html, parent.url, mainUrl)
-                .filterNot { it.url == parent.url }
-            nested.forEach { child ->
-                output += child
-                output += child.copy(
-                    id = 16,
-                    referer = parent.url,
-                    note = "via " + child.id.toString().padStart(2, '0')
-                )
-            }
-        }
-        return output.distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer + "|" + it.note }
-            .take(180)
+        return found.toList()
     }
 
-    private fun sourceLabel(candidate: SelcukResolverCandidate, source: SourceItem): String {
-        val id = candidate.id.toString().padStart(2, '0')
-        val nested = candidate.note?.let { " • " + it }.orEmpty()
-        return id + " • " + SelcukFlixResolverBank.resolverName(candidate.id) + nested +
-            " • " + source.label.take(48)
-    }
-
-    private fun directType(url: String): ExtractorLinkType? {
-        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault(url.lowercase())
+    private fun directMediaType(url: String): ExtractorLinkType? {
+        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
         return when {
             path.endsWith(".m3u8") -> ExtractorLinkType.M3U8
             path.endsWith(".mpd") -> ExtractorLinkType.DASH
@@ -816,281 +738,120 @@ class SelcukFlix : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val episodeUrl = canonicalSiteUrl(data) ?: data
-        val html = loadPageHtml(episodeUrl, "oynatıcı/kaynak")
-        val pageDocument = Jsoup.parse(html, episodeUrl)
-        val decodedPayload = SelcukFlixResolverBank.extractEmbeddedPayload(html)
-
-        // Do not let one stale/missing page-state field suppress all other discovery paths.
-        // Each surface is scanned independently and the resolver IDs remain attached to outputs.
-        val payloadSurfaces = linkedMapOf<String, String>()
-        if (!decodedPayload.isNullOrBlank()) payloadSurfaces["Decoded page payload"] = decodedPayload
-        pageDocument.selectFirst("script#__NEXT_DATA__")?.let { script ->
-            val text = script.data().ifBlank { script.html() }
-            if (text.isNotBlank()) payloadSurfaces.putIfAbsent("Next.js page state", text)
+        val html = try {
+            loadPageHtml(episodeUrl, "oynatıcı/kaynak")
+        } catch (_: Exception) {
+            return false
         }
-        pageDocument.select("script").forEachIndexed { index, script ->
+        if (SelcukFlixResolverBank.isAccessChallenge(html)) return false
+
+        val payloads = linkedMapOf<String, String>()
+        payloads["Raw detail HTML"] = html
+        val embedded = SelcukFlixResolverBank.extractEmbeddedPayload(html)
+        if (!embedded.isNullOrBlank()) payloads["Decoded page payload"] = embedded
+        val document = Jsoup.parse(html, episodeUrl)
+        document.select("script").forEachIndexed { index, script ->
             val text = script.data().ifBlank { script.html() }
             if (text.isNotBlank() && Regex(
-                    """(?is)(source_content|sourceContent|openPlayer|source2\.php|iframe\.php|player|manifest|m3u8|mpd)"""
+                    """(?is)(source_content|sourceContent|iframe\.php|openPlayer|source2\.php|m3u8|mpd)"""
                 ).containsMatchIn(text)
-            ) {
-                payloadSurfaces.putIfAbsent("Embedded player script ${index + 1}", text)
-            }
+            ) payloads.putIfAbsent("Player script " + (index + 1), text)
         }
-        payloadSurfaces.putIfAbsent("Raw detail HTML", html)
 
         val sourceItems = mutableListOf<SourceItem>()
-        payloadSurfaces.forEach { (surfaceName, surfaceText) ->
-            val parsed = runCatching { mapper.readTree(surfaceText) }.getOrNull()
-            val structured = parsed?.let(::collectSourceItems).orEmpty()
-            structured.forEach { item ->
-                sourceItems += SourceItem(item.content, "$surfaceName • ${item.label}")
+        payloads.forEach { (label, text) ->
+            val parsed = runCatching { mapper.readTree(text) }.getOrNull()
+            if (parsed != null) {
+                sourceItems += collectSourceItems(parsed).map { item ->
+                    SourceItem(item.content, "$label • " + item.label)
+                }
             }
-            // Keep the entire surface as an independent fallback for HTML/JSON/script/escaped URL parsers.
-            sourceItems += SourceItem(surfaceText, surfaceName)
+            // Keep each observed representation as a separate fallback, not as a fake video URL.
+            sourceItems += SourceItem(text, label)
         }
 
-        var totalResolved = 0
-        val manifestChecked = mutableSetOf<String>()
-        val playerCache = mutableMapOf<String, List<ExtractorLink>>()
-        val sourceCache = mutableMapOf<String, List<SelcukResolverCandidate>>()
-        val contentXCache = mutableMapOf<String, List<ExtractorLink>>()
-        val processedCandidates = mutableSetOf<String>()
-        val emittedResolverLinks = mutableSetOf<String>()
+        val iframeCandidates = linkedMapOf<String, String>()
+        val directCandidates = linkedMapOf<String, String>()
+        sourceItems.forEachIndexed { index, source ->
+            iframeUrlsFromText(source.content, episodeUrl).forEach { url ->
+                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) {
+                    iframeCandidates.putIfAbsent(url, source.label)
+                }
+            }
+            directMediaUrlsFromText(source.content, episodeUrl).forEach { url ->
+                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) {
+                    directCandidates.putIfAbsent(url, source.label.ifBlank { "Doğrudan kaynak " + (index + 1) })
+                }
+            }
+        }
 
-        sourceItems.distinctBy { it.label + "|" + it.content }.forEachIndexed { sourceIndex, source ->
-            SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
-                subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url) {
-                    headers = browserHeaders + mapOf("Referer" to episodeUrl)
+        var emitted = false
+        directCandidates.forEach { (url, label) ->
+            val type = directMediaType(url) ?: return@forEach
+            callback(newExtractorLink(name, label, url, type) {
+                this.referer = episodeUrl
+                this.headers = browserHeaders + ("Referer" to episodeUrl)
+                this.quality = Qualities.Unknown.value
+            })
+            emitted = true
+        }
+
+        iframeCandidates.forEach { (iframeUrl, label) ->
+            val resolved = mutableListOf<ExtractorLink>()
+            if (SelcukFlixContentXExtractor.canHandle(iframeUrl)) {
+                // The known Pichive flow needs the site origin on iframe.php and the iframe
+                // itself as Referer for source2.php. The custom extractor owns that exact sequence.
+                runCatching {
+                    SelcukFlixContentXExtractor().getUrl(
+                        iframeUrl,
+                        episodeUrl,
+                        subtitleCallback
+                    ) { link ->
+                        if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
+                    }
+                }.onFailure {
+                    android.util.Log.w("SelcukFlix", "Pichive resolver failed; trying the registered extractor.")
+                }
+            }
+
+            // Other player hosts use CloudStream's maintained extractor registry. For Pichive,
+            // this is a fallback only after the observed site-specific flow produced no link.
+            if (resolved.isEmpty()) {
+                runCatching {
+                    loadExtractor(
+                        iframeUrl,
+                        episodeUrl,
+                        { sub ->
+                            subtitleCallback(
+                                SubtitleFile(sub.lang, sub.url).apply {
+                                    headers = sub.headers ?: mapOf("Referer" to iframeUrl)
+                                }
+                            )
+                        }
+                    ) { link ->
+                        if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
+                    }
+                }.onFailure {
+                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed player.")
+                }
+            }
+
+            resolved.distinctBy { it.url + "|" + it.type + "|" + it.referer }.forEach { link ->
+                callback(newExtractorLink(name, "$label → " + link.name, link.url, link.type) {
+                    this.referer = link.referer.ifBlank { iframeUrl }
+                    this.headers = link.headers ?: (browserHeaders + ("Referer" to iframeUrl))
+                    this.quality = link.quality
+                    this.extractorData = link.extractorData
                 })
-            }
-
-            val cacheKey = source.content + "|" + episodeUrl
-            val initialCandidates = sourceCache.getOrPut(cacheKey) {
-                SelcukFlixResolverBank.extractCandidates(
-                    source.content,
-                    episodeUrl,
-                    mainUrl,
-                    fromObservedApi = source.label.contains("source", true) ||
-                        source.label.contains("API", true) ||
-                        source.label.contains("Pichive", true)
-                )
-            }
-            // These are additional independently named discoveries, not replacements for IDs
-            // that found the same iframe through HTML, JSON, script, or a player configuration.
-            val sourceIframes = SelcukFlixResolverBank.extractSourceIframes(source.content, episodeUrl)
-            val allInitial = (
-                initialCandidates + sourceIframes.map { iframe ->
-                    SelcukResolverCandidate(
-                        id = 15,
-                        url = iframe,
-                        kind = SelcukMediaKind.PLAYER,
-                        referer = episodeUrl,
-                        note = "observed source_content iframe"
-                    )
-                }
-            ).distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer + "|" + it.note }
-            val withPichive = expandPichiveCandidates(allInitial, episodeUrl, subtitleCallback)
-            val candidates = expandNestedIframeCandidates(withPichive, episodeUrl)
-            if (candidates.isEmpty()) {
-                android.util.Log.w(
-                    "SelcukFlix",
-                    "No iframe or media URL found in surface " + (sourceIndex + 1) +
-                        " (${source.label}); source schema or request flow may have changed."
-                )
-            }
-
-            candidates.forEach { candidate ->
-                val label = sourceLabel(candidate, source)
-                if (SelcukFlixResolverBank.isYouTubeUrl(candidate.url)) return@forEach
-                val candidateKey = candidate.id.toString() + "|" + candidate.url + "|" + candidate.referer
-                if (!processedCandidates.add(candidateKey)) return@forEach
-
-                // ContentX/Pichive iframe.php hosts are dynamic. Cache the network result per
-                // URL + header context, but emit a separately named result for each discovery ID.
-                if (SelcukFlixContentXSourceParser.canHandle(candidate.url)) {
-                    val contextKey = candidate.url + "|" + candidate.referer
-                    val resolvedLinks = contentXCache[contextKey] ?: run {
-                        val collected = mutableListOf<ExtractorLink>()
-                        val sourceReferer = candidate.referer.ifBlank { episodeUrl }
-
-                        // Prefer CloudStream's maintained ContentX/Pichive/PlayRu extractors.
-                        // Run the site-specific parser only when the core extractor emits no media.
-                        try {
-                            loadExtractor(
-                                candidate.url,
-                                sourceReferer,
-                                { sub ->
-                                    subtitleCallback(
-                                        SubtitleFile(sub.lang, sub.url).apply {
-                                            headers = sub.headers ?: mapOf("Referer" to candidate.url)
-                                        }
-                                    )
-                                }
-                            ) { link ->
-                                if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
-                            }
-                        } catch (_: Exception) {
-                            android.util.Log.d(
-                                "SelcukFlixContentX",
-                                "Built-in extractor threw; trying site-specific fallback."
-                            )
-                        }
-
-                        if (collected.isEmpty()) {
-                            try {
-                                SelcukFlixContentXExtractor().getUrl(
-                                    candidate.url,
-                                    sourceReferer,
-                                    subtitleCallback
-                                ) { link ->
-                                    if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
-                                }
-                            } catch (_: Exception) {
-                                android.util.Log.w(
-                                    "SelcukFlixContentX",
-                                    "Site-specific fallback failed for resolver " +
-                                        candidate.id.toString().padStart(2, '0') +
-                                        "; URL and token omitted from log."
-                                )
-                            }
-                        }
-                        collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }
-                            .also { contentXCache[contextKey] = it }
-                    }
-                    if (resolvedLinks.isEmpty()) {
-                        android.util.Log.w(
-                            "SelcukFlixContentX",
-                            "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: built-in and site-specific extractors returned no media link; iframe is not advertised as playable."
-                        )
-                    }
-                    resolvedLinks.forEach { link ->
-                        val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
-                        if (!emittedResolverLinks.add(emitKey)) return@forEach
-                        callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
-                            this.referer = link.referer.ifBlank { candidate.referer }
-                            this.quality = link.quality
-                            this.headers = link.headers
-                            this.extractorData = link.extractorData
-                        })
-                        totalResolved += 1
-                    }
-                    return@forEach
-                }
-
-                val directLinkType = directType(candidate.url)
-                    ?: if (candidate.id in setOf(38, 39) && candidate.kind == SelcukMediaKind.HLS) {
-                        ExtractorLinkType.M3U8
-                    } else null
-                if (directLinkType != null) {
-                    val emitKey = candidateKey + "|" + candidate.url + "|" + directLinkType
-                    if (emittedResolverLinks.add(emitKey)) {
-                        callback(newExtractorLink(name, label, candidate.url, directLinkType) {
-                            this.referer = candidate.referer
-                            this.quality = Qualities.Unknown.value
-                            this.headers = browserHeaders + mapOf("Referer" to candidate.referer)
-                        })
-                        totalResolved += 1
-                    }
-
-                    if (directLinkType == ExtractorLinkType.M3U8 && manifestChecked.add(candidate.url)) {
-                        val manifestBody = try {
-                            app.get(
-                                candidate.url,
-                                headers = browserHeaders + mapOf("Referer" to candidate.referer),
-                                referer = candidate.referer
-                            ).text
-                        } catch (_: Exception) {
-                            ""
-                        }
-                        if (manifestBody.isNotBlank() &&
-                            !SelcukFlixResolverBank.isAccessChallenge(manifestBody)
-                        ) {
-                            SelcukFlixResolverBank.extractHlsVariants(manifestBody, candidate.url)
-                                .forEach { variant ->
-                                    val variantLabel = sourceLabel(variant, source)
-                                    val variantKey = variant.id.toString() + "|" + variant.url + "|" +
-                                        variant.referer + "|" + variant.note
-                                    if (emittedResolverLinks.add(variantKey + "|" + variant.url)) {
-                                        callback(newExtractorLink(name, variantLabel, variant.url, ExtractorLinkType.M3U8) {
-                                            this.referer = candidate.url
-                                            this.quality = Qualities.Unknown.value
-                                            this.headers = browserHeaders + mapOf("Referer" to candidate.url)
-                                        })
-                                        totalResolved += 1
-                                    }
-                                }
-                            SelcukFlixResolverBank.extractHlsSubtitles(manifestBody, candidate.url)
-                                .forEach { subtitle ->
-                                    subtitleCallback(newSubtitleFile("35 • " + subtitle.language, subtitle.url) {
-                                        headers = browserHeaders + mapOf("Referer" to candidate.url)
-                                    })
-                                }
-                        } else if (SelcukFlixResolverBank.isAccessChallenge(manifestBody)) {
-                            android.util.Log.w(
-                                "SelcukFlix",
-                                "34 • SessionDependentSourceDiagnostic: BLOCKED at HLS manifest; no bypass attempted."
-                            )
-                        }
-                    }
-                    return@forEach
-                }
-
-                val playerKey = candidate.url + "|" + candidate.referer
-                val resolvedLinks = playerCache[playerKey] ?: run {
-                    val collected = mutableListOf<ExtractorLink>()
-                    try {
-                        loadExtractor(
-                            candidate.url,
-                            candidate.referer,
-                            { sub ->
-                                subtitleCallback(
-                                    SubtitleFile(sub.lang, sub.url).apply {
-                                        headers = sub.headers ?: mapOf("Referer" to candidate.url)
-                                    }
-                                )
-                            }
-                        ) { link ->
-                            if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
-                        }
-                    } catch (_: Exception) {
-                        android.util.Log.d(
-                            "SelcukFlix",
-                            "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)} failed; URL and query parameters intentionally omitted."
-                        )
-                    }
-                    collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }.also { playerCache[playerKey] = it }
-                }
-
-                if (resolvedLinks.isNotEmpty()) {
-                    resolvedLinks.forEach { link ->
-                        val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
-                        if (!emittedResolverLinks.add(emitKey)) return@forEach
-                        callback(newExtractorLink(name, label + " → " + link.name, link.url, link.type) {
-                            this.referer = link.referer.ifBlank { candidate.referer }
-                            this.quality = link.quality
-                            this.headers = link.headers
-                            this.extractorData = link.extractorData
-                        })
-                        totalResolved += 1
-                    }
-                } else {
-                    android.util.Log.d(
-                        "SelcukFlix",
-                        "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: candidate did not resolve to media; the player page is not advertised as a playable source."
-                    )
-                }
+                emitted = true
             }
         }
 
         android.util.Log.i(
             "SelcukFlix",
-            "Resolver test bank emitted " + totalResolved +
-                " candidate link(s). A listed candidate is not proof of successful playback."
+            "Kaynak çözümleme tamamlandı: " + emitted + "; iframe=" +
+                iframeCandidates.size + ", direct=" + directCandidates.size
         )
-        if (totalResolved == 0) {
-            android.util.Log.w("SelcukFlix", "No playable/source candidate was emitted for this page.")
-        }
-        return totalResolved > 0
+        return emitted
     }
 }
