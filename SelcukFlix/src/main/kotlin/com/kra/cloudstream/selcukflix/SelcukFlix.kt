@@ -672,22 +672,25 @@ class SelcukFlix : MainAPI() {
                 }
             }
 
-            // Also try CloudStream's registry even when the custom parser returned a candidate:
-            // the first URL can be stale/invalid, while another player-family extractor may work.
-            runCatching {
-                loadExtractor(
-                    iframeUrl,
-                    episodeUrl,
-                    { sub ->
-                        subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
-                            headers = sub.headers ?: mapOf("Referer" to iframeUrl)
-                        })
+            // Try the original player URL and any evidence-backed host aliases. The
+            // provider-specific resolver is deliberately not registered globally, so
+            // loadExtractor can select CloudStream's built-in host-specific extractors.
+            SelcukFlixResolverBank.extractorFallbackUrls(iframeUrl).forEach { fallbackUrl ->
+                runCatching {
+                    loadExtractor(
+                        fallbackUrl,
+                        episodeUrl,
+                        { sub ->
+                            subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
+                                headers = sub.headers ?: mapOf("Referer" to fallbackUrl)
+                            })
+                        }
+                    ) { link ->
+                        if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                     }
-                ) { link ->
-                    if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
+                }.onFailure {
+                    android.util.Log.d("SelcukFlix", "A registered extractor did not resolve an observed iframe.")
                 }
-            }.onFailure {
-                android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed iframe.")
             }
 
             resolved.distinctBy { it.url + "|" + it.type + "|" + it.referer }.forEach { link ->
