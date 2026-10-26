@@ -404,27 +404,7 @@ class SelcukFlix : MainAPI() {
             }
         }
 
-        // Only fetch a small, bounded set of detail pages for posters that are still missing.
-        val routePath = runCatching { URI(base).path.orEmpty().lowercase() }.getOrDefault("")
-        if (!episodeFilter && page == 1 && routePath in setOf("/dizi-izle", "/film-izle")) {
-            var detailLookups = 0
-            unique.forEach { item ->
-                if (detailLookups >= 8) return@forEach
-                if (!item.posterUrl.isNullOrBlank()) return@forEach
-                detailLookups++
-                val poster = runCatching {
-                    val detailHtml = loadPageHtml(item.url, "katalog poster fallback")
-                    posterFromDocument(Jsoup.parse(detailHtml, item.url), item.url)
-                }.getOrNull()
-                if (!poster.isNullOrBlank()) {
-                    item.posterUrl = poster
-                    item.posterHeaders = browserHeaders + ("Referer" to item.url)
-                    android.util.Log.d("SelcukFlixPoster", "Recovered a missing poster from a detail-page image.")
-                } else {
-                    android.util.Log.d("SelcukFlixPoster", "No detail-page poster was available for a missing poster.")
-                }
-            }
-        }
+        // No detail-page requests are made merely to backfill posters; keep catalog loading bounded.
 
         return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
     }
@@ -558,43 +538,48 @@ class SelcukFlix : MainAPI() {
             }
             .distinct()
 
-        val episodeEntries = mutableListOf<Triple<Int, Int, Episode>>()
-        val seenEpisodeUrls = mutableSetOf<String>()
-        for (seasonUrl in seasonLinks.take(40)) {
-            val seasonHtml = try {
-                loadPageHtml(seasonUrl, "sezon")
-            } catch (_: Exception) {
-                continue
+        // Use the decrypted structured episode payload first. This avoids a network
+        // request per season on ordinary detail loads and makes opening series much faster.
+        val structuredEpisodes = root?.let(::episodesFrom).orEmpty()
+        val htmlEpisodes = if (structuredEpisodes.isNotEmpty()) {
+            emptyList()
+        } else {
+            val episodeEntries = mutableListOf<Triple<Int, Int, Episode>>()
+            val seenEpisodeUrls = mutableSetOf<String>()
+            for (seasonUrl in seasonLinks.take(40)) {
+                val seasonHtml = try {
+                    loadPageHtml(seasonUrl, "sezon")
+                } catch (_: Exception) {
+                    continue
+                }
+                val seasonDoc = Jsoup.parse(seasonHtml, seasonUrl)
+                seasonDoc.select("a[href*='/sezon-'][href*='/bolum-']").forEach { anchor ->
+                    val episodeUrl = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                    if (!seenEpisodeUrls.add(episodeUrl)) return@forEach
+                    val uriPath = runCatching { URI(episodeUrl).path.orEmpty() }.getOrDefault("")
+                    val nums = Regex("""/sezon-(\d+)/bolum-(\d+)""", RegexOption.IGNORE_CASE)
+                        .find(uriPath) ?: return@forEach
+                    val seasonNo = nums.groupValues[1].toIntOrNull() ?: return@forEach
+                    val episodeNo = nums.groupValues[2].toIntOrNull() ?: return@forEach
+                    val episodeName = anchor.selectFirst("h2, h3, span")?.text()?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "$seasonNo. Sezon $episodeNo. Bölüm"
+                    episodeEntries += Triple(
+                        seasonNo,
+                        episodeNo,
+                        newEpisode(episodeUrl) {
+                            name = episodeName
+                            season = seasonNo
+                            episode = episodeNo
+                        }
+                    )
+                }
             }
-            val seasonDoc = Jsoup.parse(seasonHtml, seasonUrl)
-            seasonDoc.select("a[href*='/sezon-'][href*='/bolum-']").forEach { anchor ->
-                val episodeUrl = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
-                if (!seenEpisodeUrls.add(episodeUrl)) return@forEach
-                val uriPath = runCatching { URI(episodeUrl).path.orEmpty() }.getOrDefault("")
-                val nums = Regex("""/sezon-(\d+)/bolum-(\d+)""", RegexOption.IGNORE_CASE)
-                    .find(uriPath) ?: return@forEach
-                val seasonNo = nums.groupValues[1].toIntOrNull() ?: return@forEach
-                val episodeNo = nums.groupValues[2].toIntOrNull() ?: return@forEach
-                val episodeName = anchor.selectFirst("h2, h3, span")?.text()?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "$seasonNo. Sezon $episodeNo. Bölüm"
-                episodeEntries += Triple(
-                    seasonNo,
-                    episodeNo,
-                    newEpisode(episodeUrl) {
-                        name = episodeName
-                        season = seasonNo
-                        episode = episodeNo
-                    }
-                )
-            }
+            episodeEntries
+                .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
+                .map { it.third }
         }
-
-        val htmlEpisodes = episodeEntries
-            .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
-            .map { it.third }
-        // Prefer the site's structured episode payload; use season-page HTML as a fallback.
-        val episodes = root?.let(::episodesFrom)?.takeIf { it.isNotEmpty() } ?: htmlEpisodes
+        val episodes = structuredEpisodes.ifEmpty { htmlEpisodes }
         val path = runCatching { URI(canonicalUrl).path.orEmpty().lowercase() }.getOrDefault("")
         val findedType = pageRoot?.textField("FindedType").orEmpty()
         val isMovie = findedType.equals("Movies", ignoreCase = true) ||
