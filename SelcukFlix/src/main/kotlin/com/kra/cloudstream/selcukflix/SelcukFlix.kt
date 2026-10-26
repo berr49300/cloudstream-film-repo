@@ -652,7 +652,8 @@ class SelcukFlix : MainAPI() {
 
         iframeCandidates.forEach { (iframeUrl, label) ->
             val resolved = mutableListOf<ExtractorLink>()
-            if (SelcukFlixContentXExtractor.canHandle(iframeUrl)) {
+            val isKnownPichive = SelcukFlixContentXExtractor.canHandle(iframeUrl)
+            if (isKnownPichive) {
                 runCatching {
                     SelcukFlixContentXExtractor().getUrl(
                         iframeUrl,
@@ -666,8 +667,9 @@ class SelcukFlix : MainAPI() {
                 }
             }
 
-            // Keep CloudStream's registered extractors for other observed iframe hosts.
-            if (resolved.isEmpty()) {
+            // Do not immediately call the registered SelcukFlix extractor a second time
+            // after it already tried this iframe. Generic fallback is only for other hosts.
+            if (resolved.isEmpty() && !isKnownPichive) {
                 runCatching {
                     loadExtractor(
                         iframeUrl,
