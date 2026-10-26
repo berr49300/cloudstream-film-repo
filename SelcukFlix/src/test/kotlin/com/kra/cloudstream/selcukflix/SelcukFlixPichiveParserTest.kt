@@ -37,7 +37,7 @@ class SelcukFlixPichiveParserTest {
         assertEquals("Türkçe Dublaj", files.single().track)
         assertEquals("720P", files.single().quality)
 
-        val candidates = SelcukFlixPichiveParser.mediaCandidates(files.single().url, "https://four.pichive.online/source2.php?v=fixture")
+        val candidates = SelcukFlixPichiveParser.mediaCandidates(files.single(), "https://four.pichive.online/source2.php?v=fixture")
         assertEquals(2, candidates.size)
         assertEquals("https://four.pichive.online/media/master.m3u8?key=fixture", candidates[0].url)
         assertTrue(candidates[0].track.contains("master playlist hypothesis"))
