@@ -37,13 +37,8 @@ class SelcukFlix : MainAPI() {
         "Referer" to "https://selcukflix.app/"
     )
 
-    // These four public HTML routes are the catalog routes used by the current site.
-    // Do not advertise guessed /api/bg/findMovies or /findSeries endpoints as catalog rows.
+    // Keep only the four real catalog routes exposed by the site.
     override val mainPage = mainPageOf(
-        "episodes|all" to "Güncel Bölümler • Tümü",
-        "episodes|foreign" to "Güncel Bölümler • Altyazılı",
-        "episodes|dub" to "Güncel Bölümler • Dublaj",
-        "episodes|anime" to "Güncel Bölümler • Anime",
         "$mainUrl/dizi-izle" to "Yeni Diziler",
         "$mainUrl/film-izle" to "Yeni Filmler",
         "$mainUrl/trend" to "Trend",
@@ -263,117 +258,52 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    private fun episodeMetadataText(
-        anchor: org.jsoup.nodes.Element,
-        heading: String,
-        episodeLabel: String
-    ): String {
-        val parts = mutableListOf(heading, episodeLabel)
-        var element: org.jsoup.nodes.Element? = anchor
-        val metadataAttributes = listOf(
-            "class", "id", "data-type", "data-category", "data-genre",
-            "data-language", "data-lang", "data-version", "data-filter", "data-tab",
-            "aria-label", "title"
-        )
-        repeat(3) {
-            val current = element ?: return@repeat
-            parts += current.text()
-            metadataAttributes.forEach { attribute ->
-                if (current.hasAttr(attribute)) parts += current.attr(attribute)
-            }
-            element = current.parent()
-        }
-        return parts.joinToString(" ").lowercase()
-    }
-
-    private fun latestEpisodeCard(anchor: org.jsoup.nodes.Element): SearchResponse? {
-        val href = canonicalSiteUrl(anchor.attr("href")) ?: return null
-        val path = runCatching { URI(href).path.orEmpty() }.getOrDefault("")
-        val isEpisode = path.contains("/bolum-")
-        if (!isEpisode && !path.startsWith("/dizi/")) return null
-        val heading = anchor.selectFirst("h3, h2, [data-title]")?.text()?.trim()
-            .takeUnless { it.isNullOrBlank() }
-            ?: anchor.selectFirst("img")?.let { it.attr("alt").trim() }
-            ?: anchor.attr("title").trim()
-        if (heading.isBlank()) return null
-        val episodeLabel = anchor.selectFirst("h3 + div, h3 + span, .episode-info, .episode-title")
-            ?.text()?.trim().orEmpty()
-        val mode = currentEpisodeFilter
-        val combined = episodeMetadataText(anchor, heading, episodeLabel)
-        if (!SelcukFlixResolverBank.matchesEpisodeFilter(combined, mode)) return null
-
-        val title = if (episodeLabel.isBlank()) heading else "$heading - $episodeLabel"
-        val seriesUrl = if (isEpisode) {
-            // Keep the episode URL so the loader can map it back using FindedType/series metadata.
-            href
-        } else {
-            href.substringBefore("/sezon-").substringBefore("/bolum-")
-        }
-        val poster = posterFromImage(anchor.selectFirst("img"))
-        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) {
-            posterUrl = poster
-            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
-        }
-    }
-
-    private var currentEpisodeFilter: String = "all"
-
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val episodeFilter = request.data.startsWith("episodes|")
-        currentEpisodeFilter = if (episodeFilter) request.data.substringAfter("|") else "all"
-        // The site shows "Güncel Bölümler" as a homepage section; do not assume a hidden route.
-        val base = if (episodeFilter) "$mainUrl/"
-            else (canonicalSiteUrl(request.data) ?: request.data)
+        val base = canonicalSiteUrl(request.data) ?: request.data
+        // The site's current pagination parameter is "sayfa", not "page".
         val pageUrl = if (page > 1) {
-            base + (if (base.contains("?")) "&" else "?") + "page=" + page
+            base + (if (base.contains("?")) "&" else "?") + "sayfa=" + page
         } else base
         val html = loadPageHtml(pageUrl, "katalog")
         val document = Jsoup.parse(html, pageUrl)
         val result = mutableListOf<SearchResponse>()
 
-        val latestEpisodes = episodeFilter
-        if (latestEpisodes) {
-            document.select("a[href*='/bolum-'], a[href*='/dizi/']")
-                .filter { it.selectFirst("h3, h2, img, [data-title]") != null }
-                .forEach { anchor -> latestEpisodeCard(anchor)?.let(result::add) }
-        } else {
-            val nextDataText = document.selectFirst("script#__NEXT_DATA__")?.data()
-                ?: document.selectFirst("script#__NEXT_DATA__")?.html()
-            val nextRoot = nextDataText?.let { runCatching { mapper.readTree(it) }.getOrNull() }
-            val pageProps = nextRoot?.field("props")?.field("pageProps")
-            val initialSeries = pageProps?.field("initialSeries")
-            if (initialSeries != null && !initialSeries.isNull) {
-                val encoded = if (initialSeries.isTextual) initialSeries.asText() else initialSeries.toString()
-                val decoded = SelcukFlixResolverBank.decodeSitePayload(encoded) ?: encoded
-                val items = runCatching { mapper.readTree(decoded) }.getOrNull()
-                if (items?.isArray == true) items.forEach { item -> asSearchResponse(item)?.let(result::add) }
-            }
+        val nextDataText = document.selectFirst("script#__NEXT_DATA__")?.data()
+            ?: document.selectFirst("script#__NEXT_DATA__")?.html()
+        val nextRoot = nextDataText?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+        val initialSeries = nextRoot?.field("props")?.field("pageProps")?.field("initialSeries")
+        if (initialSeries != null && !initialSeries.isNull) {
+            val encoded = if (initialSeries.isTextual) initialSeries.asText() else initialSeries.toString()
+            val decoded = SelcukFlixResolverBank.decodeSitePayload(encoded) ?: encoded
+            val items = runCatching { mapper.readTree(decoded) }.getOrNull()
+            if (items?.isArray == true) items.forEach { item -> asSearchResponse(item)?.let(result::add) }
+        }
 
-            if (result.isEmpty()) {
-                document.select(
-                    "a[href^='dizi/'], a[href^='/dizi/'], a[href^='film/'], a[href^='/film/'], " +
-                        "a[href*='/dizi/'], a[href*='/film/']"
-                ).forEach { anchor ->
-                    val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
-                    val uriPath = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
-                    if (uriPath.contains("/sezon-") || uriPath.contains("/bolum-")) return@forEach
-                    val image = anchor.selectFirst("img")
-                    val title = image?.attr("alt").orEmpty().ifBlank { anchor.attr("title") }
-                        .ifBlank { anchor.selectFirst("h2, h3")?.text().orEmpty() }
-                        .ifBlank { anchor.text() }
-                        .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
-                    if (title.isBlank()) return@forEach
-                    val poster = posterFromImage(image)
-                    result += if (uriPath.startsWith("/film/")) {
-                        newMovieSearchResponse(title, href, TvType.Movie) {
-                            posterUrl = poster
-                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
-                        }
-                    } else {
-                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                            posterUrl = poster
-                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
-                        }
+        // Fall back to the visible card links only when the hydrated data yielded no results.
+        if (result.isEmpty()) {
+            document.select(
+                "a[href^='dizi/'], a[href^='/dizi/'], a[href^='film/'], a[href^='/film/'], " +
+                    "a[href*='/dizi/'], a[href*='/film/']"
+            ).forEach { anchor ->
+                val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                val uriPath = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
+                if (uriPath.contains("/sezon-") || uriPath.contains("/bolum-")) return@forEach
+                val image = anchor.selectFirst("img")
+                val title = image?.attr("alt").orEmpty().ifBlank { anchor.attr("title") }
+                    .ifBlank { anchor.selectFirst("h2, h3")?.text().orEmpty() }
+                    .ifBlank { anchor.text() }
+                    .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
+                if (title.isBlank()) return@forEach
+                val poster = posterFromImage(image)
+                result += if (uriPath.startsWith("/film/")) {
+                    newMovieSearchResponse(title, href, TvType.Movie) {
+                        posterUrl = poster
+                        posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+                    }
+                } else {
+                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                        posterUrl = poster
+                        posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                     }
                 }
             }
@@ -381,10 +311,8 @@ class SelcukFlix : MainAPI() {
 
         val unique = result.distinctBy { it.url }
 
-        // If initialSeries supplied metadata without poster aliases, reuse the image on the
-        // visible catalogue card before issuing any detail request. This avoids unnecessary
-        // per-item network calls and repairs the common nested-card/data-URL variant.
-        if (!episodeFilter && page == 1) {
+        // Reuse posters already present on catalog cards; never fetch detail pages just for posters.
+        if (page == 1) {
             val cardPosters = linkedMapOf<String, String>()
             document.select("a[href*='/dizi/'], a[href*='/film/']").forEach { anchor ->
                 val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
@@ -395,8 +323,7 @@ class SelcukFlix : MainAPI() {
             }
             unique.forEach { item ->
                 if (item.posterUrl.isNullOrBlank()) {
-                    val poster = cardPosters[item.url]
-                    if (!poster.isNullOrBlank()) {
+                    cardPosters[item.url]?.let { poster ->
                         item.posterUrl = poster
                         item.posterHeaders = browserHeaders + ("Referer" to "$mainUrl/")
                     }
@@ -404,9 +331,7 @@ class SelcukFlix : MainAPI() {
             }
         }
 
-        // No detail-page requests are made merely to backfill posters; keep catalog loading bounded.
-
-        return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
+        return newHomePageResponse(request.name, unique, hasNext = unique.size > 20)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
