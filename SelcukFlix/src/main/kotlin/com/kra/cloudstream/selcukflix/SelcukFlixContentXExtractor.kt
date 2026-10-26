@@ -140,7 +140,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         }.getOrNull()
     }
 
-    private fun emitMedia(
+    private suspend fun emitMedia(
         file: SelcukFlixMediaFile,
         iframeUrl: String,
         callback: (ExtractorLink) -> Unit
