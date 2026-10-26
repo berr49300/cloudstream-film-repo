@@ -37,20 +37,13 @@ class SelcukFlix : MainAPI() {
         "Referer" to "https://selcukflix.app/"
     )
 
-    // These four public HTML routes are the catalog routes used by the current site.
-    // Do not advertise guessed /api/bg/findMovies or /findSeries endpoints as catalog rows.
+    // Keep only the four real catalog routes exposed by the site.
     override val mainPage = mainPageOf(
-        "episodes|all" to "Güncel Bölümler • Tümü",
-        "episodes|foreign" to "Güncel Bölümler • Altyazılı",
-        "episodes|dub" to "Güncel Bölümler • Dublaj",
-        "episodes|anime" to "Güncel Bölümler • Anime",
         "$mainUrl/dizi-izle" to "Yeni Diziler",
         "$mainUrl/film-izle" to "Yeni Filmler",
         "$mainUrl/trend" to "Trend",
         "$mainUrl/kesfet" to "Keşfet"
     )
-
-    private data class SourceItem(val content: String, val label: String)
 
     private fun JsonNode.field(name: String): JsonNode? {
         if (!isObject) return null
@@ -263,117 +256,52 @@ class SelcukFlix : MainAPI() {
         }
     }
 
-    private fun episodeMetadataText(
-        anchor: org.jsoup.nodes.Element,
-        heading: String,
-        episodeLabel: String
-    ): String {
-        val parts = mutableListOf(heading, episodeLabel)
-        var element: org.jsoup.nodes.Element? = anchor
-        val metadataAttributes = listOf(
-            "class", "id", "data-type", "data-category", "data-genre",
-            "data-language", "data-lang", "data-version", "data-filter", "data-tab",
-            "aria-label", "title"
-        )
-        repeat(3) {
-            val current = element ?: return@repeat
-            parts += current.text()
-            metadataAttributes.forEach { attribute ->
-                if (current.hasAttr(attribute)) parts += current.attr(attribute)
-            }
-            element = current.parent()
-        }
-        return parts.joinToString(" ").lowercase()
-    }
-
-    private fun latestEpisodeCard(anchor: org.jsoup.nodes.Element): SearchResponse? {
-        val href = canonicalSiteUrl(anchor.attr("href")) ?: return null
-        val path = runCatching { URI(href).path.orEmpty() }.getOrDefault("")
-        val isEpisode = path.contains("/bolum-")
-        if (!isEpisode && !path.startsWith("/dizi/")) return null
-        val heading = anchor.selectFirst("h3, h2, [data-title]")?.text()?.trim()
-            .takeUnless { it.isNullOrBlank() }
-            ?: anchor.selectFirst("img")?.let { it.attr("alt").trim() }
-            ?: anchor.attr("title").trim()
-        if (heading.isBlank()) return null
-        val episodeLabel = anchor.selectFirst("h3 + div, h3 + span, .episode-info, .episode-title")
-            ?.text()?.trim().orEmpty()
-        val mode = currentEpisodeFilter
-        val combined = episodeMetadataText(anchor, heading, episodeLabel)
-        if (!SelcukFlixResolverBank.matchesEpisodeFilter(combined, mode)) return null
-
-        val title = if (episodeLabel.isBlank()) heading else "$heading - $episodeLabel"
-        val seriesUrl = if (isEpisode) {
-            // Keep the episode URL so the loader can map it back using FindedType/series metadata.
-            href
-        } else {
-            href.substringBefore("/sezon-").substringBefore("/bolum-")
-        }
-        val poster = posterFromImage(anchor.selectFirst("img"))
-        return newTvSeriesSearchResponse(title, seriesUrl, TvType.TvSeries) {
-            posterUrl = poster
-            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
-        }
-    }
-
-    private var currentEpisodeFilter: String = "all"
-
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val episodeFilter = request.data.startsWith("episodes|")
-        currentEpisodeFilter = if (episodeFilter) request.data.substringAfter("|") else "all"
-        // The site shows "Güncel Bölümler" as a homepage section; do not assume a hidden route.
-        val base = if (episodeFilter) "$mainUrl/"
-            else (canonicalSiteUrl(request.data) ?: request.data)
+        val base = canonicalSiteUrl(request.data) ?: request.data
+        // The site's current pagination parameter is "sayfa", not "page".
         val pageUrl = if (page > 1) {
-            base + (if (base.contains("?")) "&" else "?") + "page=" + page
+            base + (if (base.contains("?")) "&" else "?") + "sayfa=" + page
         } else base
         val html = loadPageHtml(pageUrl, "katalog")
         val document = Jsoup.parse(html, pageUrl)
         val result = mutableListOf<SearchResponse>()
 
-        val latestEpisodes = episodeFilter
-        if (latestEpisodes) {
-            document.select("a[href*='/bolum-'], a[href*='/dizi/']")
-                .filter { it.selectFirst("h3, h2, img, [data-title]") != null }
-                .forEach { anchor -> latestEpisodeCard(anchor)?.let(result::add) }
-        } else {
-            val nextDataText = document.selectFirst("script#__NEXT_DATA__")?.data()
-                ?: document.selectFirst("script#__NEXT_DATA__")?.html()
-            val nextRoot = nextDataText?.let { runCatching { mapper.readTree(it) }.getOrNull() }
-            val pageProps = nextRoot?.field("props")?.field("pageProps")
-            val initialSeries = pageProps?.field("initialSeries")
-            if (initialSeries != null && !initialSeries.isNull) {
-                val encoded = if (initialSeries.isTextual) initialSeries.asText() else initialSeries.toString()
-                val decoded = SelcukFlixResolverBank.decodeSitePayload(encoded) ?: encoded
-                val items = runCatching { mapper.readTree(decoded) }.getOrNull()
-                if (items?.isArray == true) items.forEach { item -> asSearchResponse(item)?.let(result::add) }
-            }
+        val nextDataText = document.selectFirst("script#__NEXT_DATA__")?.data()
+            ?: document.selectFirst("script#__NEXT_DATA__")?.html()
+        val nextRoot = nextDataText?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+        val initialSeries = nextRoot?.field("props")?.field("pageProps")?.field("initialSeries")
+        if (initialSeries != null && !initialSeries.isNull) {
+            val encoded = if (initialSeries.isTextual) initialSeries.asText() else initialSeries.toString()
+            val decoded = SelcukFlixResolverBank.decodeSitePayload(encoded) ?: encoded
+            val items = runCatching { mapper.readTree(decoded) }.getOrNull()
+            if (items?.isArray == true) items.forEach { item -> asSearchResponse(item)?.let(result::add) }
+        }
 
-            if (result.isEmpty()) {
-                document.select(
-                    "a[href^='dizi/'], a[href^='/dizi/'], a[href^='film/'], a[href^='/film/'], " +
-                        "a[href*='/dizi/'], a[href*='/film/']"
-                ).forEach { anchor ->
-                    val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
-                    val uriPath = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
-                    if (uriPath.contains("/sezon-") || uriPath.contains("/bolum-")) return@forEach
-                    val image = anchor.selectFirst("img")
-                    val title = image?.attr("alt").orEmpty().ifBlank { anchor.attr("title") }
-                        .ifBlank { anchor.selectFirst("h2, h3")?.text().orEmpty() }
-                        .ifBlank { anchor.text() }
-                        .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
-                    if (title.isBlank()) return@forEach
-                    val poster = posterFromImage(image)
-                    result += if (uriPath.startsWith("/film/")) {
-                        newMovieSearchResponse(title, href, TvType.Movie) {
-                            posterUrl = poster
-                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
-                        }
-                    } else {
-                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                            posterUrl = poster
-                            posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
-                        }
+        // Fall back to the visible card links only when the hydrated data yielded no results.
+        if (result.isEmpty()) {
+            document.select(
+                "a[href^='dizi/'], a[href^='/dizi/'], a[href^='film/'], a[href^='/film/'], " +
+                    "a[href*='/dizi/'], a[href*='/film/']"
+            ).forEach { anchor ->
+                val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                val uriPath = runCatching { URI(href).path.orEmpty().lowercase() }.getOrDefault("")
+                if (uriPath.contains("/sezon-") || uriPath.contains("/bolum-")) return@forEach
+                val image = anchor.selectFirst("img")
+                val title = image?.attr("alt").orEmpty().ifBlank { anchor.attr("title") }
+                    .ifBlank { anchor.selectFirst("h2, h3")?.text().orEmpty() }
+                    .ifBlank { anchor.text() }
+                    .removeSuffix(" izle").removeSuffix(" full hd izle").trim()
+                if (title.isBlank()) return@forEach
+                val poster = posterFromImage(image)
+                result += if (uriPath.startsWith("/film/")) {
+                    newMovieSearchResponse(title, href, TvType.Movie) {
+                        posterUrl = poster
+                        posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
+                    }
+                } else {
+                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                        posterUrl = poster
+                        posterHeaders = if (poster.isNullOrBlank()) null else browserHeaders + ("Referer" to "$mainUrl/")
                     }
                 }
             }
@@ -381,10 +309,8 @@ class SelcukFlix : MainAPI() {
 
         val unique = result.distinctBy { it.url }
 
-        // If initialSeries supplied metadata without poster aliases, reuse the image on the
-        // visible catalogue card before issuing any detail request. This avoids unnecessary
-        // per-item network calls and repairs the common nested-card/data-URL variant.
-        if (!episodeFilter && page == 1) {
+        // Reuse posters already present on catalog cards; never fetch detail pages just for posters.
+        if (page == 1) {
             val cardPosters = linkedMapOf<String, String>()
             document.select("a[href*='/dizi/'], a[href*='/film/']").forEach { anchor ->
                 val href = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
@@ -395,8 +321,7 @@ class SelcukFlix : MainAPI() {
             }
             unique.forEach { item ->
                 if (item.posterUrl.isNullOrBlank()) {
-                    val poster = cardPosters[item.url]
-                    if (!poster.isNullOrBlank()) {
+                    cardPosters[item.url]?.let { poster ->
                         item.posterUrl = poster
                         item.posterHeaders = browserHeaders + ("Referer" to "$mainUrl/")
                     }
@@ -404,29 +329,7 @@ class SelcukFlix : MainAPI() {
             }
         }
 
-        // Only fetch a small, bounded set of detail pages for posters that are still missing.
-        val routePath = runCatching { URI(base).path.orEmpty().lowercase() }.getOrDefault("")
-        if (!episodeFilter && page == 1 && routePath in setOf("/dizi-izle", "/film-izle")) {
-            var detailLookups = 0
-            unique.forEach { item ->
-                if (detailLookups >= 8) return@forEach
-                if (!item.posterUrl.isNullOrBlank()) return@forEach
-                detailLookups++
-                val poster = runCatching {
-                    val detailHtml = loadPageHtml(item.url, "katalog poster fallback")
-                    posterFromDocument(Jsoup.parse(detailHtml, item.url), item.url)
-                }.getOrNull()
-                if (!poster.isNullOrBlank()) {
-                    item.posterUrl = poster
-                    item.posterHeaders = browserHeaders + ("Referer" to item.url)
-                    android.util.Log.d("SelcukFlixPoster", "Recovered a missing poster from a detail-page image.")
-                } else {
-                    android.util.Log.d("SelcukFlixPoster", "No detail-page poster was available for a missing poster.")
-                }
-            }
-        }
-
-        return newHomePageResponse(request.name, unique, hasNext = unique.isNotEmpty())
+        return newHomePageResponse(request.name, unique, hasNext = unique.size > 20)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -558,43 +461,48 @@ class SelcukFlix : MainAPI() {
             }
             .distinct()
 
-        val episodeEntries = mutableListOf<Triple<Int, Int, Episode>>()
-        val seenEpisodeUrls = mutableSetOf<String>()
-        for (seasonUrl in seasonLinks.take(40)) {
-            val seasonHtml = try {
-                loadPageHtml(seasonUrl, "sezon")
-            } catch (_: Exception) {
-                continue
+        // Use the decrypted structured episode payload first. This avoids a network
+        // request per season on ordinary detail loads and makes opening series much faster.
+        val structuredEpisodes = root?.let(::episodesFrom).orEmpty()
+        val htmlEpisodes = if (structuredEpisodes.isNotEmpty()) {
+            emptyList()
+        } else {
+            val episodeEntries = mutableListOf<Triple<Int, Int, Episode>>()
+            val seenEpisodeUrls = mutableSetOf<String>()
+            for (seasonUrl in seasonLinks.take(40)) {
+                val seasonHtml = try {
+                    loadPageHtml(seasonUrl, "sezon")
+                } catch (_: Exception) {
+                    continue
+                }
+                val seasonDoc = Jsoup.parse(seasonHtml, seasonUrl)
+                seasonDoc.select("a[href*='/sezon-'][href*='/bolum-']").forEach { anchor ->
+                    val episodeUrl = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
+                    if (!seenEpisodeUrls.add(episodeUrl)) return@forEach
+                    val uriPath = runCatching { URI(episodeUrl).path.orEmpty() }.getOrDefault("")
+                    val nums = Regex("""/sezon-(\d+)/bolum-(\d+)""", RegexOption.IGNORE_CASE)
+                        .find(uriPath) ?: return@forEach
+                    val seasonNo = nums.groupValues[1].toIntOrNull() ?: return@forEach
+                    val episodeNo = nums.groupValues[2].toIntOrNull() ?: return@forEach
+                    val episodeName = anchor.selectFirst("h2, h3, span")?.text()?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "$seasonNo. Sezon $episodeNo. Bölüm"
+                    episodeEntries += Triple(
+                        seasonNo,
+                        episodeNo,
+                        newEpisode(episodeUrl) {
+                            name = episodeName
+                            season = seasonNo
+                            episode = episodeNo
+                        }
+                    )
+                }
             }
-            val seasonDoc = Jsoup.parse(seasonHtml, seasonUrl)
-            seasonDoc.select("a[href*='/sezon-'][href*='/bolum-']").forEach { anchor ->
-                val episodeUrl = canonicalSiteUrl(anchor.attr("href")) ?: return@forEach
-                if (!seenEpisodeUrls.add(episodeUrl)) return@forEach
-                val uriPath = runCatching { URI(episodeUrl).path.orEmpty() }.getOrDefault("")
-                val nums = Regex("""/sezon-(\d+)/bolum-(\d+)""", RegexOption.IGNORE_CASE)
-                    .find(uriPath) ?: return@forEach
-                val seasonNo = nums.groupValues[1].toIntOrNull() ?: return@forEach
-                val episodeNo = nums.groupValues[2].toIntOrNull() ?: return@forEach
-                val episodeName = anchor.selectFirst("h2, h3, span")?.text()?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "$seasonNo. Sezon $episodeNo. Bölüm"
-                episodeEntries += Triple(
-                    seasonNo,
-                    episodeNo,
-                    newEpisode(episodeUrl) {
-                        name = episodeName
-                        season = seasonNo
-                        episode = episodeNo
-                    }
-                )
-            }
+            episodeEntries
+                .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
+                .map { it.third }
         }
-
-        val htmlEpisodes = episodeEntries
-            .sortedWith(compareBy<Triple<Int, Int, Episode>> { it.first }.thenBy { it.second })
-            .map { it.third }
-        // Prefer the site's structured episode payload; use season-page HTML as a fallback.
-        val episodes = root?.let(::episodesFrom)?.takeIf { it.isNotEmpty() } ?: htmlEpisodes
+        val episodes = structuredEpisodes.ifEmpty { htmlEpisodes }
         val path = runCatching { URI(canonicalUrl).path.orEmpty().lowercase() }.getOrDefault("")
         val findedType = pageRoot?.textField("FindedType").orEmpty()
         val isMovie = findedType.equals("Movies", ignoreCase = true) ||
@@ -624,49 +532,6 @@ class SelcukFlix : MainAPI() {
                 this.duration = duration
             }
         }
-    }
-
-    private fun collectSourceItems(root: JsonNode): List<SourceItem> {
-        val found = linkedMapOf<String, SourceItem>()
-
-        fun walk(node: JsonNode) {
-            if (node.isObject) {
-                val contentKeys = listOf(
-                    "source_content", "sourceContent", "sourceUrl", "source_url",
-                    "embedUrl", "embed_url", "videoUrl", "video_url"
-                )
-                val content = contentKeys.asSequence().mapNotNull { key ->
-                    val value = node.field(key) ?: return@mapNotNull null
-                    if (value.isNull) return@mapNotNull null
-                    when {
-                        value.isTextual -> value.asText().trim().takeIf { it.isNotBlank() && it != "null" }
-                        value.isContainerNode -> value.toString()
-                        else -> null
-                    }
-                }.firstOrNull()
-                if (!content.isNullOrBlank()) {
-                    // Preserve the player's own label and audio/language variant so a dubbed
-                    // source is not hidden behind a generic "Kaynak 1" entry.
-                    val labelParts = listOf(
-                        node.textField("source_name", "sourceName", "provider_name", "providerName",
-                            "player_name", "playerName", "name"),
-                        node.textField("language_name", "languageName", "source_language", "sourceLanguage",
-                            "audio_type", "audioType", "language", "lang", "version", "audio"),
-                        node.textField("quality_name", "qualityName", "quality", "label")
-                    ).filterNotNull().map { it.trim() }.filter { it.isNotBlank() }.distinct()
-                    val label = labelParts.joinToString(" • ")
-                        .ifBlank { "Kaynak " + (found.size + 1) }
-                    val key = label + "|" + content
-                    found.putIfAbsent(key, SourceItem(content, label))
-                }
-                node.children().forEach(::walk)
-            } else if (node.isArray) {
-                node.children().forEach(::walk)
-            }
-        }
-
-        walk(root)
-        return found.values.toList()
     }
 
     private fun iframeUrlsFromText(raw: String, baseUrl: String): List<String> {
@@ -745,43 +610,32 @@ class SelcukFlix : MainAPI() {
         }
         if (SelcukFlixResolverBank.isAccessChallenge(html)) return false
 
-        val payloads = linkedMapOf<String, String>()
-        payloads["Raw detail HTML"] = html
-        val embedded = SelcukFlixResolverBank.extractEmbeddedPayload(html)
-        if (!embedded.isNullOrBlank()) payloads["Decoded page payload"] = embedded
-        val document = Jsoup.parse(html, episodeUrl)
-        document.select("script").forEachIndexed { index, script ->
+        // The site's player data is already carried by the decrypted secureData payload.
+        // Scan that and the page itself, plus only player-related scripts as a fallback.
+        val texts = linkedMapOf<String, String>()
+        SelcukFlixResolverBank.extractEmbeddedPayload(html)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { texts["Decoded page payload"] = it }
+        texts["Episode page"] = html
+
+        Jsoup.parse(html, episodeUrl).select("script").forEachIndexed { index, script ->
             val text = script.data().ifBlank { script.html() }
             if (text.isNotBlank() && Regex(
-                    """(?is)(source_content|sourceContent|iframe\.php|openPlayer|source2\.php|m3u8|mpd)"""
+                    """(?is)(iframe\.php|openPlayer|source2\.php|source_content|m3u8|mpd)"""
                 ).containsMatchIn(text)
-            ) payloads.putIfAbsent("Player script " + (index + 1), text)
-        }
-
-        val sourceItems = mutableListOf<SourceItem>()
-        payloads.forEach { (label, text) ->
-            val parsed = runCatching { mapper.readTree(text) }.getOrNull()
-            if (parsed != null) {
-                sourceItems += collectSourceItems(parsed).map { item ->
-                    SourceItem(item.content, "$label • " + item.label)
-                }
+            ) {
+                texts.putIfAbsent("Player script " + (index + 1), text)
             }
-            // Keep each observed representation as a separate fallback, not as a fake video URL.
-            sourceItems += SourceItem(text, label)
         }
 
         val iframeCandidates = linkedMapOf<String, String>()
         val directCandidates = linkedMapOf<String, String>()
-        sourceItems.forEachIndexed { index, source ->
-            iframeUrlsFromText(source.content, episodeUrl).forEach { url ->
-                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) {
-                    iframeCandidates.putIfAbsent(url, source.label)
-                }
+        texts.forEach { (label, text) ->
+            iframeUrlsFromText(text, episodeUrl).forEach { url ->
+                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) iframeCandidates.putIfAbsent(url, label)
             }
-            directMediaUrlsFromText(source.content, episodeUrl).forEach { url ->
-                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) {
-                    directCandidates.putIfAbsent(url, source.label.ifBlank { "Doğrudan kaynak " + (index + 1) })
-                }
+            directMediaUrlsFromText(text, episodeUrl).forEach { url ->
+                if (!SelcukFlixResolverBank.isYouTubeUrl(url)) directCandidates.putIfAbsent(url, label)
             }
         }
 
@@ -798,9 +652,8 @@ class SelcukFlix : MainAPI() {
 
         iframeCandidates.forEach { (iframeUrl, label) ->
             val resolved = mutableListOf<ExtractorLink>()
-            if (SelcukFlixContentXExtractor.canHandle(iframeUrl)) {
-                // The known Pichive flow needs the site origin on iframe.php and the iframe
-                // itself as Referer for source2.php. The custom extractor owns that exact sequence.
+            val isKnownPichive = SelcukFlixContentXExtractor.canHandle(iframeUrl)
+            if (isKnownPichive) {
                 runCatching {
                     SelcukFlixContentXExtractor().getUrl(
                         iframeUrl,
@@ -810,29 +663,27 @@ class SelcukFlix : MainAPI() {
                         if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                     }
                 }.onFailure {
-                    android.util.Log.w("SelcukFlix", "Pichive resolver failed; trying the registered extractor.")
+                    android.util.Log.w("SelcukFlix", "Observed Pichive source resolution failed.")
                 }
             }
 
-            // Other player hosts use CloudStream's maintained extractor registry. For Pichive,
-            // this is a fallback only after the observed site-specific flow produced no link.
-            if (resolved.isEmpty()) {
+            // Do not immediately call the registered SelcukFlix extractor a second time
+            // after it already tried this iframe. Generic fallback is only for other hosts.
+            if (resolved.isEmpty() && !isKnownPichive) {
                 runCatching {
                     loadExtractor(
                         iframeUrl,
                         episodeUrl,
                         { sub ->
-                            subtitleCallback(
-                                SubtitleFile(sub.lang, sub.url).apply {
-                                    headers = sub.headers ?: mapOf("Referer" to iframeUrl)
-                                }
-                            )
+                            subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
+                                headers = sub.headers ?: mapOf("Referer" to iframeUrl)
+                            })
                         }
                     ) { link ->
                         if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                     }
                 }.onFailure {
-                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed player.")
+                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed iframe.")
                 }
             }
 
@@ -849,8 +700,8 @@ class SelcukFlix : MainAPI() {
 
         android.util.Log.i(
             "SelcukFlix",
-            "Kaynak çözümleme tamamlandı: " + emitted + "; iframe=" +
-                iframeCandidates.size + ", direct=" + directCandidates.size
+            "Kaynak çözümleme tamamlandı: " + emitted +
+                "; iframe=" + iframeCandidates.size + ", direct=" + directCandidates.size
         )
         return emitted
     }

@@ -77,7 +77,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
 
         val emitted = linkedSetOf<String>()
         for (token in tokens) {
-            val apiUrl = buildSourceApiUrl(iframeUrl, token.value) ?: continue
+            val apiUrl = SelcukFlixPichiveParser.buildSourceApiUrl(iframeUrl, token.value) ?: continue
             val response = try {
                 app.get(
                     apiUrl,
@@ -130,14 +130,6 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
             SelcukFlixResolverBank.decodeSitePayload(wrapped)?.let { return it }
         }
         return SelcukFlixResolverBank.decodeSitePayload(response) ?: response
-    }
-
-    private fun buildSourceApiUrl(iframeUrl: String, token: String): String? {
-        val uri = runCatching { URI(iframeUrl) }.getOrNull() ?: return null
-        val query = "v=" + URLEncoder.encode(token, "UTF-8")
-        return runCatching {
-            URI(uri.scheme, uri.authority, "/source2.php", query, null).toString()
-        }.getOrNull()
     }
 
     private suspend fun emitMedia(
@@ -263,27 +255,48 @@ internal object SelcukFlixPichiveParser {
         return found.values.toList()
     }
 
+    /**
+     * Builds the observed source2.php request without passing an already encoded query
+     * through a URI component constructor (which would turn %2F into %252F).
+     */
+    fun buildSourceApiUrl(iframeUrl: String, token: String): String? {
+        val uri = runCatching { URI(iframeUrl) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.takeIf { it.equals("http", true) || it.equals("https", true) } ?: return null
+        val authority = uri.rawAuthority?.takeIf { it.isNotBlank() } ?: return null
+        val query = "v=" + URLEncoder.encode(token, "UTF-8")
+        val candidate = "$scheme://$authority/source2.php?$query"
+        return runCatching { URI(candidate).toASCIIString() }.getOrNull()
+    }
+
+    /**
+     * The observed player exposes a PHP wrapper whose playable URL is master.m3u8.
+     * Preserve the raw query exactly because it may contain encoded signature material.
+     * Emit that real manifest first/alone rather than cluttering CloudStream with the
+     * wrapper endpoint as though it were another video source.
+     */
     fun mediaCandidates(rawUrl: String, baseUrl: String): List<SelcukFlixMediaFile> {
         val url = SelcukFlixResolverBank.normalizeUrl(rawUrl, baseUrl) ?: return emptyList()
-        val output = mutableListOf<SelcukFlixMediaFile>()
         val uri = runCatching { URI(url) }.getOrNull() ?: return emptyList()
         val path = uri.rawPath.orEmpty()
         val lower = path.lowercase()
         val transformedPath = when {
             lower.endsWith("/m.php") -> path.dropLast("m.php".length) + "master.m3u8"
-            lower.endsWith(".php") -> path.substringBeforeLast("/") + "/master.m3u8"
-            else -> null
+            // Do not invent a master playlist for unrelated PHP endpoints.
+            lower.endsWith(".php") -> return emptyList()
+            else -> return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
         }
-        if (transformedPath != null) {
-            val transformed = runCatching {
-                URI(uri.scheme, uri.authority, transformedPath, uri.rawQuery, uri.rawFragment).toString()
-            }.getOrNull()
-            if (!transformed.isNullOrBlank() && transformed != url) {
-                output += SelcukFlixMediaFile(transformed, "Master playlist", "HLS")
-            }
+
+        val scheme = uri.scheme ?: return emptyList()
+        val authority = uri.rawAuthority ?: return emptyList()
+        val candidate = buildString {
+            append(scheme).append("://").append(authority).append(transformedPath)
+            uri.rawQuery?.let { append('?').append(it) }
+            uri.rawFragment?.let { append('#').append(it) }
         }
-        output += SelcukFlixMediaFile(url, "Raw file fallback", "HLS")
-        return output.distinctBy { it.url }
+        val transformed = runCatching { URI(candidate).toASCIIString() }.getOrNull()
+            ?: return emptyList()
+        if (transformed == url) return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
+        return listOf(SelcukFlixMediaFile(transformed, "Master playlist", "HLS"))
     }
 
     fun subtitles(text: String, baseUrl: String): List<Pair<String, String>> {

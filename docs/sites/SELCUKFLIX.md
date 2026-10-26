@@ -2,11 +2,11 @@
 
 - Requested site: https://selcukflix.app/
 - Provider module: \`SelcukFlix\`
-- Module version: 4 (experimental / status 3)
+- Module version: 14 (experimental / status 3; fixes are in branch fix/selcukflix-real-playback)
 - Investigation date: 2026-10-25
 - Scope: separate module only; no existing provider files were changed.
 - Live site access from this environment: BLOCKED (web retrieval returned HTTP 403).
-- Previous CI: PASS for v1/v2 baseline; v4 changes are under review in PR pending creation.
+- CI for v14 branch: NOT TESTED yet; unit tests and package build must run before merge.
 - Actual playback in CloudStream: NOT TESTED.
 
 ## Evidence ledger
@@ -35,9 +35,9 @@
 
 Routes and field names above are HYPOTHESIS for the current .app domain until a real response is observed.
 
-## Resolver test bank (39 IDs)
+## Historical candidate test bank (39 diagnostic IDs; not 39 working sources)
 
-Status represents evidence about the requested .app site, not merely whether the code branch exists.
+These IDs were hypotheses for recognizing candidate data, not 39 confirmed playback paths. They must not be advertised as 39 working sources. The focused player path is iframe.php → openPlayer(token) → source2.php → playlist[].sources[].file. The master.m3u8 transformation remains unverified against a live site response from this environment.
 
 | ID | Resolver | Current handling | Site evidence status |
 |---:|---|---|---|
@@ -106,6 +106,16 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 - Older source: https://github.com/nikyokki/nik-cloudstream/tree/master/SelcukFlix — GPL-3.0; points at the former \`selcukflix.net\` domain.
 - Current-domain source: https://github.com/SafakStream/SafakStream-Extensions/tree/main/SelcukFlix — GPL-3.0; references \`selcukflix.app\` and the Pichive-style player flow.
 - The code in this repository was written independently; no provider source file was copied and no third-party project is a runtime dependency. Prior-art protocol details are used as hypotheses, not as proof of the current site's behavior.
+
+## v14 playback and latency corrections (2026-10-26)
+
+- Root cause found in the player URL builder: constructing a URI with an already-escaped raw query double-encoded percent escapes (for example %2F became %252F). This could invalidate encoded media query parameters and also affected source2.php token requests.
+- The builder now composes the URL while preserving the raw query for the HLS transformation; the source API token is encoded once.
+- The observed PHP wrapper is transformed to the actual master.m3u8 URL and is not also emitted as a second pretend video source.
+- Series detail uses structured episode data first; it requests season pages only if structured episodes are absent.
+- Catalog no longer performs extra detail-page HTTP requests just to recover posters. Synthetic episode-filter rows were removed; catalog now exposes the four real site routes. Pagination uses sayfa, matching the current-domain reference implementation.
+- Added regression tests for preserving %2F / %3D query escapes and encoding a source2.php token exactly once.
+- These are static code and regression-test corrections, not proof of live playback. Live selcukflix.app response and playback on an actual CloudStream device remain NOT TESTED / BLOCKED until verified.
 
 ## Safety boundary
 
