@@ -54,6 +54,16 @@ class SelcukFlixPichiveParserTest {
     }
 
     @Test
+    fun doesNotGuessMasterPlaylistForUnrelatedPhpEndpoints() {
+        assertTrue(
+            SelcukFlixPichiveParser.mediaCandidates(
+                "https://four.pichive.online/media/other.php?key=fixture",
+                "https://four.pichive.online/source2.php?v=fixture"
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun encodesSourceApiTokenExactlyOnce() {
         assertEquals(
             "https://four.pichive.online/source2.php?v=a%2Fb%2Bc%3D%3D",
