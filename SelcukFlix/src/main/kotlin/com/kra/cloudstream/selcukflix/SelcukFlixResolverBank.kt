@@ -4,29 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Jsoup
 import java.net.URI
-import java.util.Base64
 import java.security.MessageDigest
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import java.net.URLEncoder
-
-internal enum class SelcukMediaKind {
-    PLAYER, HLS, DASH, VIDEO, UNKNOWN
-}
-
-internal data class SelcukResolverCandidate(
-    val id: Int,
-    val url: String,
-    val kind: SelcukMediaKind,
-    val referer: String,
-    val note: String? = null
-)
-
-internal data class SelcukSubtitleCandidate(
-    val language: String,
-    val url: String
-)
 
 internal data class SelcukEpisodeRecord(
     val url: String,
@@ -37,79 +19,27 @@ internal data class SelcukEpisodeRecord(
 )
 
 /**
- * Site-isolated resolver test bank.
- *
- * The ID means how a candidate was discovered, not that playback has been proven.
- * Resolver output deliberately preserves multiple IDs for the same URL so the user can
- * compare each discovery path independently in CloudStream.
+ * Small site-data helper. Player resolution is intentionally handled by the normal
+ * CloudStream extractor registry plus the one observed Pichive iframe -> source2.php flow.
  */
 internal object SelcukFlixResolverBank {
     private const val sitePayloadAesKey = "9bYMCNQiWsXIYFWYAu7EkdsSbmGBTyUI"
+    private const val siteHost = "selcukflix.app"
     private val mapper = jacksonObjectMapper()
 
-    private val resolverNames = mapOf(
-        1 to "Html5SourceResolver",
-        2 to "LazyDataAttributeResolver",
-        3 to "SelectedPlayerElementResolver",
-        4 to "JsonLdMediaResolver",
-        5 to "EmbeddedJsonResolver",
-        6 to "HydrationStateResolver",
-        7 to "PlayerConfigObjectResolver",
-        8 to "StaticScriptUrlResolver",
-        9 to "EscapedScriptUrlResolver",
-        10 to "JavaScriptVariableResolver",
-        11 to "JavaScriptRuntimeResolver",
-        12 to "PackedScriptResolver",
-        13 to "KnownEncodingResolver",
-        14 to "SiteSpecificObfuscationResolver",
-        15 to "IframeDiscoveryResolver",
-        16 to "NestedIframeResolver",
-        17 to "ExtractorRegistryResolver",
-        18 to "ObservedRestApiResolver",
-        19 to "ObservedAjaxResolver",
-        20 to "GraphQlResolver",
-        21 to "PlayerIdManifestResolver",
-        22 to "RedirectChainResolver",
-        23 to "HlsMasterPlaylistResolver",
-        24 to "HlsVariantPlaylistResolver",
-        25 to "DashManifestResolver",
-        26 to "DirectMediaFileResolver",
-        27 to "ContainerFormatCandidateResolver",
-        28 to "SegmentPlaylistResolver",
-        29 to "BrowserNetworkDiscoveryResolver",
-        30 to "BlobMediaSourceDiagnostic",
-        31 to "ServiceWorkerPlaybackDiagnostic",
-        32 to "SignedUrlResolver",
-        33 to "HeaderContextResolver",
-        34 to "SessionDependentSourceDiagnostic",
-        35 to "AlternateAudioAndSubtitleResolver",
-        36 to "GenericExtractorFallback",
-        37 to "ManualNetworkEvidenceResolver",
-        38 to "PichiveSourceApiResolver",
-        39 to "PichiveMasterPlaylistResolver"
-    )
-
-    private val urlRegex = Regex("""(?i)(?:https?:)?//[^\s"'<>\\]+""")
-    private val mediaExtensionRegex = Regex(
-        """(?i)\.(m3u8|mpd|mp4|m4v|webm|mkv|avi|mov)(?:$|[?#])"""
-    )
-    private val subtitleExtensionRegex = Regex("""(?i)\.(vtt|srt|ass|ssa)(?:$|[?#])""")
-    private val likelyPlayerPath = Regex("""(?i)(embed|player|watch|/e/|/video|iframe|stream|manifest|playlist)""")
-    private val base64Regex = Regex("""(?<![A-Za-z0-9+/=_-])([A-Za-z0-9+/_-]{24,}={0,2})(?![A-Za-z0-9+/=_-])""")
-
-    private fun JsonNode.jsonField(name: String): JsonNode? {
+    private fun JsonNode.field(name: String): JsonNode? {
         if (!isObject) return null
-        val iterator = fields()
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
+        val fields = fields()
+        while (fields.hasNext()) {
+            val entry = fields.next()
             if (entry.key.equals(name, ignoreCase = true)) return entry.value
         }
         return null
     }
 
-    private fun JsonNode.jsonText(vararg names: String): String? {
+    private fun JsonNode.textField(vararg names: String): String? {
         for (name in names) {
-            val value = jsonField(name) ?: continue
+            val value = field(name) ?: continue
             if (value.isNull || value.isContainerNode) continue
             val text = value.asText().trim()
             if (text.isNotBlank() && text != "null") return text
@@ -117,255 +47,74 @@ internal object SelcukFlixResolverBank {
         return null
     }
 
-    private fun JsonNode.jsonChildren(): List<JsonNode> = when {
+    private fun JsonNode.children(): List<JsonNode> = when {
         isArray -> elements().asSequence().toList()
         isObject -> fields().asSequence().map { it.value }.toList()
         else -> emptyList()
     }
-
-    private fun JsonNode.sitePageResult(): JsonNode =
-        jsonField("content")?.jsonField("result")
-            ?: jsonField("Content")?.jsonField("Result")
-            ?: this
-
-    fun parseEpisodeRecords(root: JsonNode, mainUrl: String): List<SelcukEpisodeRecord> {
-        val page = root.sitePageResult()
-        val related = page.jsonField("RelatedResults")
-            ?: page.jsonField("relatedResults")
-            ?: root.jsonField("relatedResults")
-            ?: return emptyList()
-        val seasonResponse = related.jsonField("getSerieSeasonAndEpisodes") ?: return emptyList()
-        // Current .app responses wrap seasons in result and use snake_case field names.
-        val seasons = seasonResponse.jsonField("result") ?: seasonResponse.jsonField("seasons")
-            ?: return emptyList()
-        val records = mutableListOf<SelcukEpisodeRecord>()
-        var fallbackEpisode = 0
-        seasons.jsonChildren().forEach { season ->
-            val seasonNo = season.jsonText("season_no", "seasonNo", "seasonNumber", "number")?.toIntOrNull()
-            val episodeNodes = season.jsonField("episodes") ?: return@forEach
-            episodeNodes.jsonChildren().forEach { episode ->
-                val rawSlug = episode.jsonText("used_slug", "usedSlug", "slug", "url", "link")
-                    ?: return@forEach
-                val episodeUrl = normalizeSiteUrl(rawSlug, mainUrl) ?: return@forEach
-                fallbackEpisode++
-                val episodeNo = episode.jsonText("episode_no", "episodeNo", "episodeNumber", "number")
-                    ?.toIntOrNull() ?: fallbackEpisode
-                val posterRaw = episode.jsonText(
-                    "object_poster_url", "object_face_url", "poster_url", "posterUrl",
-                    "face_url", "image_url", "poster", "image", "thumbnail", "cover"
-                )
-                val poster = posterRaw?.let { normalizeSiteUrl(it, mainUrl) ?: normalizeUrl(it, mainUrl) }
-                    ?: findPosterUrl(episode, mainUrl)
-                records += SelcukEpisodeRecord(
-                    url = episodeUrl,
-                    name = episode.jsonText("episode_text", "episode_text_tr", "epText", "episodeTitle", "subtitle", "text", "title", "name"),
-                    season = seasonNo,
-                    episode = episodeNo,
-                    posterUrl = poster
-                )
-            }
-        }
-        return records.sortedWith(
-            compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
-        ).distinctBy { it.url }
-    }
-
-    /**
-     * Finds poster/image URLs by field meaning, including nested objects and arrays.
-     * Explicit poster/face fields outrank generic image/backdrop fields. Placeholder values
-     * are rejected rather than converted into misleading URLs.
-     */
-    fun findPosterUrl(root: JsonNode, mainUrl: String): String? {
-        val found = mutableListOf<Triple<Int, Int, String>>()
-        var order = 0
-
-        fun rankFor(key: String): Int? {
-            val value = key.lowercase().replace("-", "_")
-            return when {
-                value in setOf("object_poster_url", "poster_url", "posterurl", "poster_path",
-                    "posterpath", "poster", "poster_src", "poster_image", "posterimage") -> 0
-                value in setOf("object_face_url", "face_url", "faceurl", "cover_url", "cover",
-                    "thumbnail_url", "thumbnail", "thumb_url", "thumb") ||
-                    value.contains("poster") || value.contains("face") -> 1
-                value.contains("image") || value.contains("cover") || value.contains("thumb") -> 2
-                value.contains("backdrop") || value.contains("banner") || value.contains("still") -> 3
-                else -> null
-            }
-        }
-
-        fun usable(raw: String): String? {
-            val cleaned = normalizeEscapes(raw.trim().trim('"', '\''))
-            val url = normalizeUrl(cleaned, mainUrl) ?: return null
-            val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
-            if (listOf("placeholder", "no-poster", "no_poster", "poster-not-found",
-                    "no-image", "no_image", "default-poster", "blank.gif").any { path.contains(it) }) {
-                return null
-            }
-            if (Regex("""(?i)\.(svg|ico)(?:$|[?#])""").containsMatchIn(path)) return null
-            return url
-        }
-
-        fun visit(node: JsonNode, inheritedRank: Int? = null) {
-            when {
-                node.isObject -> {
-                    val fields = node.fields()
-                    while (fields.hasNext()) {
-                        val entry = fields.next()
-                        val nextRank = rankFor(entry.key) ?: inheritedRank
-                        if (entry.value.isTextual && nextRank != null) {
-                            usable(entry.value.asText())?.let { found += Triple(nextRank, order++, it) }
-                        } else if (entry.value.isContainerNode) {
-                            visit(entry.value, nextRank)
-                        }
-                    }
-                }
-                node.isArray -> node.elements().asSequence().forEach { visit(it, inheritedRank) }
-                node.isTextual && inheritedRank != null -> {
-                    usable(node.asText())?.let { found += Triple(inheritedRank, order++, it) }
-                }
-            }
-        }
-
-        visit(root)
-        return found.sortedWith(compareBy<Triple<Int, Int, String>> { it.first }.thenBy { it.second })
-            .firstOrNull()?.third
-    }
-
-    /**
-     * Extracts real iframe src values inside the observed source_content/sourceContent fields.
-     * It is deliberately site-neutral after the source field is identified; iframe hosts are
-     * followed only when the returned URL was actually present in the response.
-     */
-    fun extractSourceIframes(rawPayload: String, baseUrl: String): List<String> {
-        if (rawPayload.isBlank() || isAccessChallenge(rawPayload)) return emptyList()
-        val found = linkedSetOf<String>()
-
-        fun readIframeMarkup(fragment: String) {
-            if (fragment.isBlank()) return
-            val normalized = normalizeEscapes(fragment)
-            val document = Jsoup.parseBodyFragment(normalized, baseUrl)
-            document.select("iframe[src], iframe[data-src], iframe[data-lazy-src]").forEach { frame ->
-                val raw = frame.attr("src").ifBlank {
-                    frame.attr("data-src").ifBlank { frame.attr("data-lazy-src") }
-                }
-                normalizeUrl(raw, baseUrl)?.let(found::add)
-            }
-            // A few responses keep quotes escaped even after outer JSON has been decoded.
-            val escapedSrc = Regex("""(?is)<iframe\b[^>]*?\bsrc\s*=\s*\\?["']([^"'\\]+)""")
-            escapedSrc.findAll(normalized).forEach { match ->
-                normalizeUrl(match.groupValues[1], baseUrl)?.let(found::add)
-            }
-        }
-
-        fun walk(node: JsonNode) {
-            when {
-                node.isObject -> {
-                    val fields = node.fields()
-                    while (fields.hasNext()) {
-                        val entry = fields.next()
-                        if (entry.key.equals("source_content", true) ||
-                            entry.key.equals("sourceContent", true) ||
-                            entry.key.equals("embed_url", true) ||
-                            entry.key.equals("embedUrl", true)
-                        ) {
-                            if (entry.value.isTextual) readIframeMarkup(entry.value.asText())
-                        } else if (entry.value.isContainerNode) {
-                            walk(entry.value)
-                        }
-                    }
-                }
-                node.isArray -> node.elements().asSequence().forEach(::walk)
-                node.isTextual -> {
-                    val text = node.asText()
-                    if (text.contains("<iframe", true)) readIframeMarkup(text)
-                    val decoded = decodeSitePayload(text)
-                    if (!decoded.isNullOrBlank() && decoded != text &&
-                        (decoded.contains("<iframe", true) || decoded.contains("source_content", true))
-                    ) {
-                        val nested = runCatching { mapper.readTree(decoded) }.getOrNull()
-                        if (nested != null) walk(nested) else readIframeMarkup(decoded)
-                    }
-                }
-            }
-        }
-
-        val root = runCatching { mapper.readTree(rawPayload) }.getOrNull()
-        if (root != null) walk(root)
-        readIframeMarkup(rawPayload)
-        return found.toList()
-    }
-
-    /**
-     * Applies the visible category metadata used by the site's "Güncel Bölümler" tabs.
-     * Callers should pass card text plus relevant class/data-* attributes; a tab match is
-     * never inferred from the series title alone.
-     */
-    fun matchesEpisodeFilter(metadata: String, filter: String): Boolean {
-        val value = metadata.lowercase()
-        return when (filter.lowercase()) {
-            "all", "" -> true
-            "dub" -> Regex("""(?i)(dublaj|dubbed|turkish\s*audio|türkçe[\s_-]*ses|\bdub\b)""")
-                .containsMatchIn(value)
-            "foreign" -> Regex("""(?i)(altyazı|altyazılı|subtitled|original\s*audio|yabancı(?:\s+dizi)?|\bsub\b)""")
-                .containsMatchIn(value)
-            "anime" -> Regex("""(?i)(anime|animeler|japon[\s_-]*animasyon|japanese[\s_-]*animation)""")
-                .containsMatchIn(value)
-            else -> true
-        }
-    }
-
-    fun resolverName(id: Int): String = resolverNames[id] ?: "UnknownResolver"
-
-    fun resolverCatalog(): List<Pair<Int, String>> =
-        resolverNames.entries.sortedBy { it.key }.map { it.key to it.value }
 
     fun isAccessChallenge(text: String): Boolean =
         Regex(
             """(?is)(cf-chl-|challenge-platform|/cdn-cgi/challenge-platform|verify you are human|just a moment\.\.\.|checking your browser|attention required!\s*\|\s*cloudflare|captcha|access denied|error 1020|error 1015)"""
         ).containsMatchIn(text)
 
-    /**
-     * Reads the Next.js page shell used by a previously published SelcukFlix provider.
-     * The current .app domain is blocked from this environment, so this is a hypothesis
-     * until a real .app response confirms it.
-     */
-    fun extractEmbeddedPayload(html: String): String? {
-        if (html.isBlank() || isAccessChallenge(html)) return null
-        val doc = Jsoup.parse(html)
-        val script = doc.selectFirst("script#__NEXT_DATA__")?.data()
-            ?: doc.selectFirst("script#__NEXT_DATA__")?.html()
-        if (!script.isNullOrBlank()) {
-            val root = runCatching { mapper.readTree(script) }.getOrNull()
-            val secure = root?.fieldIgnoreCase("props")
-                ?.fieldIgnoreCase("pageProps")
-                ?.fieldIgnoreCase("secureData")
-                ?.takeIf { it.isTextual }
-                ?.asText()
-            if (!secure.isNullOrBlank()) {
-                return decodeSitePayload(secure) ?: secure
-            }
-            return script
+    fun isYouTubeUrl(url: String): Boolean =
+        runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("").let { host ->
+            host == "youtu.be" || host.endsWith(".youtube.com") || host == "youtube.com" ||
+                host.endsWith(".youtube-nocookie.com") || host.endsWith(".googlevideo.com")
         }
 
-        val secureMatch = Regex(
-            """(?is)["']secureData["']\s*:\s*["']([A-Za-z0-9+/_=-]{24,})["']"""
-        ).find(html)?.groupValues?.getOrNull(1)
-        return secureMatch?.let { decodeSitePayload(it) ?: it }
+    fun normalizeUrl(raw: String?, baseUrl: String): String? {
+        if (raw.isNullOrBlank()) return null
+        var value = raw.trim().trim('"', '\'')
+            .replace("\\/", "/")
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("\\u003d", "=", ignoreCase = true)
+            .replace("\\u003a", ":", ignoreCase = true)
+            .replace("&amp;", "&", ignoreCase = true)
+            .replace("\\\"", "\"")
+            .replace(" ", "%20")
+        if (value.startsWith("//")) value = "https:$value"
+        if (!value.startsWith("http://", true) && !value.startsWith("https://", true)) {
+            value = runCatching { URI(baseUrl).resolve(value).toString() }.getOrNull() ?: return null
+        }
+        val uri = runCatching { URI(value) }.getOrNull() ?: return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return null
+        if (uri.userInfo != null) return null
+        return uri.toASCIIString()
     }
 
-    /**
-     * SelcukFlix app-side public payload encoding observed in independent provider implementations.
-     * This decodes the site's ordinary page/API payload; it does not bypass login, CAPTCHA, DRM,
-     * Cloudflare challenges, or any other access control. A challenge response must be rejected first.
-     */
-    fun decodeSitePayload(raw: String): String? =
-        decryptSiteEnvelope(raw) ?: decodeBase64Text(raw)
+    fun normalizeSiteUrl(raw: String?, baseUrl: String): String? {
+        if (raw.isNullOrBlank()) return null
+        var value = raw.trim().trim('"', '\'')
+            .replace("\\/", "/")
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("&amp;", "&", ignoreCase = true)
+        value = value.replace(
+            Regex("""(?i)^https?://selcukflix\.app(?=(?:dizi|film)/)"""),
+            "https://$siteHost/"
+        )
+        if (value.startsWith("$siteHost/", true)) value = "https://$value"
+        val url = normalizeUrl(value, baseUrl) ?: return null
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host.orEmpty().lowercase()
+        return if (host == siteHost || host == "www.$siteHost" ||
+            host == "selcukflix.net" || host == "www.selcukflix.net" ||
+            host == "selcukflix.com" || host == "www.selcukflix.com"
+        ) {
+            "https://$siteHost" + (uri.rawPath?.takeIf { it.isNotBlank() } ?: "/") +
+                (uri.rawQuery?.let { "?$it" } ?: "") +
+                (uri.rawFragment?.let { "#$it" } ?: "")
+        } else url
+    }
 
-    private fun decryptSiteEnvelope(raw: String): String? {
-        val value = raw.trim().filterNot(Char::isWhitespace)
-        if (value.length < 24 || value.length > 1_000_000) return null
-        val cipherBytes = runCatching { Base64.getDecoder().decode(value) }.getOrNull()
-            ?: runCatching { Base64.getUrlDecoder().decode(value) }.getOrNull()
+    fun decodeSitePayload(raw: String): String? {
+        val value = raw.trim()
+        if (value.startsWith("{") || value.startsWith("[") || value.startsWith("<")) return value
+        if (value.length < 16 || value.length > 1_000_000) return null
+
+        val bytes = runCatching { Base64.getDecoder().decode(value.filterNot(Char::isWhitespace)) }.getOrNull()
+            ?: runCatching { Base64.getUrlDecoder().decode(value.filterNot(Char::isWhitespace)) }.getOrNull()
             ?: return null
 
         val derivedKey = runCatching {
@@ -374,8 +123,10 @@ internal object SelcukFlixResolverBank {
                     .digest("!!22xx!!90!!".toByteArray(Charsets.UTF_8))
             ).take(32).toByteArray(Charsets.UTF_8)
         }.getOrNull()
-        val keys = listOfNotNull(sitePayloadAesKey.toByteArray(Charsets.UTF_8), derivedKey)
-            .distinctBy { String(it, Charsets.UTF_8) }
+        val keys = listOfNotNull(
+            derivedKey,
+            sitePayloadAesKey.toByteArray(Charsets.UTF_8)
+        ).distinctBy { String(it, Charsets.UTF_8) }
 
         for (key in keys) {
             val decoded = runCatching {
@@ -385,607 +136,128 @@ internal object SelcukFlixResolverBank {
                     SecretKeySpec(key, "AES"),
                     IvParameterSpec(ByteArray(16))
                 )
-                String(cipher.doFinal(cipherBytes), Charsets.UTF_8).trim()
+                String(cipher.doFinal(bytes), Charsets.UTF_8).trim()
             }.getOrNull() ?: continue
-            val plausible = decoded.startsWith("{") || decoded.startsWith("[") ||
-                decoded.contains("<iframe", ignoreCase = true) ||
-                decoded.contains("m3u8", ignoreCase = true) ||
-                decoded.contains("source_content", ignoreCase = true)
-            if (plausible) return decoded
+            if (isPayload(decoded)) return decoded
         }
-        return null
+
+        val plain = runCatching { String(bytes, Charsets.UTF_8).trim() }.getOrNull() ?: return null
+        return plain.takeIf(::isPayload)
     }
 
-    fun decodeBase64Text(raw: String): String? {
-        val value = raw.trim()
-        if (value.length < 16 || value.length > 250_000) return null
-        val bytes = runCatching { Base64.getDecoder().decode(value) }.getOrNull()
-            ?: runCatching { Base64.getUrlDecoder().decode(value) }.getOrNull()
-            ?: return null
-        val decoded = String(bytes, Charsets.UTF_8)
-        return decoded.takeIf {
-            it.contains("http", ignoreCase = true) ||
-                it.contains('{') || it.contains('<') ||
-                it.contains("m3u8", ignoreCase = true) ||
-                it.contains("source_content", ignoreCase = true)
+    private fun isPayload(text: String): Boolean =
+        text.startsWith("{") || text.startsWith("[") ||
+            text.contains("source_content", true) ||
+            text.contains("<iframe", true) ||
+            text.contains("m3u8", true)
+
+    fun extractEmbeddedPayload(html: String): String? {
+        if (html.isBlank() || isAccessChallenge(html)) return null
+        val document = Jsoup.parse(html)
+        val scriptText = document.selectFirst("script#__NEXT_DATA__")?.data()
+            ?: document.selectFirst("script#__NEXT_DATA__")?.html()
+        if (!scriptText.isNullOrBlank()) {
+            val root = runCatching { mapper.readTree(scriptText) }.getOrNull()
+            val secureData = root?.field("props")?.field("pageProps")?.textField("secureData")
+            if (!secureData.isNullOrBlank()) return decodeSitePayload(secureData) ?: secureData
+            return scriptText
         }
+
+        val match = Regex(
+            """(?is)["']secureData["']\s*:\s*["']([A-Za-z0-9+/_=-]{24,})["']"""
+        ).find(html)?.groupValues?.getOrNull(1)
+        if (!match.isNullOrBlank()) return decodeSitePayload(match) ?: match
+        return html.takeIf { it.trimStart().startsWith("{") || it.trimStart().startsWith("[") }
     }
 
-    fun extractCandidates(
-        raw: String,
-        baseUrl: String,
-        siteUrl: String = baseUrl,
-        fromObservedApi: Boolean = false
-    ): List<SelcukResolverCandidate> {
-        if (raw.isBlank() || isAccessChallenge(raw)) return emptyList()
+    fun findPosterUrl(root: JsonNode, baseUrl: String): String? {
+        val found = mutableListOf<Triple<Int, Int, String>>()
+        var order = 0
 
-        val normalized = normalizeEscapes(raw)
-        val doc = Jsoup.parse(raw, baseUrl)
-        val result = linkedMapOf<String, SelcukResolverCandidate>()
-
-        fun add(
-            id: Int,
-            rawUrl: String?,
-            referrer: String = baseUrl,
-            forcePlayerContext: Boolean = false
-        ) {
-            val url = normalizeUrl(rawUrl, baseUrl) ?: return
-            if (isYouTubeUrl(url) || isNonMediaAssetUrl(url)) return
-            val kind = classify(url, forcePlayerContext)
-            if (!forcePlayerContext && kind == SelcukMediaKind.UNKNOWN &&
-                !isLikelyPlayerOrMedia(url, siteUrl)
-            ) return
-            val candidate = SelcukResolverCandidate(id, url, kind, referrer)
-            val key = id.toString() + "|" + url + "|" + referrer
-            result.putIfAbsent(key, candidate)
-        }
-
-        fun addUrlsFromText(id: Int, text: String, referrer: String = baseUrl) {
-            urlRegex.findAll(normalizeEscapes(text)).forEach { match ->
-                val rawUrl = match.value.trimEnd(')', ']', '}', ',', ';', '.', ':')
-                add(id, rawUrl, referrer)
+        fun rank(key: String): Int? {
+            val name = key.lowercase().replace('-', '_')
+            return when {
+                name in setOf("object_poster_url", "poster_url", "posterurl", "poster_path", "posterpath", "poster") -> 0
+                name.contains("poster") || name.contains("face") || name.contains("cover") -> 1
+                name.contains("thumbnail") || name.contains("thumb") || name.contains("image") -> 2
+                name.contains("backdrop") || name.contains("banner") || name.contains("still") -> 3
+                else -> null
             }
         }
 
-        fun walkJson(node: JsonNode, id: Int, sourceHint: String = "") {
-            if (node.isObject) {
-                val fields = node.fields()
-                while (fields.hasNext()) {
-                    val entry = fields.next()
-                    val key = entry.key
-                    val value = entry.value
-                    val keyLower = key.lowercase()
-                    if (value.isTextual) {
-                        val text = value.asText()
-                        val relevantKey = keyLower in setOf(
-                            "src", "file", "url", "source", "sources", "embedurl", "contenturl",
-                            "videourl", "videofile", "manifest", "playlist", "streamurl",
-                            "sourcecontent", "source_content", "rawurl"
-                        ) || keyLower.contains("source") ||
-                            keyLower.contains("embed") ||
-                            keyLower.contains("manifest") ||
-                            keyLower.contains("playlist")
-                        if (relevantKey) {
-                            addUrlsFromText(id, text)
-                            if (keyLower in setOf("file", "src", "url", "sources", "streamurl", "videourl")) {
-                                addUrlsFromText(7, text)
-                            }
-                            if (keyLower.contains("sourcecontent") || keyLower.contains("source_content")) {
-                                addUrlsFromText(18, text)
-                            }
-                            if (keyLower.contains("manifest") || keyLower.contains("playlist")) {
-                                addUrlsFromText(21, text)
-                            }
-                        }
-                        if (keyLower == "securedata") {
-                            val decoded = decodeBase64Text(text)
-                            if (!decoded.isNullOrBlank()) {
-                                addUrlsFromText(6, decoded)
-                                addUrlsFromText(14, decoded)
-                            }
-                        }
-                        if (keyLower.contains("subtitle") || keyLower.contains("caption") ||
-                            keyLower == "track" || keyLower == "tracks"
-                        ) {
-                            addUrlsFromText(35, text)
-                        }
-                    } else {
-                        walkJson(value, id, key)
-                    }
-                }
-            } else if (node.isArray) {
-                val elements = node.elements()
-                while (elements.hasNext()) walkJson(elements.next(), id, sourceHint)
-            }
+        fun add(raw: String, priority: Int) {
+            val url = normalizeUrl(raw, baseUrl) ?: return
+            val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+            if (listOf("placeholder", "no-poster", "no_poster", "no-image", "default-poster", "blank.gif")
+                    .any { path.contains(it) }) return
+            if (Regex("""(?i)\.(svg|ico)$""").containsMatchIn(path)) return
+            found += Triple(priority, order++, url)
         }
 
-        // 01 • HTML5 <video>/<source>
-        doc.select("video[src], video source[src], source[src]").forEach { element ->
-            add(1, element.attr("src"), baseUrl, forcePlayerContext = true)
-        }
-
-        // 02 • Lazy data fields, constrained to player/video elements to avoid poster images.
-        doc.select(
-            "video[data-src], video[data-url], source[data-src], source[data-url], " +
-                "iframe[data-src], iframe[data-url], iframe[data-file], " +
-                "#player [data-src], #player [data-url], .player [data-src], .player [data-url], " +
-                "[data-player][data-src], [data-player][data-url]"
-        ).forEach { element ->
-            listOf("data-src", "data-url", "data-file", "data-embed").forEach { attr ->
-                if (element.hasAttr(attr)) add(2, element.attr(attr), baseUrl, forcePlayerContext = true)
-            }
-        }
-
-        // 03 • Selected player container
-        doc.select("#player, #video, .player, .video-player, [data-player]").forEach { player ->
-            player.select("[src], [data-src], [data-url], [data-file]").forEach { element ->
-                listOf("src", "data-src", "data-url", "data-file").forEach { attr ->
-                    if (element.hasAttr(attr)) add(3, element.attr(attr), baseUrl, forcePlayerContext = true)
-                }
-            }
-        }
-
-        // 04 • JSON-LD media fields
-        doc.select("script[type=application/ld+json]").forEach { script ->
-            val json = runCatching { mapper.readTree(script.data().ifBlank { script.html() }) }.getOrNull()
-            if (json != null) walkJson(json, 4)
-        }
-
-        // 05 • Embedded JSON objects
-        runCatching { mapper.readTree(normalized) }.getOrNull()?.let { walkJson(it, 5) }
-        doc.select("script").forEach { script ->
-            val body = script.data().ifBlank { script.html() }
-            if (body.contains("http", true) || body.contains("source", true) || body.contains("player", true)) {
-                runCatching { mapper.readTree(normalizeEscapes(body)) }.getOrNull()?.let { walkJson(it, 5) }
-            }
-        }
-
-        // 06 • Next.js/hydration payload; don't execute JavaScript.
-        val nextData = doc.selectFirst("script#__NEXT_DATA__")?.data()
-        if (!nextData.isNullOrBlank()) {
-            addUrlsFromText(6, nextData)
-            val nextRoot = runCatching { mapper.readTree(nextData) }.getOrNull()
-            if (nextRoot != null) walkJson(nextRoot, 6)
-            val embedded = extractEmbeddedPayload(raw)
-            if (!embedded.isNullOrBlank() && embedded != nextData) {
-                addUrlsFromText(6, embedded)
-                runCatching { mapper.readTree(embedded) }.getOrNull()?.let { walkJson(it, 6) }
-            }
-        }
-
-        // 08 • Static URL literals in script text; 09 • escaped URL literals.
-        val scripts = doc.select("script").map { it.data().ifBlank { it.html() } }
-        scripts.forEach { script ->
-            addUrlsFromText(8, script)
-            if (script.contains("\\/") || script.contains("\\u0026", true) ||
-                script.contains("\\x26", true)
-            ) addUrlsFromText(9, script)
-        }
-        if (normalized != raw) addUrlsFromText(9, normalized)
-
-        // 10 • Explicit JavaScript assignments; never evaluate the script.
-        val variableRegex = Regex(
-            """(?is)(?:(?:var|let|const)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*["']([^"']*(?:https?:|//)[^"']+)["']"""
-        )
-        variableRegex.findAll(normalized).forEach { match ->
-            addUrlsFromText(10, match.groupValues[1])
-        }
-
-        // 12 • Packed-script diagnostic. We inspect visible literals only; no eval/unpacking execution.
-        if (Regex("""(?is)eval\s*\(\s*function\s*\(p,a,c,k,e,d\)|}\s*\('.*?'\s*,\s*\d+\s*,\s*\d+\s*,\s*'""")
-                .containsMatchIn(normalized)
-        ) addUrlsFromText(12, normalized)
-
-        // 13 • Known base64 text containing an explicit URL/JSON marker.
-        base64Regex.findAll(normalized).take(24).forEach { match ->
-            val decoded = decodeBase64Text(match.groupValues[1]) ?: return@forEach
-            if (decoded.contains("http", true) || decoded.contains("m3u8", true) ||
-                decoded.contains("source_content", true)
-            ) addUrlsFromText(13, decoded)
-        }
-
-        // 14 • Previously observed SelcukFlix secureData base64 envelope.
-        val secureData = runCatching { mapper.readTree(nextData ?: "") }.getOrNull()
-            ?.fieldIgnoreCase("props")
-            ?.fieldIgnoreCase("pageProps")
-            ?.fieldIgnoreCase("secureData")
-            ?.takeIf { it.isTextual }
-            ?.asText()
-        if (!secureData.isNullOrBlank()) {
-            val decoded = decodeBase64Text(secureData)
-            if (!decoded.isNullOrBlank()) {
-                addUrlsFromText(14, decoded)
-                runCatching { mapper.readTree(decoded) }.getOrNull()?.let { walkJson(it, 14) }
-            }
-        }
-
-        // 15 • Iframe discovery.
-        val iframeUrls = linkedSetOf<String>()
-        doc.select("iframe[src], iframe[data-src], iframe[data-lazy-src]").forEach { frame ->
-            val rawUrl = frame.attr("src").ifBlank {
-                frame.attr("data-src").ifBlank { frame.attr("data-lazy-src") }
-            }
-            val url = normalizeUrl(rawUrl, baseUrl) ?: return@forEach
-            if (!isYouTubeUrl(url)) {
-                iframeUrls += url
-                add(15, url, baseUrl, forcePlayerContext = true)
-            }
-        }
-
-        // 17 • Extractor registry candidates are player URLs only, not final media URLs.
-        iframeUrls.forEach { add(17, it, baseUrl, forcePlayerContext = true) }
-
-        // 18 • URL supplied by the API field being inspected.
-        if (fromObservedApi) {
-            add(18, raw, baseUrl, forcePlayerContext = true)
-            addUrlsFromText(18, raw)
-        }
-
-        // 19 • AJAX/XHR pattern: only produce candidates when an AJAX marker is actually present.
-        if (Regex("""(?is)(XMLHttpRequest|\.ajax\s*\(|fetch\s*\(|axios\.(get|post)\s*\()""")
-                .containsMatchIn(normalized)
-        ) addUrlsFromText(19, normalized)
-
-        // 20 • GraphQL is conditional on an observed marker.
-        if (normalized.contains("graphql", true) || normalized.contains("operationName")) {
-            addUrlsFromText(20, normalized)
-        }
-
-        // 21 • Only actual manifest/playlist fields, never an ID-to-URL template guess.
-        val rawTree = runCatching { mapper.readTree(normalized) }.getOrNull()
-        if (rawTree != null) walkJson(rawTree, 21, "manifest")
-
-        val observedUrls = urlRegex.findAll(normalized).mapNotNull { match ->
-            normalizeUrl(match.value.trimEnd(')', ']', '}', ',', ';', '.', ':'), baseUrl)
-        }.distinct().toList()
-
-        // 23-27 • The URL's observed type is separate from the resolver that found it.
-        observedUrls.forEach { url ->
-            val kind = classify(url, false)
-            when (kind) {
-                SelcukMediaKind.HLS -> add(23, url, baseUrl, forcePlayerContext = true)
-                SelcukMediaKind.DASH -> add(25, url, baseUrl, forcePlayerContext = true)
-                SelcukMediaKind.VIDEO -> {
-                    val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault("")
-                    if (path.endsWith(".mkv") || path.endsWith(".avi") || path.endsWith(".mov")) {
-                        add(27, url, baseUrl, forcePlayerContext = true)
-                    } else {
-                        add(26, url, baseUrl, forcePlayerContext = true)
-                    }
-                }
-                else -> Unit
-            }
-        }
-
-        // 30 • Blob URLs are never emitted as playback URLs; discover only real HTTP dependencies nearby.
-        if (normalized.contains("blob:", true)) {
-            addUrlsFromText(30, normalized)
-        }
-
-        // 32 • Signed URL diagnostics retain the real URL for playback but never log it.
-        observedUrls.filter { hasSignatureLikeQuery(it) }.forEach { add(32, it, baseUrl, forcePlayerContext = true) }
-
-        // 33 • Explicit alternate referer-context candidate for observed iframes.
-        // 33 • Alternate header context: the site's origin, unlike the embedding episode URL.
-        iframeUrls.forEach { add(33, it, siteUrl.trimEnd('/') + "/", forcePlayerContext = true) }
-
-        // 36 • Generic extractor fallback, kept separate from the specific iframe/registry path.
-        iframeUrls.forEach { add(36, it, baseUrl, forcePlayerContext = true) }
-        observedUrls.filter { isLikelyPlayerOrMedia(it, siteUrl) }
-            .forEach { add(36, it, baseUrl, forcePlayerContext = true) }
-
-        return result.values.toList()
-    }
-
-    fun isPichiveIframe(url: String): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        val host = uri.host.orEmpty().lowercase()
-        return uri.path.orEmpty().contains("iframe.php", ignoreCase = true) &&
-            (host == "pichive.online" || host.endsWith(".pichive.online") ||
-                host == "dplayer82.site" || host.endsWith(".dplayer82.site"))
-    }
-
-    fun extractPichiveToken(iframeHtml: String): String? {
-        if (iframeHtml.isBlank() || isAccessChallenge(iframeHtml)) return null
-        return Regex("""(?is)\bopenPlayer\s*\(\s*['"]([A-Za-z0-9_./+=:-]{8,2048})['"]""")
-            .find(normalizeEscapes(iframeHtml))
-            ?.groupValues?.getOrNull(1)
-            ?.takeIf { it.length in 8..2048 }
-    }
-
-    fun pichiveSourceApiUrl(iframeUrl: String, token: String): String? {
-        if (!isPichiveIframe(iframeUrl) || token.isBlank()) return null
-        val uri = runCatching { URI(iframeUrl) }.getOrNull() ?: return null
-        val origin = uri.scheme + "://" + uri.rawAuthority
-        return origin + "/source2.php?v=" + URLEncoder.encode(token, "UTF-8")
-    }
-
-    /**
-     * Source2 response parsing is kept as an independent site/player-specific strategy.
-     * The m.php -> master.m3u8 relation is a known pattern from public SelcukFlix integrations,
-     * but remains HYPOTHESIS on any individual live response until tested.
-     */
-    fun extractPichiveSourceCandidates(
-        responseText: String,
-        iframeUrl: String
-    ): List<SelcukResolverCandidate> {
-        if (responseText.isBlank() || isAccessChallenge(responseText)) return emptyList()
-        fun mediaKind(url: String): SelcukMediaKind {
-            val detected = classify(url)
-            // Pichive's source2.php frequently returns a PHP HLS endpoint without a media suffix.
-            // Its established integration treats the declared "file" value as an HLS source.
-            return if (detected in setOf(SelcukMediaKind.HLS, SelcukMediaKind.DASH, SelcukMediaKind.VIDEO)) {
-                detected
-            } else {
-                SelcukMediaKind.HLS
-            }
-        }
-
-        fun fallbackCandidates(): List<SelcukResolverCandidate> =
-            SelcukFlixContentXSourceParser.mediaFiles(responseText, iframeUrl)
-                .flatMap { file ->
-                    SelcukFlixContentXSourceParser.mediaFileCandidates(file, iframeUrl)
-                }
-                .filterNot { isYouTubeUrl(it.url) }
-                .map { candidate ->
-                    SelcukResolverCandidate(
-                        id = candidate.resolverId,
-                        url = candidate.url,
-                        kind = mediaKind(candidate.url),
-                        referer = iframeUrl,
-                        note = "source2 flexible-file fallback • " + candidate.label
-                    )
-                }
-                .distinctBy { it.id.toString() + "|" + it.url + "|" + it.referer }
-
-        val root = runCatching { mapper.readTree(responseText) }.getOrNull() ?: return fallbackCandidates()
-        if (root.get("state")?.asBoolean(false) != true) return fallbackCandidates()
-        val playlist = root.get("playlist")?.takeIf { it.isArray } ?: return fallbackCandidates()
-        val result = linkedMapOf<String, SelcukResolverCandidate>()
-
-        playlist.forEach { track ->
-            val trackLabel = track.get("title")?.asText().orEmpty().take(50)
-            val sources = track.get("sources")?.takeIf { it.isArray } ?: return@forEach
-            sources.forEach { source ->
-                val rawFile = source.get("file")?.asText().orEmpty()
-                if (rawFile.isBlank()) return@forEach
-                val label = source.get("label")?.asText().orEmpty().take(24)
-                val detail = listOf(trackLabel, label).filter { it.isNotBlank() }.joinToString("/")
-                    .ifBlank { "source2" }
-                val absolute = normalizeUrl(rawFile, iframeUrl) ?: return@forEach
-                if (isYouTubeUrl(absolute)) return@forEach
-
-                val rawCandidate = SelcukResolverCandidate(
-                    id = 38,
-                    url = absolute,
-                    kind = mediaKind(absolute),
-                    referer = iframeUrl,
-                    note = "raw endpoint • $detail"
-                )
-                result.putIfAbsent("38|$absolute|$detail", rawCandidate)
-
-                val path = runCatching { URI(absolute).path.orEmpty() }.getOrDefault("")
-                val masterUrl = if (path.endsWith("m.php", ignoreCase = true)) {
-                    val beforeQuery = absolute.substringBefore('#')
-                    val query = beforeQuery.substringAfter('?', "").takeIf { '?' in beforeQuery }
-                    val basePath = beforeQuery.substringBefore('?')
-                        .replace(Regex("""m\.php$""", RegexOption.IGNORE_CASE), "master.m3u8")
-                    basePath + (query?.let { "?$it" } ?: "")
-                } else {
-                    absolute
-                }
-                val kind = mediaKind(masterUrl)
-                if (masterUrl != absolute || kind in setOf(SelcukMediaKind.HLS, SelcukMediaKind.DASH, SelcukMediaKind.VIDEO)) {
-                    val playlistCandidate = SelcukResolverCandidate(
-                        id = 39,
-                        url = masterUrl,
-                        kind = kind,
-                        referer = iframeUrl,
-                        note = "derived playlist • $detail"
-                    )
-                    result.putIfAbsent("39|$masterUrl|$detail", playlistCandidate)
-                }
-            }
-        }
-        return result.values.toList()
-    }
-
-    fun extractHlsVariants(manifestText: String, manifestUrl: String): List<SelcukResolverCandidate> {
-        if (!manifestText.trimStart().startsWith("#EXTM3U", true) ||
-            !manifestText.contains("#EXT-X-STREAM-INF", true)
-        ) return emptyList()
-
-        val lines = manifestText.lines()
-        val result = linkedMapOf<String, SelcukResolverCandidate>()
-        lines.forEachIndexed { index, line ->
-            if (!line.trim().startsWith("#EXT-X-STREAM-INF", true)) return@forEachIndexed
-            val next = lines.drop(index + 1).firstOrNull { it.isNotBlank() && !it.trim().startsWith("#") }
-                ?: return@forEachIndexed
-            val url = normalizeUrl(next.trim(), manifestUrl) ?: return@forEachIndexed
-            if (isYouTubeUrl(url)) return@forEachIndexed
-            val candidate = SelcukResolverCandidate(
-                id = 24,
-                url = url,
-                kind = SelcukMediaKind.HLS,
-                referer = manifestUrl,
-                note = "variant"
-            )
-            result.putIfAbsent(url, candidate)
-        }
-        return result.values.toList()
-    }
-
-    fun extractHlsSubtitles(manifestText: String, manifestUrl: String): List<SelcukSubtitleCandidate> {
-        if (!manifestText.trimStart().startsWith("#EXTM3U", true)) return emptyList()
-        val result = linkedMapOf<String, SelcukSubtitleCandidate>()
-        manifestText.lines().filter {
-            it.trim().startsWith("#EXT-X-MEDIA:", true) &&
-                it.contains("TYPE=SUBTITLES", true)
-        }.forEach { line ->
-            val uri = Regex("""(?i)\bURI="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
-                ?: return@forEach
-            val language = Regex("""(?i)\bNAME="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
-                ?: Regex("""(?i)\bLANGUAGE="([^"]+)"""").find(line)?.groupValues?.getOrNull(1)
-                ?: "Unknown"
-            val url = normalizeUrl(uri, manifestUrl) ?: return@forEach
-            result.putIfAbsent(url, SelcukSubtitleCandidate(language, url))
-        }
-        return result.values.toList()
-    }
-
-    fun extractSubtitles(raw: String, baseUrl: String): List<SelcukSubtitleCandidate> {
-        if (raw.isBlank() || isAccessChallenge(raw)) return emptyList()
-        val doc = Jsoup.parse(raw, baseUrl)
-        val result = linkedMapOf<String, SelcukSubtitleCandidate>()
-        doc.select("track[src], track[data-src], track[data-url]").forEach { track ->
-            val url = normalizeUrl(
-                track.attr("src").ifBlank { track.attr("data-src").ifBlank { track.attr("data-url") } },
-                baseUrl
-            ) ?: return@forEach
-            if (isYouTubeUrl(url)) return@forEach
-            val kind = track.attr("kind").lowercase()
-            if (kind.isBlank() || kind in setOf("subtitles", "captions") || subtitleExtensionRegex.containsMatchIn(url)) {
-                val language = track.attr("label").ifBlank {
-                    track.attr("srclang").ifBlank { "Unknown" }
-                }
-                result.putIfAbsent(url, SelcukSubtitleCandidate(language, url))
-            }
-        }
-        subtitleExtensionRegex.findAll(normalizeEscapes(raw)).forEach { _ -> Unit }
-        urlRegex.findAll(normalizeEscapes(raw)).forEach { match ->
-            val url = normalizeUrl(match.value.trimEnd(')', ']', '}', ',', ';', '.', ':'), baseUrl)
-                ?: return@forEach
-            if (!subtitleExtensionRegex.containsMatchIn(url) || isYouTubeUrl(url)) return@forEach
-            result.putIfAbsent(url, SelcukSubtitleCandidate("Unknown", url))
-        }
-        return result.values.toList()
-    }
-
-    fun isDirectMedia(candidate: SelcukResolverCandidate): Boolean =
-        candidate.kind in setOf(SelkucMediaKindCompat.HLS, SelkucMediaKindCompat.DASH, SelkucMediaKindCompat.VIDEO)
-
-    fun classify(url: String, forcePlayerContext: Boolean = false): SelcukMediaKind {
-        val path = runCatching { URI(url).path.orEmpty().lowercase() }.getOrDefault(url.lowercase())
-        return when {
-            path.endsWith(".m3u8") -> SelcukMediaKind.HLS
-            path.endsWith(".mpd") -> SelcukMediaKind.DASH
-            path.endsWith(".mp4") || path.endsWith(".m4v") || path.endsWith(".webm") ||
-                path.endsWith(".mkv") || path.endsWith(".avi") || path.endsWith(".mov") -> SelcukMediaKind.VIDEO
-            forcePlayerContext -> SelcukMediaKind.PLAYER
-            likelyPlayerPath.containsMatchIn(path) -> SelcukMediaKind.PLAYER
-            else -> SelcukMediaKind.UNKNOWN
-        }
-    }
-
-    fun isYouTubeUrl(url: String): Boolean {
-        val host = runCatching { URI(url).host?.lowercase()?.removePrefix("www.") }.getOrNull() ?: return false
-        return host == "youtube.com" || host.endsWith(".youtube.com") ||
-            host == "youtu.be" || host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||
-            host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")
-    }
-
-    /**
-     * Normalizes SelcukFlix-owned page URLs and repairs malformed host/path joins observed in
-     * CloudStream errors (for example: https://selcukflix.appdizi/carrie).
-     * Player/media hosts must continue to use normalizeUrl(), not this site-specific adapter.
-     */
-    fun normalizeSiteUrl(raw: String?, mainUrl: String): String? {
-        if (raw.isNullOrBlank()) return null
-        val input = normalizeEscapes(raw.trim().trim('"', '\'')).trimEnd(',', ';')
-        val withScheme = if (input.startsWith("//")) "https:$input" else input
-        val brokenRoute = Regex("""(?i)^(https?://)?(www\.)?selcukflix\.app(dizi|film)(/.*)?$""")
-        val repaired = brokenRoute.replace(withScheme) { match ->
-            val scheme = match.groups[1]?.value ?: "https://"
-            val www = match.groups[2]?.value.orEmpty()
-            val route = match.groupValues[3]
-            val suffix = match.groups[4]?.value.orEmpty()
-            "${scheme}${www}selcukflix.app/${route}${suffix}"
-        }
-        val absolute = normalizeUrl(repaired, mainUrl) ?: return null
-        val uri = runCatching { URI(absolute) }.getOrNull() ?: return null
-        val host = uri.host.orEmpty().lowercase().removePrefix("www.")
-        if (host in setOf("selcukflix.net", "selcukflix.com", "selcukflix.co")) {
-            val path = uri.rawPath?.takeIf { it.isNotBlank() } ?: "/"
-            val query = uri.rawQuery?.let { "?" + it }.orEmpty()
-            val fragment = uri.rawFragment?.let { "#" + it }.orEmpty()
-            return mainUrl.trimEnd('/') + path + query + fragment
-        }
-        return absolute
-    }
-
-    fun normalizeUrl(raw: String?, baseUrl: String): String? {
-        if (raw.isNullOrBlank()) return null
-        val value = normalizeEscapes(raw.trim().trim('"', '\'')).trimEnd(',', ';')
-        if (value.startsWith("blob:", true) || value.startsWith("data:", true) ||
-            value.startsWith("javascript:", true) || value.startsWith("about:", true)
-        ) return null
-        val absolute = runCatching {
+        fun walk(node: JsonNode) {
             when {
-                value.startsWith("//") -> "https:" + value
-                value.startsWith("http://", true) || value.startsWith("https://", true) -> value
-                else -> URI(baseUrl).resolve(value).toString()
+                node.isObject -> {
+                    val fields = node.fields()
+                    while (fields.hasNext()) {
+                        val entry = fields.next()
+                        val priority = rank(entry.key)
+                        if (priority != null && entry.value.isTextual) add(entry.value.asText(), priority)
+                        if (entry.value.isContainerNode) walk(entry.value)
+                    }
+                }
+                node.isArray -> node.elements().forEachRemaining { walk(it) }
             }
-        }.getOrNull() ?: return null
-        val uri = runCatching { URI(absolute) }.getOrNull() ?: return null
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return null
-        return uri.toASCIIString()
+        }
+        walk(root)
+        return found.minWithOrNull(compareBy<Triple<Int, Int, String>> { it.first }.thenBy { it.second })?.third
     }
 
-    private fun isNonMediaAssetUrl(url: String): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        val path = uri.path.orEmpty().lowercase()
-        if (Regex("""(?i)\.(avif|bmp|gif|jpe?g|png|webp|svg|ico|css|js|map|woff2?|ttf|otf)(?:$|[?#])""")
-                .containsMatchIn(path)
-        ) return true
-        if (Regex("""(?i)/(images?|posters?|covers?|thumbnails?|avatars?|logos?)(?:/|$)""")
-                .containsMatchIn(path) && !likelyPlayerPath.containsMatchIn(path)
-        ) return true
-        return false
+    fun parseEpisodeRecords(root: JsonNode, baseUrl: String): List<SelcukEpisodeRecord> {
+        val page = root.field("content")?.field("result")
+            ?: root.field("Content")?.field("Result")
+            ?: root
+        val related = page.field("RelatedResults") ?: page.field("relatedResults")
+            ?: root.field("RelatedResults") ?: root.field("relatedResults")
+            ?: return emptyList()
+        val seasonResponse = related.field("getSerieSeasonAndEpisodes") ?: return emptyList()
+        val seasons = seasonResponse.field("result") ?: seasonResponse.field("seasons") ?: return emptyList()
+
+        val records = mutableListOf<SelcukEpisodeRecord>()
+        var episodeFallback = 0
+        seasons.children().forEach { season ->
+            val seasonNo = season.textField("season_no", "seasonNo", "seasonNumber", "number")?.toIntOrNull()
+            val episodes = season.field("episodes") ?: return@forEach
+            episodes.children().forEach { episode ->
+                val rawSlug = episode.textField("used_slug", "usedSlug", "slug", "url", "link")
+                    ?: return@forEach
+                val url = normalizeSiteUrl(rawSlug, baseUrl) ?: return@forEach
+                episodeFallback++
+                val number = episode.textField("episode_no", "episodeNo", "episodeNumber", "number")
+                    ?.toIntOrNull() ?: episodeFallback
+                val poster = episode.textField("object_poster_url", "poster_url", "posterUrl", "face_url", "image_url")
+                    ?.let { normalizeUrl(it, baseUrl) } ?: findPosterUrl(episode, baseUrl)
+                records += SelcukEpisodeRecord(
+                    url = url,
+                    name = episode.textField("episode_text", "episodeText", "epText", "title", "name", "text"),
+                    season = seasonNo,
+                    episode = number,
+                    posterUrl = poster
+                )
+            }
+        }
+        return records.sortedWith(
+            compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
+        ).distinctBy { it.url }
     }
 
-    private fun isLikelyPlayerOrMedia(url: String, siteUrl: String): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        val path = uri.path.orEmpty()
-        if (isNonMediaAssetUrl(url)) return false
-        if (mediaExtensionRegex.containsMatchIn(url)) return true
-        if (likelyPlayerPath.containsMatchIn(path)) return true
-        val siteHost = runCatching { URI(siteUrl).host?.lowercase()?.removePrefix("www.") }.getOrNull()
-        val host = uri.host?.lowercase()?.removePrefix("www.")
-        return !siteHost.isNullOrBlank() && !host.isNullOrBlank() &&
-            !host.equals(siteHost, true) && !isYouTubeUrl(url)
+    fun matchesEpisodeFilter(metadata: String, filter: String): Boolean {
+        val value = metadata.lowercase()
+        return when (filter.lowercase()) {
+            "all", "" -> true
+            "dub" -> Regex("""(?i)(dublaj|dubbed|turkish\s*audio|türkçe[\s_-]*ses|\bdub\b)""").containsMatchIn(value)
+            "foreign" -> Regex("""(?i)(altyazı|altyazılı|subtitled|original\s*audio|yabancı|\bsub\b)""").containsMatchIn(value)
+            "anime" -> Regex("""(?i)(anime|animeler|japon[\s_-]*animasyon|japanese[\s_-]*animation)""").containsMatchIn(value)
+            else -> true
+        }
     }
-
-    private fun hasSignatureLikeQuery(url: String): Boolean {
-        val query = runCatching { URI(url).rawQuery.orEmpty().lowercase() }.getOrDefault("")
-        return listOf("token=", "sig=", "signature=", "expires=", "policy=", "key-pair-id=")
-            .any(query::contains)
-    }
-
-    private fun normalizeEscapes(value: String): String = value
-        .replace("\\\\/", "/")
-        .replace("\\/", "/")
-        .replace("\\u0026", "&", ignoreCase = true)
-        .replace("\\x26", "&", ignoreCase = true)
-        .replace("&amp;", "&", ignoreCase = true)
-        .replace("\\u003d", "=", ignoreCase = true)
-}
-
-private fun JsonNode.fieldIgnoreCase(name: String): JsonNode? {
-    if (!isObject) return null
-    val fields = fields()
-    while (fields.hasNext()) {
-        val entry = fields.next()
-        if (entry.key.equals(name, ignoreCase = true)) return entry.value
-    }
-    return null
-}
-
-/*
- * Keep compatibility between media classification and CloudStream link typing in one place.
- * The constants here intentionally mirror SelcukMediaKind without introducing another module.
- */
-private object SelkucMediaKindCompat {
-    val HLS = SelcukMediaKind.HLS
-    val DASH = SelcukMediaKind.DASH
-    val VIDEO = SelcukMediaKind.VIDEO
 }
