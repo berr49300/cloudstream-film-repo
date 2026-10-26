@@ -720,9 +720,10 @@ class SelcukFlix : MainAPI() {
 
             val apiUrl = SelcukFlixResolverBank.pichiveSourceApiUrl(frame.url, token)
                 ?: continue
-            // Match the working ContentX request contract: source2.php receives the outer
-            // episode/site referer, while media links themselves retain the iframe referer.
-            val sourceApiReferer = frame.referer.ifBlank { episodeUrl }
+            // Follow the observed Pichive request contract: the iframe page requests
+            // source2.php with its own URL as Referer. The parent episode page is used only
+            // for the iframe navigation above; do not substitute it for this API request.
+            val sourceApiReferer = frame.url
             val response = try {
                 app.get(
                     apiUrl,
