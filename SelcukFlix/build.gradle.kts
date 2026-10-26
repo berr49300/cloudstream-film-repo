@@ -1,9 +1,9 @@
-version = 11
+version = 12
 
 cloudstream {
     authors = listOf("berr49300")
     language = "tr"
-    description = "SelcukFlix v11: sadeleştirilmiş Pichive kaynak akışı ve gerçek medya bağlantıları"
+    description = "SelcukFlix v12: sade Pichive çıkarıcısı, gerçek medya kaynakları ve test düzeltmeleri"
     status = 3
     tvTypes = listOf("Movie", "TvSeries")
     iconUrl = "https://www.google.com/s2/favicons?sz=128&domain=selcukflix.app"
