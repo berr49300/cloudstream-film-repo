@@ -88,6 +88,26 @@ jobs:
         working-directory: source
         run: python tools/validate_repo.py --root . --require-artifacts
 
+      - name: Validate live probe script syntax
+        working-directory: source
+        run: python -m py_compile tools/selcukflix_live_probe.py
+
+      - name: Run read-only SelcukFlix live source probe
+        working-directory: source
+        continue-on-error: true
+        run: |
+          python tools/selcukflix_live_probe.py > selcukflix-live-probe.json
+          cat selcukflix-live-probe.json
+
+      - name: Upload SelcukFlix live diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: selcukflix-live-probe
+          path: source/selcukflix-live-probe.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload validated plugin build
         uses: actions/upload-artifact@v7
         with:
