@@ -106,10 +106,10 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val apiUrl = "$base/source2.php?v=" + java.net.URLEncoder.encode(token, "UTF-8")
-        // source2.php is called by the embedding page in the established ContentX flow.
-        // Send the original page/site referer here; the final media URL keeps its own player
-        // referer variants below.
-        val sourceApiReferer = contextReferer.ifBlank { "https://selcukflix.app/" }
+        // In the observed Pichive flow, the iframe itself calls source2.php.
+        // Use the iframe URL as the API Referer; the parent page remains the navigation
+        // Referer for the iframe request. This matches independent SelcukFlix providers.
+        val sourceApiReferer = iframe
         val apiHeaders = iframeHeaders + mapOf(
             "Accept" to "application/json, text/plain, */*",
             "X-Requested-With" to "XMLHttpRequest",
