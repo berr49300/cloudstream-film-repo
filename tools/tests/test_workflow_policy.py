@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class WorkflowPolicyTests(unittest.TestCase):
-    def test_publishing_requires_manual_dispatch_and_explicit_opt_in(self):
+    def test_publishing_is_automatic_on_main_push_and_manual_dispatch_is_opt_in(self):
         workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
         publish_job = workflow.split("\n  publish:\n", 1)[1]
         condition = next(
@@ -17,9 +17,9 @@ class WorkflowPolicyTests(unittest.TestCase):
             if line.strip().startswith("if:")
         )
         self.assertIn("github.ref == 'refs/heads/main'", condition)
+        self.assertIn("github.event_name == 'push'", condition)
         self.assertIn("github.event_name == 'workflow_dispatch'", condition)
         self.assertIn("inputs.publish == true", condition)
-        self.assertNotIn("github.event_name == 'push'", condition)
 
     def test_dependabot_covers_actions_and_gradle(self):
         config = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
