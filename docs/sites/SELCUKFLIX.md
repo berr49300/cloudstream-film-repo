@@ -2,8 +2,8 @@
 
 - Requested site: https://selcukflix.app/
 - Provider module: \`SelcukFlix\`
-- Module version: 14 (experimental / status 3; fixes are in branch fix/selcukflix-real-playback)
-- Investigation date: 2026-10-25
+- Module version: 15 (experimental / status 3; dynamic iframe-host fix in branch fix/selcukflix-dynamic-iframe-hosts)
+- Investigation date: 2026-10-26
 - Scope: separate module only; no existing provider files were changed.
 - Live site access from this environment: BLOCKED (web retrieval returned HTTP 403).
 - CI for v14 branch: NOT TESTED yet; unit tests and package build must run before merge.
@@ -116,6 +116,14 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 - Catalog no longer performs extra detail-page HTTP requests just to recover posters. Synthetic episode-filter rows were removed; catalog now exposes the four real site routes. Pagination uses sayfa, matching the current-domain reference implementation.
 - Added regression tests for preserving %2F / %3D query escapes and encoding a source2.php token exactly once.
 - These are static code and regression-test corrections, not proof of live playback. Live selcukflix.app response and playback on an actual CloudStream device remain NOT TESTED / BLOCKED until verified.
+
+## v15 rotating iframe-host matching (2026-10-26)
+
+- Comparison with a working public SelcukFlix/Pichive implementation showed that the player resolver is invoked for the page-discovered `iframe.php?v=...` URL without relying on a fixed list of hostnames.
+- v14 only dispatched to the dedicated resolver when the hostname contained `pichive`, `playru`, `contentx`, or `dplayer82`. A rotated host would fall through to the generic extractor, which does not necessarily implement the `source2.php` token flow.
+- v15 matches valid HTTP(S) URLs with an `/iframe.php` path and a non-empty `v` query parameter. The provider only passes URLs discovered from SelcukFlix page content.
+- Regression tests cover a previously unknown host, a wrong path, a missing token, and a non-HTTP scheme.
+- This is a dispatcher correction backed by fixture tests; it does not establish that the live host currently returns media. Live-site access and real-device playback remain NOT TESTED from this environment.
 
 ## Safety boundary
 
