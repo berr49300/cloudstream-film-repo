@@ -16,7 +16,7 @@ class SelcukFlixPichiveParserTest {
 
     @Test
     fun readsPrimaryAndTurkishDubTokens() {
-        val html = """<script>openPlayer('primary_token_123456', true); players.push('dubbed_token_123456', 'Türkçe Dublaj');</script>"""
+        val html = """<script>openPlayer('primary_token_123456', true); players.push('primary_token_123456', 'dubbed_token_123456', 'Türkçe Dublaj');</script>"""
         val tokens = SelcukFlixPichiveParser.playerTokens(html)
         assertEquals(2, tokens.size)
         assertEquals("primary_token_123456", tokens[0].value)
