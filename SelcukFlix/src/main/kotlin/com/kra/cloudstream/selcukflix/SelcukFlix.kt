@@ -621,7 +621,7 @@ class SelcukFlix : MainAPI() {
         Jsoup.parse(html, episodeUrl).select("script").forEachIndexed { index, script ->
             val text = script.data().ifBlank { script.html() }
             if (text.isNotBlank() && Regex(
-                    """(?is)(iframe\\.php|openPlayer|source2\\.php|source_content|m3u8|mpd)"""
+                    """(?is)(iframe\.php|openPlayer|source2\.php|source_content|m3u8|mpd)"""
                 ).containsMatchIn(text)
             ) {
                 texts.putIfAbsent("Player script " + (index + 1), text)
