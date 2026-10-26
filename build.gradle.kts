@@ -73,7 +73,7 @@ subprojects {
         implementation(kotlin("stdlib"))
         implementation("com.github.Blatzar:NiceHttp:0.4.11")
         implementation("org.jsoup:jsoup:1.18.3")
-        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
+        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.4")
         testImplementation("junit:junit:4.13.2")
     }
 }
