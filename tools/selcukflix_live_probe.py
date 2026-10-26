@@ -67,8 +67,9 @@ def safe_url(url: str) -> str:
     return f"{p.scheme}://{p.hostname or ''}{p.path}"
 
 
-def request_bytes(url: str, referer: str | None = None, ranged: bool = False) -> dict:
+def request_bytes(url: str, referer: str | None = None, ranged: bool = False, extra_headers: dict[str, str] | None = None) -> dict:
     headers = {"User-Agent": UA, "Accept": "text/html,application/json,*/*"}
+    headers.update(extra_headers or {})
     if referer:
         headers["Referer"] = referer
     if ranged:
@@ -297,7 +298,14 @@ def inspect_observed_pichive(iframe_url: str, page_url: str) -> dict:
         result["result"] = "NO_OPENPLAYER_TOKEN_IN_NORMAL_RESPONSE"
         return result
     api = f"{p.scheme}://{p.netloc}/source2.php?v=" + quote(token, safe="")
-    api_result = request_bytes(api, iframe_url)
+    api_result = request_bytes(
+        api,
+        iframe_url,
+        extra_headers={
+            "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+        },
+    )
     result["source_api_status"] = api_result["status"]
     result["source_api_challenge_or_denial"] = api_result["challenge"]
     if api_result["status"] is None or api_result["challenge"] or api_result["status"] >= 400:
