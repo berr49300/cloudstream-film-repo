@@ -2,7 +2,7 @@
 
 - Requested site: https://selcukflix.app/
 - Provider module: \`SelcukFlix\`
-- Module version: 15 (experimental / status 3; dynamic iframe-host fix in branch fix/selcukflix-dynamic-iframe-hosts)
+- Module version: 16 (experimental / status 3; multi-source discovery and generic extractor fallback in branch fix/selcukflix-multisource-fallbacks)
 - Investigation date: 2026-10-26
 - Scope: separate module only; no existing provider files were changed.
 - Live site access from this environment: BLOCKED (web retrieval returned HTTP 403).
@@ -128,3 +128,12 @@ The IDs indicate discovery methods, not 39 guaranteed working sources. Similar U
 ## Safety boundary
 
 Only normal public HTTP requests are attempted. Cloudflare/CAPTCHA, login/session restrictions, DRM, and other access controls are not bypassed. Active signed URLs, cookies, personal information, and request tokens must not be committed to fixtures or logs.
+
+
+## v16 source-discovery and fallback repair (2026-10-26)
+
+- Symptom reported by user: listings/details open, but no movie or episode starts in this repo; the user's BronzeCloud SelcukFlix extension had playable sources.
+- Root cause found in code: when a URL matched the dedicated `iframe.php?v=...` parser, a failed dedicated parse prevented the general CloudStream extractor registry from running. This removed the intended fallback exactly for the player shape that most needed it.
+- Change: scan all distinct `source_content` fields from hydrated detail/episode payloads (including each episode source and movie-part source entry), then try the standard CloudStream extractor registry if the dedicated resolver emits no link.
+- Regression test: sanitized nested payload with two episode sources and one movie-part source; checks that all distinct source blocks are retained.
+- Live site availability from this environment: BLOCKED / NOT TESTED. Real video playback in CloudStream: NOT TESTED. The change adds fallback routes but cannot guarantee playback if the site or its player denies access.
