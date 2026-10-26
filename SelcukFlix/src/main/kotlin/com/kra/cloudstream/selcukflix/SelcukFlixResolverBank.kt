@@ -18,6 +18,11 @@ internal data class SelcukEpisodeRecord(
     val posterUrl: String?
 )
 
+internal data class SelcukSourceContent(
+    val label: String,
+    val content: String
+)
+
 /**
  * Small site-data helper. Player resolution is intentionally handled by the normal
  * CloudStream extractor registry plus the one observed Pichive iframe -> source2.php flow.
@@ -248,6 +253,52 @@ internal object SelcukFlixResolverBank {
         return records.sortedWith(
             compareBy<SelcukEpisodeRecord> { it.season ?: 0 }.thenBy { it.episode ?: 0 }
         ).distinctBy { it.url }
+    }
+
+    /**
+     * Extract all source_content blocks from the decoded detail/episode payload.
+     *
+     * Pages can contain multiple movie parts and multiple episode alternatives. Keep
+     * every distinct block so loadLinks can try each discovered iframe rather than
+     * silently relying on the first array item.
+     */
+    fun sourceContentValues(root: JsonNode?): List<SelcukSourceContent> {
+        if (root == null) return emptyList()
+        val found = linkedMapOf<String, SelcukSourceContent>()
+
+        fun walk(node: JsonNode, inheritedLabel: String) {
+            when {
+                node.isObject -> {
+                    val sourceNode = node.field("source_content") ?: node.field("sourceContent")
+                    if (sourceNode != null && sourceNode.isValueNode && !sourceNode.isNull) {
+                        val content = sourceNode.asText().trim()
+                        if (content.isNotBlank() && content != "null") {
+                            val label = node.textField(
+                                "quality_name", "qualityName", "quality", "language", "lang",
+                                "title", "name", "source_name", "sourceName"
+                            )?.takeIf { it.isNotBlank() && it != "null" } ?: inheritedLabel
+                            found.putIfAbsent(content, SelcukSourceContent(label, content))
+                        }
+                    }
+
+                    val fields = node.fields()
+                    while (fields.hasNext()) {
+                        val entry = fields.next()
+                        if (!entry.value.isContainerNode) continue
+                        val childLabel = when {
+                            entry.key.startsWith("getEpisodeSources", ignoreCase = true) -> "Episode source"
+                            entry.key.startsWith("getMoviePartSourcesById", ignoreCase = true) -> "Movie source"
+                            else -> inheritedLabel
+                        }
+                        walk(entry.value, childLabel)
+                    }
+                }
+                node.isArray -> node.forEach { walk(it, inheritedLabel) }
+            }
+        }
+
+        walk(root, "Site source")
+        return found.values.toList()
     }
 
     fun matchesEpisodeFilter(metadata: String, filter: String): Boolean {
