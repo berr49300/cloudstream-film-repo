@@ -134,6 +134,15 @@ Only normal public HTTP requests are attempted. Cloudflare/CAPTCHA, login/sessio
 
 - Symptom reported by user: listings/details open, but no movie or episode starts in this repo; the user's BronzeCloud SelcukFlix extension had playable sources.
 - Root cause found in code: when a URL matched the dedicated `iframe.php?v=...` parser, a failed dedicated parse prevented the general CloudStream extractor registry from running. This removed the intended fallback exactly for the player shape that most needed it.
-- Change: scan all distinct `source_content` fields from hydrated detail/episode payloads (including each episode source and movie-part source entry); retain the raw `m.php` URL and the derived `master.m3u8` hypothesis as separate candidates; and also run the standard CloudStream extractor registry even if the site-specific parser emits a candidate.
+- Change: scan all distinct `source_content` fields from hydrated detail/episode payloads (including each episode source and movie-part source entry); prioritize the derived `master.m3u8` hypothesis while retaining the raw `m.php` candidate; avoid shadowing CloudStream's built-in player extractors; and try the standard registry on the original and known DPlayer → Hotlinger host aliases.
 - Regression test: sanitized nested payload with two episode sources and one movie-part source; checks that all distinct source blocks are retained.
 - Live site availability from this environment: BLOCKED / NOT TESTED. Real video playback in CloudStream: NOT TESTED. The `m.php` → `master.m3u8` mapping remains unverified; preserving both candidates prevents that hypothesis from eliminating the raw fallback. The change adds fallback routes but cannot guarantee playback if the site or its player denies access.
+
+
+## v16.1 — Extractor registry collision and DPlayer alias fallback
+
+- Review of CloudStream's `loadExtractor` behavior confirmed that it selects the first registered extractor matching a URL host and returns after that extractor call. Registering the provider-only resolver under `four.pichive.online` could therefore shadow the built-in FourPichive extractor.
+- The custom resolver is now invoked directly by the SelcukFlix provider instead of being globally registered; normal CloudStream extractors can then match their own host families.
+- Added evidence-backed fallback aliases for `sn.dplayer74.site`, `sn.dplayer82.site`, and `sn.dplayer.site` to `sn.hotlinger.com`, while keeping the original URL first and preserving the raw query.
+- The normal derived `master.m3u8` candidate is prioritized; the raw PHP source remains as fallback.
+- Tests cover the alias mapping and query preservation. Live device playback remains NOT TESTED.
