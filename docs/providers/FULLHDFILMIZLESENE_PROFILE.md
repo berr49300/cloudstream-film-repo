@@ -38,3 +38,10 @@
 3. Add fixture tests against that observed response before changing selectors.
 4. Verify at least one source host with CloudStream's own extractor behavior; create a dedicated `ExtractorApi` only if an observed player family is not supported.
 5. Rebuild, install that exact artifact, and record each device test separately.
+
+## Repository implementation note
+
+- This provider is a standalone CloudStream module, separate from Dizilla; it must not reuse Dizilla classes or helpers.
+- Intended scope: film search, homepage cards, film details, and forwarding observed iframe/SCX sources to CloudStream's extractor system.
+- The root Gradle configuration includes the module automatically.
+- Search and SCX behavior remain hypotheses until checked against current live responses. Player hosts, subtitles, installation, and real-device playback are not verified unless separately recorded above.
