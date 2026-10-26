@@ -13,11 +13,9 @@ import html
 import ipaddress
 import json
 import re
-import socket
-import sys
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 DEFAULT_URL = "https://selcukflix.app/film/animals-2026-21/izle"
@@ -198,6 +196,77 @@ def inspect_media(url: str, referer: str) -> dict:
     }
 
 
+def extract_php_or_media_files(text: str, base_url: str) -> list[str]:
+    """Read file URLs explicitly present in a player/source API response."""
+    values: set[str] = set()
+    try:
+        root = json.loads(text)
+    except Exception:
+        root = None
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if str(key).lower() in {"file", "url", "src", "video_url", "videourl"} and isinstance(value, str):
+                    candidate = urljoin(base_url, value.replace("\\/", "/").strip())
+                    p = urlparse(candidate)
+                    if p.scheme in {"http", "https"} and p.hostname and (
+                        MEDIA_EXT.search(candidate) or p.path.lower().endswith(".php")
+                    ):
+                        values.add(candidate)
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    if root is not None:
+        walk(root)
+    for match in re.finditer(r"""(?is)['"]?file['"]?\\s*[:=]\\s*['"]((?:\\\\.|[^'"])+)['"]""", text):
+        candidate = urljoin(base_url, match.group(1).replace("\\/", "/"))
+        p = urlparse(candidate)
+        if p.scheme in {"http", "https"} and p.hostname and (
+            MEDIA_EXT.search(candidate) or p.path.lower().endswith(".php")
+        ):
+            values.add(candidate)
+    return sorted(values)
+
+
+def inspect_observed_pichive(iframe_url: str, page_url: str) -> dict:
+    """Follow only the observed public iframe -> source2.php flow, without challenge evasion."""
+    p = urlparse(iframe_url)
+    if not p.hostname or not any(token in p.hostname.lower() for token in ("pichive", "playru", "contentx")):
+        return {"iframe": safe_url(iframe_url), "result": "NOT_PROBED_UNSUPPORTED_HOST"}
+    frame = request_bytes(iframe_url, page_url)
+    result: dict = {
+        "iframe": safe_url(iframe_url),
+        "iframe_status": frame["status"],
+        "iframe_challenge_or_denial": frame["challenge"],
+        "source_api_status": None,
+        "file_urls_found": 0,
+        "media_checks": [],
+    }
+    if frame["status"] is None or frame["challenge"] or frame["status"] >= 400:
+        result["result"] = "IFRAME_BLOCKED_OR_UNREACHABLE"
+        return result
+    token_match = re.search(r"""(?is)(?:window\s*\.\s*)?openPlayer\s*\(\s*['"]([^'"]+)['"]""", frame["text"])
+    token = token_match.group(1).strip() if token_match else ""
+    if not token:
+        result["result"] = "NO_OPENPLAYER_TOKEN_IN_NORMAL_RESPONSE"
+        return result
+    api = f"{p.scheme}://{p.netloc}/source2.php?v=" + quote(token, safe="")
+    api_result = request_bytes(api, iframe_url)
+    result["source_api_status"] = api_result["status"]
+    result["source_api_challenge_or_denial"] = api_result["challenge"]
+    if api_result["status"] is None or api_result["challenge"] or api_result["status"] >= 400:
+        result["result"] = "SOURCE_API_BLOCKED_OR_UNREACHABLE"
+        return result
+    files = extract_php_or_media_files(api_result["text"], api)
+    result["file_urls_found"] = len(files)
+    result["media_checks"] = [inspect_media(item, iframe_url) for item in files[:2]]
+    result["result"] = "SOURCE_API_RESPONSE_INSPECTED" if files else "SOURCE_API_NO_FILE_FIELD"
+    return result
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--url", default=DEFAULT_URL, help="SelcukFlix film/episode page")
@@ -260,10 +329,13 @@ def main() -> int:
     report["iframe_hosts"] = sorted({(urlparse(urljoin(args.url, u)).hostname or "").lower() for u in iframes if urlparse(urljoin(args.url, u)).scheme in ("http", "https")})
     report["direct_media_candidates"] = sorted({safe_url(u) for u in media_urls})[:20]
 
-    # Validate only explicitly exposed direct media URLs, using ordinary range requests.
+    # Validate only links explicitly exposed by the page. Probe at most two observed
+    # Pichive-family frames, using their ordinary player/source API flow.
     for media in sorted(media_urls)[:3]:
         absolute = urljoin(args.url, media)
         report["media_checks"].append(inspect_media(absolute, args.url))
+    for frame in sorted({urljoin(args.url, value) for value in iframes})[:2]:
+        report.setdefault("player_checks", []).append(inspect_observed_pichive(frame, args.url))
 
     if report["source_content_fields"] and (iframes or media_urls):
         report["overall"] = "PAGE_AND_SOURCE_CANDIDATES_FOUND"
