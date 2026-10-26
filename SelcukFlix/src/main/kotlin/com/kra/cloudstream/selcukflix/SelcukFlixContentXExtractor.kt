@@ -308,7 +308,12 @@ internal object SelcukFlixPichiveParser {
         val transformed = runCatching { URI(candidate).toASCIIString() }.getOrNull()
             ?: return emptyList()
         if (transformed == url) return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
-        return listOf(SelcukFlixMediaFile(transformed, "Master playlist", "HLS"))
+        // The m.php -> master.m3u8 mapping has not been confirmed against a live player.
+        // Preserve both candidates so a bad transformation cannot hide a usable raw endpoint.
+        return listOf(
+            SelcukFlixMediaFile(url, "Raw PHP fallback", "HLS"),
+            SelcukFlixMediaFile(transformed, "Master playlist hypothesis", "HLS")
+        )
     }
 
     fun subtitles(text: String, baseUrl: String): List<Pair<String, String>> {
