@@ -672,24 +672,22 @@ class SelcukFlix : MainAPI() {
                 }
             }
 
-            // A failed dedicated attempt must not suppress the general CloudStream
-            // extractor registry. Other player families and host aliases may still resolve it.
-            if (resolved.isEmpty()) {
-                runCatching {
-                    loadExtractor(
-                        iframeUrl,
-                        episodeUrl,
-                        { sub ->
-                            subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
-                                headers = sub.headers ?: mapOf("Referer" to iframeUrl)
-                            })
-                        }
-                    ) { link ->
-                        if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
+            // Also try CloudStream's registry even when the custom parser returned a candidate:
+            // the first URL can be stale/invalid, while another player-family extractor may work.
+            runCatching {
+                loadExtractor(
+                    iframeUrl,
+                    episodeUrl,
+                    { sub ->
+                        subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
+                            headers = sub.headers ?: mapOf("Referer" to iframeUrl)
+                        })
                     }
-                }.onFailure {
-                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed iframe.")
+                ) { link ->
+                    if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                 }
+            }.onFailure {
+                android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed iframe.")
             }
 
             resolved.distinctBy { it.url + "|" + it.type + "|" + it.referer }.forEach { link ->
