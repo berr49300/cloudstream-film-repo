@@ -1,5 +1,6 @@
 package com.kra.cloudstream.selcukflix
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -25,7 +26,7 @@ class SelcukFlixPichiveParserTest {
 
     @Test
     fun parsesPlaylistFilesAndBuildsMasterPlaylistFallback() {
-        val root = org.fasterxml.jackson.module.kotlin.jacksonObjectMapper().readTree(
+        val root = ObjectMapper().readTree(
             """{"state":true,"playlist":[{"title":"Türkçe Dublaj","sources":[{"file":"https://four.pichive.online/media/m.php?key=fixture","label":"720P"}]}]}"""
         )
         val files = SelcukFlixPichiveParser.files(root, "https://four.pichive.online/source2.php?v=fixture")
@@ -40,7 +41,7 @@ class SelcukFlixPichiveParserTest {
 
     @Test
     fun findsFileEvenWhenPlaylistEnvelopeIsAbsent() {
-        val root = org.fasterxml.jackson.module.kotlin.jacksonObjectMapper().readTree(
+        val root = ObjectMapper().readTree(
             """{"file":"https://four.pichive.online/media/m.php?key=fixture"}"""
         )
         val files = SelcukFlixPichiveParser.files(root, "https://four.pichive.online/source2.php?v=fixture")
