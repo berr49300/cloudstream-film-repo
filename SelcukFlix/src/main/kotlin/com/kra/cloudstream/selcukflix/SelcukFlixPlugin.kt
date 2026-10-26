@@ -8,6 +8,8 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class SelcukFlixPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(SelcukFlix())
-        registerExtractorAPI(SelcukFlixContentXExtractor())
+        // SelcukFlixContentXExtractor is invoked explicitly for the observed
+        // iframe.php?v= flow. Do not register it globally: its fixed mainUrl
+        // would shadow CloudStream's built-in FourPichive/Pichive extractors.
     }
 }
