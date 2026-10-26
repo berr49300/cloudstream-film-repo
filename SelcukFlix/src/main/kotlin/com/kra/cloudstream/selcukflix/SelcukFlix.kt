@@ -857,21 +857,6 @@ class SelcukFlix : MainAPI() {
         val processedCandidates = mutableSetOf<String>()
         val emittedResolverLinks = mutableSetOf<String>()
 
-        suspend fun emitUnresolvedPlayerProbe(candidate: SelcukResolverCandidate, label: String) {
-            // The user explicitly needs to try each discovered route manually. If all installed
-            // extractors fail, expose the observed player URL as a clearly marked probe instead
-            // of returning an empty source list. This is NOT reported as resolved media.
-            val probeLabel = "$label • PROBE ONLY (player URL, media NOT verified)"
-            val probeKey = candidate.id.toString() + "|" + candidate.url + "|" + candidate.referer + "|probe"
-            if (!emittedResolverLinks.add(probeKey)) return
-            callback(newExtractorLink(name, probeLabel, candidate.url, null) {
-                this.referer = candidate.referer
-                this.headers = browserHeaders + mapOf("Referer" to candidate.referer)
-                this.quality = Qualities.Unknown.value
-            })
-            totalResolved += 1
-        }
-
         sourceItems.distinctBy { it.label + "|" + it.content }.forEachIndexed { sourceIndex, source ->
             SelcukFlixResolverBank.extractSubtitles(source.content, episodeUrl).forEach { sub ->
                 subtitleCallback(newSubtitleFile("35 • " + sub.language, sub.url) {
@@ -926,30 +911,57 @@ class SelcukFlix : MainAPI() {
                     val contextKey = candidate.url + "|" + candidate.referer
                     val resolvedLinks = contentXCache[contextKey] ?: run {
                         val collected = mutableListOf<ExtractorLink>()
+                        val sourceReferer = candidate.referer.ifBlank { episodeUrl }
+
+                        // Prefer CloudStream's maintained ContentX/Pichive/PlayRu extractors.
+                        // Run the site-specific parser only when the core extractor emits no media.
                         try {
-                            SelcukFlixContentXExtractor().getUrl(
+                            loadExtractor(
                                 candidate.url,
-                                candidate.referer.ifBlank { episodeUrl },
-                                subtitleCallback
+                                sourceReferer,
+                                { sub ->
+                                    subtitleCallback(
+                                        SubtitleFile(sub.lang, sub.url).apply {
+                                            headers = sub.headers ?: mapOf("Referer" to candidate.url)
+                                        }
+                                    )
+                                }
                             ) { link ->
                                 if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
                             }
                         } catch (_: Exception) {
-                            android.util.Log.w(
+                            android.util.Log.d(
                                 "SelcukFlixContentX",
-                                "Observed iframe resolver failed for resolver " +
-                                    candidate.id.toString().padStart(2, '0') +
-                                    "; URL and token omitted from log."
+                                "Built-in extractor threw; trying site-specific fallback."
                             )
                         }
-                        collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }.also { contentXCache[contextKey] = it }
+
+                        if (collected.isEmpty()) {
+                            try {
+                                SelcukFlixContentXExtractor().getUrl(
+                                    candidate.url,
+                                    sourceReferer,
+                                    subtitleCallback
+                                ) { link ->
+                                    if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) collected += link
+                                }
+                            } catch (_: Exception) {
+                                android.util.Log.w(
+                                    "SelcukFlixContentX",
+                                    "Site-specific fallback failed for resolver " +
+                                        candidate.id.toString().padStart(2, '0') +
+                                        "; URL and token omitted from log."
+                                )
+                            }
+                        }
+                        collected.distinctBy { it.url + "|" + it.type + "|" + it.referer + "|" + it.headers.orEmpty().toSortedMap() }
+                            .also { contentXCache[contextKey] = it }
                     }
                     if (resolvedLinks.isEmpty()) {
                         android.util.Log.w(
                             "SelcukFlixContentX",
-                            "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: no media file emitted for this request context."
+                            "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: built-in and site-specific extractors returned no media link; iframe is not advertised as playable."
                         )
-                        emitUnresolvedPlayerProbe(candidate, label)
                     }
                     resolvedLinks.forEach { link ->
                         val emitKey = candidateKey + "|" + link.url + "|" + link.type + "|" + link.referer + "|" + link.headers.orEmpty().toSortedMap()
@@ -1064,11 +1076,8 @@ class SelcukFlix : MainAPI() {
                 } else {
                     android.util.Log.d(
                         "SelcukFlix",
-                        "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: candidate did not resolve to media; exposing a probe-only player URL."
+                        "${candidate.id.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.id)}: candidate did not resolve to media; the player page is not advertised as a playable source."
                     )
-                    if (candidate.kind in setOf(SelcukMediaKind.PLAYER, SelcukMediaKind.UNKNOWN)) {
-                        emitUnresolvedPlayerProbe(candidate, label)
-                    }
                 }
             }
         }
