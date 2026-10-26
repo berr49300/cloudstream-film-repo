@@ -95,6 +95,23 @@ class SelcukFlixResolverBankTest {
         assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("anime", "anime"))
         assertFalse(SelcukFlixResolverBank.matchesEpisodeFilter("drama", "anime"))
     }
+
+    @Test
+    fun keepsOriginalPlayerUrlAndAddsOnlyObservedDPlayerHotlingerAlias() {
+        val original = "https://sn.dplayer82.site/iframe.php?v=a%2Fb&x=1"
+        assertEquals(
+            listOf(
+                original,
+                "https://sn.hotlinger.com/iframe.php?v=a%2Fb&x=1"
+            ),
+            SelcukFlixResolverBank.extractorFallbackUrls(original)
+        )
+        assertEquals(
+            listOf("https://player.example/iframe.php?v=token"),
+            SelcukFlixResolverBank.extractorFallbackUrls("https://player.example/iframe.php?v=token")
+        )
+    }
+
     @Test
     fun extractsAllDistinctEpisodeAndMovieSourceContentFromNestedPayload() {
         val root = ObjectMapper().readTree(
