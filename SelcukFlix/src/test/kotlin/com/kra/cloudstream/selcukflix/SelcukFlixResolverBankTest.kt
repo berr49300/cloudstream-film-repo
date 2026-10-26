@@ -95,4 +95,63 @@ class SelcukFlixResolverBankTest {
         assertTrue(SelcukFlixResolverBank.matchesEpisodeFilter("anime", "anime"))
         assertFalse(SelcukFlixResolverBank.matchesEpisodeFilter("drama", "anime"))
     }
+
+    @Test
+    fun keepsOriginalPlayerUrlAndAddsOnlyObservedDPlayerHotlingerAlias() {
+        val original = "https://sn.dplayer82.site/iframe.php?v=a%2Fb&x=1"
+        assertEquals(
+            listOf(
+                original,
+                "https://sn.hotlinger.com/iframe.php?v=a%2Fb&x=1"
+            ),
+            SelcukFlixResolverBank.extractorFallbackUrls(original)
+        )
+        assertEquals(
+            listOf("https://player.example/iframe.php?v=token"),
+            SelcukFlixResolverBank.extractorFallbackUrls("https://player.example/iframe.php?v=token")
+        )
+    }
+
+    @Test
+    fun extractsAllDistinctEpisodeAndMovieSourceContentFromNestedPayload() {
+        val root = ObjectMapper().readTree(
+            """{
+              "content": {
+                "result": {
+                  "RelatedResults": {
+                    "getEpisodeSources": {
+                      "result": [
+                        {
+                          "quality_name": "720P",
+                          "source_content": "<iframe src='https://player-one.example/iframe.php?v=fixture-one'></iframe>"
+                        },
+                        {
+                          "quality_name": "1080P",
+                          "source_content": "<iframe src='https://player-two.example/iframe.php?v=fixture-two'></iframe>"
+                        }
+                      ]
+                    },
+                    "getMoviePartSourcesById_12": {
+                      "result": [
+                        {
+                          "qualityName": "FHD",
+                          "sourceContent": "<iframe src='https://player-three.example/embed/fixture-three'></iframe>"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }"""
+        )
+
+        val sources = SelcukFlixResolverBank.sourceContentValues(root)
+
+        assertEquals(3, sources.size)
+        assertEquals(listOf("720P", "1080P", "FHD"), sources.map { it.label })
+        assertTrue(sources[0].content.contains("player-one.example"))
+        assertTrue(sources[1].content.contains("player-two.example"))
+        assertTrue(sources[2].content.contains("player-three.example"))
+    }
+
 }

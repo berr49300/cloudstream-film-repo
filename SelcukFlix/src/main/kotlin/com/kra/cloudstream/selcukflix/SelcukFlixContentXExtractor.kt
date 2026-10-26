@@ -105,7 +105,7 @@ open class SelcukFlixContentXExtractor : ExtractorApi() {
                     token.label
                 } else file.track
                 val labelled = file.copy(track = label)
-                val candidates = SelcukFlixPichiveParser.mediaCandidates(labelled.url, apiUrl)
+                val candidates = SelcukFlixPichiveParser.mediaCandidates(labelled, apiUrl)
                 candidates.forEach { candidate ->
                     val key = candidate.url + "|" + candidate.track + "|" + candidate.quality
                     if (emitted.add(key)) {
@@ -286,8 +286,11 @@ internal object SelcukFlixPichiveParser {
      * Emit that real manifest first/alone rather than cluttering CloudStream with the
      * wrapper endpoint as though it were another video source.
      */
-    fun mediaCandidates(rawUrl: String, baseUrl: String): List<SelcukFlixMediaFile> {
-        val url = SelcukFlixResolverBank.normalizeUrl(rawUrl, baseUrl) ?: return emptyList()
+    fun mediaCandidates(rawUrl: String, baseUrl: String): List<SelcukFlixMediaFile> =
+        mediaCandidates(SelcukFlixMediaFile(rawUrl, "", "HLS"), baseUrl)
+
+    fun mediaCandidates(source: SelcukFlixMediaFile, baseUrl: String): List<SelcukFlixMediaFile> {
+        val url = SelcukFlixResolverBank.normalizeUrl(source.url, baseUrl) ?: return emptyList()
         val uri = runCatching { URI(url) }.getOrNull() ?: return emptyList()
         val path = uri.rawPath.orEmpty()
         val lower = path.lowercase()
@@ -295,7 +298,9 @@ internal object SelcukFlixPichiveParser {
             lower.endsWith("/m.php") -> path.dropLast("m.php".length) + "master.m3u8"
             // Do not invent a master playlist for unrelated PHP endpoints.
             lower.endsWith(".php") -> return emptyList()
-            else -> return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
+            else -> return listOf(
+                SelcukFlixMediaFile(url, source.track.ifBlank { "Direct source" }, source.quality.ifBlank { "HLS" })
+            )
         }
 
         val scheme = uri.scheme ?: return emptyList()
@@ -307,8 +312,28 @@ internal object SelcukFlixPichiveParser {
         }
         val transformed = runCatching { URI(candidate).toASCIIString() }.getOrNull()
             ?: return emptyList()
-        if (transformed == url) return listOf(SelcukFlixMediaFile(url, "Direct source", "HLS"))
-        return listOf(SelcukFlixMediaFile(transformed, "Master playlist", "HLS"))
+        if (transformed == url) {
+            return listOf(
+                SelcukFlixMediaFile(url, source.track.ifBlank { "Direct source" }, source.quality.ifBlank { "HLS" })
+            )
+        }
+        // Prefer the known derived playlist but retain raw m.php as a second attempt.
+        // The mapping is still a hypothesis until live playback is verified.
+        val quality = source.quality.ifBlank { "HLS" }
+        fun label(suffix: String): String =
+            listOf(source.track.trim(), suffix).filter { it.isNotBlank() }.joinToString(" • ")
+        return listOf(
+            SelcukFlixMediaFile(
+                transformed,
+                label("master playlist hypothesis"),
+                quality
+            ),
+            SelcukFlixMediaFile(
+                url,
+                label("raw PHP fallback"),
+                quality
+            )
+        )
     }
 
     fun subtitles(text: String, baseUrl: String): List<Pair<String, String>> {

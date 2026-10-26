@@ -28,7 +28,7 @@ class SelcukFlixPichiveParserTest {
     }
 
     @Test
-    fun parsesPlaylistFilesAndEmitsActualMasterPlaylistInsteadOfPhpWrapper() {
+    fun keepsRawPhpEndpointAlongsideMasterPlaylistHypothesis() {
         val root = ObjectMapper().readTree(
             """{"state":true,"playlist":[{"title":"Türkçe Dublaj","sources":[{"file":"https://four.pichive.online/media/m.php?key=fixture","label":"720P"}]}]}"""
         )
@@ -37,9 +37,12 @@ class SelcukFlixPichiveParserTest {
         assertEquals("Türkçe Dublaj", files.single().track)
         assertEquals("720P", files.single().quality)
 
-        val candidates = SelcukFlixPichiveParser.mediaCandidates(files.single().url, "https://four.pichive.online/source2.php?v=fixture")
-        assertEquals(1, candidates.size)
-        assertEquals("https://four.pichive.online/media/master.m3u8?key=fixture", candidates.single().url)
+        val candidates = SelcukFlixPichiveParser.mediaCandidates(files.single(), "https://four.pichive.online/source2.php?v=fixture")
+        assertEquals(2, candidates.size)
+        assertEquals("https://four.pichive.online/media/master.m3u8?key=fixture", candidates[0].url)
+        assertTrue(candidates[0].track.contains("master playlist hypothesis"))
+        assertEquals("https://four.pichive.online/media/m.php?key=fixture", candidates[1].url)
+        assertTrue(candidates[1].track.contains("raw PHP fallback"))
     }
 
     @Test
@@ -49,10 +52,14 @@ class SelcukFlixPichiveParserTest {
             "https://four.pichive.online/source2.php?v=fixture"
         )
 
-        assertEquals(1, candidates.size)
+        assertEquals(2, candidates.size)
         assertEquals(
             "https://four.pichive.online/media/master.m3u8?key=a%2Fb%3D&token=x%2By%3D",
-            candidates.single().url
+            candidates[0].url
+        )
+        assertEquals(
+            "https://four.pichive.online/media/m.php?key=a%2Fb%3D&token=x%2By%3D",
+            candidates[1].url
         )
     }
 

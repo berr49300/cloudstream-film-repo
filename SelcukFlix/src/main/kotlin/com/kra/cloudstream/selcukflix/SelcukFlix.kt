@@ -610,12 +610,17 @@ class SelcukFlix : MainAPI() {
         }
         if (SelcukFlixResolverBank.isAccessChallenge(html)) return false
 
-        // The site's player data is already carried by the decrypted secureData payload.
-        // Scan that and the page itself, plus only player-related scripts as a fallback.
+        // Collect every observed source_content entry before scanning the full page.
+        // The site can expose multiple movie parts and multiple episode source alternatives here.
         val texts = linkedMapOf<String, String>()
-        SelcukFlixResolverBank.extractEmbeddedPayload(html)
+        val embeddedPayload = SelcukFlixResolverBank.extractEmbeddedPayload(html)
             ?.takeIf { it.isNotBlank() }
-            ?.let { texts["Decoded page payload"] = it }
+        embeddedPayload?.let { texts["Decoded page payload"] = it }
+        val payloadRoot = embeddedPayload?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+            ?: runCatching { decodedPageRoot(html) }.getOrNull()
+        SelcukFlixResolverBank.sourceContentValues(payloadRoot).forEachIndexed { index, source ->
+            texts["Site source ${index + 1} (${source.label})"] = source.content
+        }
         texts["Episode page"] = html
 
         Jsoup.parse(html, episodeUrl).select("script").forEachIndexed { index, script ->
@@ -652,8 +657,8 @@ class SelcukFlix : MainAPI() {
 
         iframeCandidates.forEach { (iframeUrl, label) ->
             val resolved = mutableListOf<ExtractorLink>()
-            val isKnownPichive = SelcukFlixContentXExtractor.canHandle(iframeUrl)
-            if (isKnownPichive) {
+            val needsDedicatedResolver = SelcukFlixContentXExtractor.canHandle(iframeUrl)
+            if (needsDedicatedResolver) {
                 runCatching {
                     SelcukFlixContentXExtractor().getUrl(
                         iframeUrl,
@@ -667,23 +672,24 @@ class SelcukFlix : MainAPI() {
                 }
             }
 
-            // Do not immediately call the registered SelcukFlix extractor a second time
-            // after it already tried this iframe. Generic fallback is only for other hosts.
-            if (resolved.isEmpty() && !isKnownPichive) {
+            // Try the original player URL and any evidence-backed host aliases. The
+            // provider-specific resolver is deliberately not registered globally, so
+            // loadExtractor can select CloudStream's built-in host-specific extractors.
+            SelcukFlixResolverBank.extractorFallbackUrls(iframeUrl).forEach { fallbackUrl ->
                 runCatching {
                     loadExtractor(
-                        iframeUrl,
+                        fallbackUrl,
                         episodeUrl,
                         { sub ->
                             subtitleCallback(SubtitleFile(sub.lang, sub.url).apply {
-                                headers = sub.headers ?: mapOf("Referer" to iframeUrl)
+                                headers = sub.headers ?: mapOf("Referer" to fallbackUrl)
                             })
                         }
                     ) { link ->
                         if (!SelcukFlixResolverBank.isYouTubeUrl(link.url)) resolved += link
                     }
                 }.onFailure {
-                    android.util.Log.d("SelcukFlix", "No registered extractor resolved an observed iframe.")
+                    android.util.Log.d("SelcukFlix", "A registered extractor did not resolve an observed iframe.")
                 }
             }
 

@@ -144,3 +144,11 @@ The first investigation requested a homepage-to-episode URL too early. Later evi
 - Posters: use explicit poster/face fields first, recursively inspect nested API objects, parse lazy-load/srcset and OG/Twitter image metadata, reject known placeholders, and attempt a bounded detail-page fallback for at most 8 missing posters on the unfiltered first-page series catalog.
 - Added fixture tests for nested/placeholder poster discovery and raw/derived media candidate IDs.
 - V4 CI result: PASS for code commit `9837f4d08c9a51b4f32de2339d39d28350a13c4a` (unit tests, `.cs3` build, and repository validator): https://github.com/berr49300/cloudstream-film-repo/actions/runs/40195467117. The publish step was skipped for the open PR. Real site data and user-device video/subtitle/poster rendering remain NOT TESTED because the live site cannot be fetched from this environment; no access-control or DRM bypass is attempted.
+
+
+## 2026-10-26 — SelcukFlix multi-source fallback follow-up
+
+- Further defect: the player parser treated one candidate from the unverified `m.php` → `master.m3u8` transformation as sufficient and skipped the ordinary extractor registry. A candidate being emitted did not establish that it would play.
+- Follow-up: emit both the raw `m.php` endpoint and the derived playlist hypothesis; try CloudStream's registered extractor path for each iframe regardless of whether the site-specific parser emitted a candidate; keep duplicate-link filtering.
+- Added/updated sanitized parser tests for raw + derived candidates while preserving escaped query parameters.
+- Live device playback remains NOT TESTED; the derived playlist path remains HYPOTHESIS until tested.
