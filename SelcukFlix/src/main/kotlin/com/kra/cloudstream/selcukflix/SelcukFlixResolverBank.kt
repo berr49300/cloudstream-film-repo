@@ -256,6 +256,31 @@ internal object SelcukFlixResolverBank {
     }
 
     /**
+     * Return the observed player URL followed by a known DPlayer-to-Hotlinger alias
+     * where applicable. Keep path, raw query and fragment byte-for-byte so signatures
+     * are not double-encoded.
+     */
+    fun extractorFallbackUrls(rawUrl: String): List<String> {
+        val normalized = normalizeUrl(rawUrl, rawUrl) ?: return emptyList()
+        val uri = runCatching { URI(normalized) }.getOrNull() ?: return emptyList()
+        val candidates = linkedSetOf(normalized)
+        val aliasHost = when (uri.host.orEmpty().lowercase()) {
+            "sn.dplayer74.site", "sn.dplayer82.site", "sn.dplayer.site" -> "sn.hotlinger.com"
+            else -> null
+        }
+        if (aliasHost != null) {
+            val alternate = buildString {
+                append(uri.scheme).append("://").append(aliasHost)
+                append(uri.rawPath.orEmpty())
+                uri.rawQuery?.let { append('?').append(it) }
+                uri.rawFragment?.let { append('#').append(it) }
+            }
+            normalizeUrl(alternate, alternate)?.let(candidates::add)
+        }
+        return candidates.toList()
+    }
+
+    /**
      * Extract all source_content blocks from the decoded detail/episode payload.
      *
      * Pages can contain multiple movie parts and multiple episode alternatives. Keep
