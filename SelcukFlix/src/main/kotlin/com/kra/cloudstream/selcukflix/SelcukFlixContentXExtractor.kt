@@ -1,178 +1,319 @@
 package com.kra.cloudstream.selcukflix
 
 import android.util.Log
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import org.jsoup.Jsoup
+import java.net.URI
+import java.net.URLEncoder
+
+internal data class SelcukFlixPlayerToken(val value: String, val label: String)
+internal data class SelcukFlixMediaFile(val url: String, val track: String, val quality: String)
 
 /**
- * ContentX / Pichive / PlayRu / DPlayer ailesi oynatıcılar için alan adından bağımsız çözücü.
- * Örnek: https://<host>/iframe.php?v=<hash>
+ * Dedicated resolver for the Pichive/ContentX iframe flow used by SelcukFlix.
+ *
+ * The observed request sequence is:
+ *  1. GET iframe.php?v=... with Referer: https://selcukflix.app/
+ *  2. Read openPlayer(token)
+ *  3. GET source2.php?v=token with the iframe URL as Referer
+ *  4. Parse playlist[].sources[].file and prefer the corresponding master.m3u8 URL.
+ *
+ * It does not solve challenges or pretend an iframe page is a playable media link.
  */
 open class SelcukFlixContentXExtractor : ExtractorApi() {
-    override val name            = "SelcukFlix ContentX"
-    override val mainUrl         = "https://contentx.me"
+    override val name = "SelcukFlix Pichive"
+    override val mainUrl = "https://four.pichive.online"
     override val requiresReferer = true
 
     companion object {
-        fun canHandle(url: String): Boolean = SelcukFlixContentXSourceParser.canHandle(url)
-        fun uygunMu(url: String): Boolean = canHandle(url)
+        fun canHandle(url: String): Boolean = SelcukFlixPichiveParser.canHandle(url)
     }
 
+    private val mapper by lazy { jacksonObjectMapper() }
+    private val siteReferer = "https://selcukflix.app/"
     private val browserHeaders = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept" to "text/html,application/xhtml+xml,application/json, text/plain, */*",
         "Accept-Language" to "tr-TR,tr;q=0.9,en;q=0.8"
     )
 
-    override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val tamUrl  = if (url.startsWith("//")) "https:$url" else url
-        val base    = Regex("""^(https?://[^/]+)""").find(tamUrl)?.groupValues?.get(1) ?: return
-        val host    = base.substringAfter("://").substringAfter("four.").substringAfter("sn.").substringBefore(".")
-            .replaceFirstChar { it.uppercase() }
-        // Keep caller-supplied referer variants separate: ID 15 can test the episode page,
-        // while ID 33 can test the site-origin context.
-        val extRef  = referer ?: "https://selcukflix.app/"
-        val iframeHeaders = browserHeaders + ("Referer" to extRef)
-        val iSource = try {
-            app.get(tamUrl, headers = iframeHeaders, referer = extRef).text
-        } catch (_: Exception) {
-            Log.w("SelcukFlixContentX", "Player iframe request failed; URL omitted.")
-            return
-        }
-        if (SelcukFlixResolverBank.isAccessChallenge(iSource)) {
-            Log.w("SelcukFlixContentX", "Player iframe returned an access challenge; no bypass attempted.")
-            return
-        }
-
-        val subtitleTracks = SelcukFlixContentXSubtitleParser.parse(iSource, tamUrl)
-        subtitleTracks.forEach { track ->
-            val subtitleHost = runCatching { java.net.URI(track.url).host }.getOrNull().orEmpty()
-            Log.d("SelcukFlixSubtitle", "Altyazı adayı ayrıştırıldı: ${track.label} (${subtitleHost})")
-            subtitleCallback.invoke(
-                newSubtitleFile(track.label, track.url) {
-                    this.headers = browserHeaders + mapOf("Referer" to tamUrl)
-                }
-            )
-        }
-        if (subtitleTracks.isEmpty()) {
-            Log.d("SelcukFlixSubtitle", "Player sayfasında tanınan bir harici altyazı izi bulunamadı.")
-        }
-
-        val tokens = SelcukFlixContentXSourceParser.playerTokens(iSource)
-        if (tokens.isEmpty()) {
-            val directFiles = SelcukFlixContentXSourceParser.mediaFiles(iSource, tamUrl)
-            directFiles.flatMap { file ->
-                SelcukFlixContentXSourceParser.mediaFileCandidates(file, tamUrl, 7, 39)
-            }.distinctBy { it.resolverId to it.url }.forEach { candidate ->
-                callback.invoke(newExtractorLink(
-                    host,
-                    "${candidate.resolverId.toString().padStart(2, '0')} • ${SelcukFlixResolverBank.resolverName(candidate.resolverId)} • ${candidate.label}",
-                    candidate.url,
-                    linkType(candidate.url) ?: ExtractorLinkType.M3U8
-                ) {
-                    this.referer = tamUrl
-                    this.headers = browserHeaders + mapOf("Referer" to tamUrl)
-                    this.quality = Qualities.Unknown.value
-                })
-            }
-            if (directFiles.isEmpty()) {
-                android.util.Log.w("SelcukFlixContentX", "No openPlayer token or direct file was found in the ordinary player response.")
-            }
-            return
-        }
-
-        tokens.forEach { token ->
-            kaynakEkle(
-                base, token.token, tamUrl, "${host} • ${token.label}",
-                iframeHeaders, extRef, callback
-            )
-        }
-    }
-
-    private fun linkType(url: String): ExtractorLinkType? = when {
-        url.contains(".m3u8", true) -> ExtractorLinkType.M3U8
-        url.contains(".mpd", true) -> ExtractorLinkType.DASH
-        Regex("""(?i)\.(mp4|m4v|webm|mkv|avi|mov)(?:$|[?#])""").containsMatchIn(url) -> ExtractorLinkType.VIDEO
-        else -> null
-    }
-
-    private suspend fun kaynakEkle(
-        base: String,
-        token: String,
-        iframe: String,
-        name: String,
-        iframeHeaders: Map<String, String>,
-        contextReferer: String,
+    override suspend fun getUrl(
+        url: String,
+        referer: String?,
+        subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val apiUrl = "$base/source2.php?v=" + java.net.URLEncoder.encode(token, "UTF-8")
-        // In the observed Pichive flow, the iframe itself calls source2.php.
-        // Use the iframe URL as the API Referer; the parent page remains the navigation
-        // Referer for the iframe request. This matches independent SelcukFlix providers.
-        val sourceApiReferer = iframe
-        val apiHeaders = iframeHeaders + mapOf(
-            "Accept" to "application/json, text/plain, */*",
-            "X-Requested-With" to "XMLHttpRequest",
-            "Referer" to sourceApiReferer
-        )
-        val vidSource = try {
-            app.get(apiUrl, headers = apiHeaders, referer = sourceApiReferer).text
+        val iframeUrl = if (url.startsWith("//")) "https:$url" else url
+        val iframeHeaders = browserHeaders + ("Referer" to siteReferer)
+        val iframeHtml = try {
+            app.get(iframeUrl, headers = iframeHeaders, referer = siteReferer).text
         } catch (_: Exception) {
-            android.util.Log.w("SelcukFlixContentX", "$name source API request failed.")
+            Log.w(name, "Iframe request failed.")
             return
         }
-        if (SelcukFlixResolverBank.isAccessChallenge(vidSource)) {
-            android.util.Log.w("SelcukFlixContentX", "$name source API is blocked by an access challenge.")
+        if (SelcukFlixResolverBank.isAccessChallenge(iframeHtml)) {
+            Log.w(name, "Iframe returned an access challenge; no bypass attempted.")
             return
         }
-        val media = SelcukFlixContentXSourceParser.mediaFiles(vidSource, apiUrl)
-        if (media.isEmpty()) {
-            android.util.Log.w("SelcukFlixContentX", "$name source API returned no recognized media file.")
+
+        SelcukFlixPichiveParser.subtitles(iframeHtml, iframeUrl).forEach { track ->
+            subtitleCallback(newSubtitleFile(track.first, track.second) {
+                this.headers = browserHeaders + ("Referer" to iframeUrl)
+            })
         }
-        media.flatMap { file ->
-            SelcukFlixContentXSourceParser.mediaFileCandidates(file, apiUrl)
-        }.distinctBy { it.resolverId to it.url }.forEach { candidate ->
-            val mediaOrigin = runCatching {
-                java.net.URI(candidate.url).let { "${it.scheme}://${it.host}/" }
-            }.getOrNull()
-            val resolverName = SelcukFlixResolverBank.resolverName(candidate.resolverId)
-            val baseLabel = "${candidate.resolverId.toString().padStart(2, '0')} • $resolverName • $name • ${candidate.label}"
 
-            // The media URL is observed, but its required Referer/User-Agent varies by host.
-            // Offer combinations for the same URL instead of silently deduplicating them by URL.
-            val refererContexts = listOf(
-                "player" to iframe,
-                "site" to "https://selcukflix.app/",
-                "page" to contextReferer,
-                "media-origin" to (mediaOrigin ?: iframe)
-            ).distinctBy { it.second }
+        val tokens = SelcukFlixPichiveParser.playerTokens(iframeHtml)
+        if (tokens.isEmpty()) {
+            // Some versions expose the file directly in the ordinary iframe response.
+            val directRoot = runCatching { mapper.readTree(iframeHtml) }.getOrNull()
+            val files = directRoot?.let { SelcukFlixPichiveParser.files(it, iframeUrl) }.orEmpty()
+            files.forEach { emitMedia(it, iframeUrl, callback) }
+            if (files.isEmpty()) Log.w(name, "No openPlayer token or direct media field found.")
+            return
+        }
 
-            refererContexts.forEach { (contextLabel, contextUrl) ->
-                listOf(true, false).forEach { browserUserAgent ->
-                    val variantLabel = "$baseLabel • Referer=$contextLabel • " +
-                        if (browserUserAgent) "Chrome-UA" else "CloudStream-UA"
-                    val requestHeaders = if (browserUserAgent) {
-                        browserHeaders + mapOf("Referer" to contextUrl)
-                    } else {
-                        mapOf("Referer" to contextUrl)
+        val emitted = linkedSetOf<String>()
+        for (token in tokens) {
+            val apiUrl = buildSourceApiUrl(iframeUrl, token.value) ?: continue
+            val response = try {
+                app.get(
+                    apiUrl,
+                    headers = browserHeaders + mapOf(
+                        "Referer" to iframeUrl,
+                        "Accept" to "application/json, text/plain, */*",
+                        "X-Requested-With" to "XMLHttpRequest"
+                    ),
+                    referer = iframeUrl
+                ).text
+            } catch (_: Exception) {
+                Log.w(name, "source2.php request failed for a discovered player token.")
+                continue
+            }
+            if (SelcukFlixResolverBank.isAccessChallenge(response)) {
+                Log.w(name, "source2.php returned an access challenge; no bypass attempted.")
+                continue
+            }
+
+            val payload = responsePayload(response)
+            val root = runCatching { mapper.readTree(payload) }.getOrNull()
+            val files = root?.let { SelcukFlixPichiveParser.files(it, apiUrl) }.orEmpty()
+            files.forEach { file ->
+                val label = if (file.track.isBlank() || file.track.equals("Orijinal", true)) {
+                    token.label
+                } else file.track
+                val labelled = file.copy(track = label)
+                val candidates = SelcukFlixPichiveParser.mediaCandidates(labelled.url, apiUrl)
+                candidates.forEach { candidate ->
+                    val key = candidate.url + "|" + candidate.track + "|" + candidate.quality
+                    if (emitted.add(key)) {
+                        emitMedia(candidate, iframeUrl, callback)
                     }
-                    callback.invoke(
-                        newExtractorLink(
-                            source = variantLabel,
-                            name = variantLabel,
-                            url = candidate.url,
-                            type = linkType(candidate.url) ?: ExtractorLinkType.M3U8
-                        ) {
-                            this.referer = contextUrl
-                            this.headers = requestHeaders
-                            this.quality = Qualities.Unknown.value
-                        }
-                    )
                 }
             }
 
-            val mediaHost = runCatching { java.net.URI(candidate.url).host }.getOrNull().orEmpty()
-            Log.d("SelcukFlixContentX", "$baseLabel candidates emitted for $mediaHost across request-context variants.")
+            SelcukFlixPichiveParser.subtitles(payload, apiUrl).forEach { track ->
+                subtitleCallback(newSubtitleFile(track.first, track.second) {
+                    this.headers = browserHeaders + ("Referer" to iframeUrl)
+                })
+            }
+            if (files.isEmpty()) Log.w(name, "source2.php returned no recognized file field.")
         }
     }
+
+    private suspend fun responsePayload(response: String): String {
+        val root = runCatching { mapper.readTree(response) }.getOrNull()
+        val wrapped = root?.get("response")?.takeIf { it.isTextual }?.asText()
+        if (!wrapped.isNullOrBlank()) {
+            SelcukFlixResolverBank.decodeSitePayload(wrapped)?.let { return it }
+        }
+        return SelcukFlixResolverBank.decodeSitePayload(response) ?: response
+    }
+
+    private fun buildSourceApiUrl(iframeUrl: String, token: String): String? {
+        val uri = runCatching { URI(iframeUrl) }.getOrNull() ?: return null
+        val query = "v=" + URLEncoder.encode(token, "UTF-8")
+        return runCatching {
+            URI(uri.scheme, uri.authority, "/source2.php", query, null).toString()
+        }.getOrNull()
+    }
+
+    private fun emitMedia(
+        file: SelcukFlixMediaFile,
+        iframeUrl: String,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val normalized = SelcukFlixResolverBank.normalizeUrl(file.url, iframeUrl) ?: return
+        val path = runCatching { URI(normalized).path.orEmpty().lowercase() }.getOrDefault("")
+        val type = when {
+            path.endsWith(".mpd") -> ExtractorLinkType.DASH
+            path.endsWith(".mp4") || path.endsWith(".m4v") || path.endsWith(".webm") ||
+                path.endsWith(".mkv") || path.endsWith(".avi") || path.endsWith(".mov") -> ExtractorLinkType.VIDEO
+            else -> ExtractorLinkType.M3U8
+        }
+        val quality = when (file.quality.uppercase()) {
+            "4K", "2160P" -> Qualities.P2160.value
+            "1080P", "FHD" -> Qualities.P1080.value
+            "720P", "HD" -> Qualities.P720.value
+            "480P" -> Qualities.P480.value
+            "360P" -> Qualities.P360.value
+            else -> Qualities.Unknown.value
+        }
+        callback(
+            newExtractorLink(
+                source = name,
+                name = listOf(file.track, file.quality).filter { it.isNotBlank() }.joinToString(" • ")
+                    .ifBlank { "SelcukFlix kaynağı" },
+                url = normalized,
+                type = type
+            ) {
+                this.referer = iframeUrl
+                this.headers = browserHeaders + ("Referer" to iframeUrl)
+                this.quality = quality
+            }
+        )
+    }
+}
+
+internal object SelcukFlixPichiveParser {
+    private val mapper by lazy { jacksonObjectMapper() }
+
+    fun canHandle(url: String): Boolean = runCatching {
+        val uri = URI(url)
+        val host = uri.host.orEmpty().lowercase()
+        val path = uri.path.orEmpty().lowercase()
+        uri.scheme?.lowercase() in setOf("http", "https") &&
+            path.endsWith("/iframe.php") &&
+            uri.rawQuery.orEmpty().split("&").any {
+                java.net.URLDecoder.decode(it.substringBefore("="), "UTF-8").equals("v", true)
+            } &&
+            (host.contains("pichive") || host.contains("playru") || host.contains("contentx") || host.contains("dplayer82"))
+    }.getOrDefault(false)
+
+    fun playerTokens(html: String): List<SelcukFlixPlayerToken> {
+        if (html.isBlank() || SelcukFlixResolverBank.isAccessChallenge(html)) return emptyList()
+        val normalized = normalizeEscapes(html)
+        val found = linkedMapOf<String, SelcukFlixPlayerToken>()
+        Regex("""(?is)(?:window\s*\.\s*)?openPlayer\s*\(\s*['"]([^'"]+)['"]""")
+            .findAll(normalized).forEach { match ->
+                val token = match.groupValues[1].trim()
+                if (token.isNotBlank()) found.putIfAbsent(token, SelcukFlixPlayerToken(token, "Orijinal / Altyazılı"))
+            }
+        Regex("""(?is),\s*['"]([^'"]{8,})['"]\s*,\s*['"]Türkçe(?:\s+Dublaj)?['"]""")
+            .findAll(normalized).forEach { match ->
+                val token = match.groupValues[1].trim()
+                if (token.isNotBlank()) found[token] = SelcukFlixPlayerToken(token, "Türkçe Dublaj")
+            }
+        return found.values.toList()
+    }
+
+    fun files(root: JsonNode, baseUrl: String): List<SelcukFlixMediaFile> {
+        val found = linkedMapOf<String, SelcukFlixMediaFile>()
+
+        fun add(raw: String?, track: String?, quality: String?) {
+            if (raw.isNullOrBlank()) return
+            if (Regex("""(?i)\.(vtt|srt|ass|ssa|ttml)(?:$|[?#])""").containsMatchIn(raw)) return
+            val url = SelcukFlixResolverBank.normalizeUrl(raw, baseUrl) ?: return
+            val key = url + "|" + track.orEmpty() + "|" + quality.orEmpty()
+            found.putIfAbsent(
+                key,
+                SelcukFlixMediaFile(
+                    url = url,
+                    track = track.orEmpty().ifBlank { "Orijinal" },
+                    quality = quality.orEmpty().ifBlank { "HD" }
+                )
+            )
+        }
+
+        fun walk(node: JsonNode, inheritedTrack: String? = null) {
+            when {
+                node.isObject -> {
+                    val track = node.get("title")?.takeIf { it.isValueNode }?.asText()
+                        ?.takeIf { it.isNotBlank() } ?: inheritedTrack
+                    val sourceList = node.get("sources")
+                    if (sourceList?.isArray == true) {
+                        sourceList.forEach { source ->
+                            add(
+                                source.get("file")?.asText(),
+                                track,
+                                source.get("label")?.asText() ?: source.get("quality")?.asText()
+                            )
+                            walk(source, track)
+                        }
+                    } else {
+                        val file = node.get("file")
+                        if (file?.isTextual == true) {
+                            add(
+                                file.asText(),
+                                track,
+                                node.get("label")?.asText() ?: node.get("quality")?.asText()
+                            )
+                        }
+                        node.fields().forEachRemaining { entry ->
+                            if (entry.value.isContainerNode) walk(entry.value, track)
+                        }
+                    }
+                }
+                node.isArray -> node.forEach { walk(it, inheritedTrack) }
+            }
+        }
+        walk(root)
+        return found.values.toList()
+    }
+
+    fun mediaCandidates(rawUrl: String, baseUrl: String): List<SelcukFlixMediaFile> {
+        val url = SelcukFlixResolverBank.normalizeUrl(rawUrl, baseUrl) ?: return emptyList()
+        val output = mutableListOf<SelcukFlixMediaFile>()
+        val uri = runCatching { URI(url) }.getOrNull() ?: return emptyList()
+        val path = uri.rawPath.orEmpty()
+        val lower = path.lowercase()
+        val transformedPath = when {
+            lower.endsWith("/m.php") -> path.dropLast("m.php".length) + "master.m3u8"
+            lower.endsWith(".php") -> path.substringBeforeLast("/") + "/master.m3u8"
+            else -> null
+        }
+        if (transformedPath != null) {
+            val transformed = runCatching {
+                URI(uri.scheme, uri.authority, transformedPath, uri.rawQuery, uri.rawFragment).toString()
+            }.getOrNull()
+            if (!transformed.isNullOrBlank() && transformed != url) {
+                output += SelcukFlixMediaFile(transformed, "Master playlist", "HLS")
+            }
+        }
+        output += SelcukFlixMediaFile(url, "Raw file fallback", "HLS")
+        return output.distinctBy { it.url }
+    }
+
+    fun subtitles(text: String, baseUrl: String): List<Pair<String, String>> {
+        if (text.isBlank()) return emptyList()
+        val found = linkedMapOf<String, Pair<String, String>>()
+        val document = Jsoup.parse(normalizeEscapes(text), baseUrl)
+        document.select("track[src]").forEach { track ->
+            val url = SelcukFlixResolverBank.normalizeUrl(track.attr("src"), baseUrl) ?: return@forEach
+            val label = track.attr("label").ifBlank { track.attr("srclang") }.ifBlank { "Altyazı" }
+            if (isSubtitle(url)) found.putIfAbsent(url, label to url)
+        }
+        Regex(
+            """(?is)["']file["']\s*:\s*["']([^"']+\.(?:vtt|srt|ass|ssa)(?:\?[^"']*)?)["'][^{}]*["']label["']\s*:\s*["']([^"']*)["']"""
+        ).findAll(normalizeEscapes(text)).forEach { match ->
+            val url = SelcukFlixResolverBank.normalizeUrl(match.groupValues[1], baseUrl) ?: return@forEach
+            val label = match.groupValues[2].ifBlank { "Altyazı" }
+            found.putIfAbsent(url, label to url)
+        }
+        return found.values.toList()
+    }
+
+    private fun isSubtitle(url: String): Boolean =
+        Regex("""(?i)\.(vtt|srt|ass|ssa|ttml)(?:$|[?#])""").containsMatchIn(url)
+
+    private fun normalizeEscapes(value: String): String =
+        value.replace("\\\\\"", "\"")
+            .replace("\\\"", "\"")
+            .replace("\\\\/", "/")
+            .replace("\\/", "/")
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("\\u003d", "=", ignoreCase = true)
+            .replace("&amp;", "&", ignoreCase = true)
 }
