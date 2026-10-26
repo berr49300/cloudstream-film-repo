@@ -102,10 +102,10 @@
     },
     {
         "iconUrl": "https://www.google.com/s2/favicons?sz=128&domain=selcukflix.app",
-        "fileHash": "sha256-f1e2e008c3bad16a6277682c0feb834d8dfdf026a3dd9210033e4e58837a2e26",
+        "fileHash": "sha256-79c58705ed3a6f6245ab943d2f98196b2022708777292eb0a6c658e68854c957",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/berr49300/cloudstream-film-repo",
-        "fileSize": 120527,
+        "fileSize": 75428,
         "status": 3,
         "language": "tr",
         "authors": [
@@ -115,9 +115,9 @@
             "Movie",
             "TvSeries"
         ],
-        "version": 9,
+        "version": 13,
         "internalName": "SelcukFlix",
-        "description": "SelcukFlix v9: Pichive source API i\u00e7in iframe Referer d\u00fczeltmesi; yerle\u015fik extractor \u00f6nceli\u011fi",
+        "description": "SelcukFlix v13: sade Pichive \u00e7\u0131kar\u0131c\u0131s\u0131 ve ger\u00e7ek medya kaynaklar\u0131",
         "url": "https://raw.githubusercontent.com/berr49300/cloudstream-film-repo/builds/SelcukFlix.cs3",
         "name": "SelcukFlix"
     },
