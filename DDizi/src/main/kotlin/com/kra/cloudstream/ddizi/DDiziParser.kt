@@ -207,9 +207,10 @@ internal object DDiziParser {
         Regex("""^[A-Za-z0-9_-]{6,32}$""").matches(value)
 
     /**
-     * Keep quality options useful rather than flooding the picker: prefer the best
-     * available resolution up to 1080p, then expose a lower-quality fallback.
-     * Within the same resolution prefer H.264/AVC for broader decoder compatibility.
+     * Keep the source list small and make the first YouTube option less buffer-prone:
+     * prefer H.264 at 720p (or the best available resolution up to 720p), then retain
+     * the best <=1080p alternative. If no <=720p stream exists, prefer the best <=1080p.
+     * 1080p remains available when present; avoid flooding CloudStream with every format.
      */
     fun preferredYoutubeVariantIndices(
         candidates: List<Pair<String, Int>>,
@@ -224,8 +225,7 @@ internal object DDiziParser {
         val pool = if (atOrBelow1080.isNotEmpty()) {
             atOrBelow1080
         } else {
-            // There is no <=1080 stream; avoid selecting an even higher resolution
-            // when the extractor only returned high-resolution variants.
+            // If only higher resolutions are available, use the lowest available one.
             val minimum = valid.minOf { it.value.second }
             valid.filter { it.value.second == minimum }
         }
@@ -233,8 +233,14 @@ internal object DDiziParser {
         fun codecPriority(name: String): Int =
             if (name.contains("h264", true) || name.contains("avc", true)) 0 else 1
 
+        fun playbackPriority(quality: Int): Int = when {
+            quality <= 720 -> 0
+            else -> 1
+        }
+
         return pool.sortedWith(
-            compareByDescending<IndexedValue<Pair<String, Int>>> { it.value.second }
+            compareBy<IndexedValue<Pair<String, Int>>> { playbackPriority(it.value.second) }
+                .thenByDescending { it.value.second }
                 .thenBy { codecPriority(it.value.first) }
         ).distinctBy { it.value.second }
             .take(maxVariants)
