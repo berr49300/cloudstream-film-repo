@@ -1,9 +1,9 @@
-version = 8
+version = 9
 
 cloudstream {
     authors = listOf("berr49300")
     language = "tr"
-    description = "DDizi v8 kaynak tanılama, sezon sayfaları ve YouTube kalite yedeği"
+    description = "DDizi v9 hızlı kaynak çözümleme ve sınırlı yedek arama"
     status = 3
     tvTypes = listOf("TvSeries")
     iconUrl = "https://www.ddizi.tel/images/logo.png"
