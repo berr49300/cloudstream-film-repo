@@ -1,0 +1,33 @@
+name: Provider probe tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/provider_probe.py"
+      - "tools/tests/test_provider_probe.py"
+      - ".github/workflows/provider-probe-tests.yml"
+  push:
+    branches: ["main", "feature/provider-architecture-probe"]
+    paths:
+      - "tools/provider_probe.py"
+      - "tools/tests/test_provider_probe.py"
+      - ".github/workflows/provider-probe-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe-tests:
+    name: Test static provider diagnostics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile the diagnostic tool
+        run: python -m py_compile tools/provider_probe.py
+      - name: Run diagnostic regression tests
+        run: python -m unittest tools.tests.test_provider_probe -v
