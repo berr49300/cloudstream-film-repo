@@ -62,6 +62,12 @@ This confirms that at least these two player buttons are broken at the **site en
 The repository's discovery playbook and acceptance checklist already existed, but the initial DDizi v5 work did not produce a complete, evidence-backed DDizi profile before the release. This was a process miss. This profile now records the known routes and the concrete 404 checks; the unresolved player chain remains BLOCKED until a current working source family is evidenced.
 
 
+## v8 performance change — 2026-10-12
+
+- The source resolver previously could visit 12 candidates and continue scanning after both a YouTube source and a separate direct-media source had been emitted. This added page/extractor requests before the source picker returned, without improving the normal two-family fallback.
+- v8 reduces the traversal cap to 8 and stops early only after both YouTube and a separate HLS/Video/DASH option have been emitted. If either family is missing, it continues searching the bounded queue. This preserves fallback behavior while reducing unnecessary work in the common case.
+- This is a source-resolution/startup optimization, not a fix for bandwidth/CDN stalls after playback starts. Direct HLS URLs are still marked unprobed; the exact playback stall must be traced by host/path and HTTP status.
+
 ## v7 investigation — 2026-10-12
 
 - The live Teşkilat detail page currently lists 10 episodes per page (188–179 on the base route); pagination exposes historic pages, including a `/sayfa-0` route that duplicates the base page. See [live detail page](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle) and [page 1 link target](https://www.ddizi.tel/diziler/1856/teskilat-189-son-bolum-izle/sayfa-1).
